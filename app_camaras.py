@@ -1,199 +1,256 @@
 import streamlit as st
 import pandas as pd
-import os
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
 
-# Configuración de pantalla
-st.set_page_config(page_title="WMS Frigosa - Cámaras", page_icon="❄️", layout="wide")
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(
+    page_title="WMS Frigosa - Control de Cámaras",
+    page_icon="❄️",
+    layout="wide"
+)
 
-EXCEL_PATH = "POSICIONAMIENTO FISICO DE PRODUCTO CAMARAS FRIGOSA SAC 2025.xlsx"
+# --- CONEXIÓN A GOOGLE SHEETS ---
+@st.cache_resource
+def get_gspread_client():
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    return gspread.authorize(creds)
 
-# Listas desplegables estándar
-LISTA_PRODUCTOS = [
-    "ALETA FRESCA",
-    "ALETA CONGELADA",
-    "TRONCO",
-    "LOMO",
-    "FILETE",
-    "TENTÁCULOS",
-    "OTROS"
-]
+def get_sheet(sheet_name):
+    client = get_gspread_client()
+    sh = client.open("BD_Control_Camaras_Frigosa")
+    return sh.worksheet(sheet_name)
 
-LISTA_CALIBRES = [
-    "0-300",
-    "300-500",
-    "500-1000",
-    "1000-2000",
-    "2000+",
-    "ESTÁNDAR"
-]
+def cargar_datos(sheet_name):
+    ws = get_sheet(sheet_name)
+    data = ws.get_all_records()
+    return pd.DataFrame(data)
 
-# Cargar o inicializar datos asegurando tipo texto (object)
-def cargar_datos():
-    if not os.path.exists(EXCEL_PATH):
-        posiciones = []
-        # Cámara 01: 60 columnas
-        for i in list(range(1, 31)) + list(range(31, 61)):
-            for nivel in ['A', 'B', 'C']:
-                posiciones.append({
-                    'Posicion': f"{nivel}{i}-C1",
-                    'Camara': 'Camara 01',
-                    'Nivel': nivel,
-                    'Columna': i,
-                    'Estado': 'Libre',
-                    'Producto': '',
-                    'Calibre': '',
-                    'Sacos': 0,
-                    'Contenedor': ''
-                })
-        # Cámara 02: 17 columnas
-        for i in range(1, 18):
-            for nivel in ['A', 'B', 'C']:
-                posiciones.append({
-                    'Posicion': f"{nivel}{i}-C2",
-                    'Camara': 'Camara 02',
-                    'Nivel': nivel,
-                    'Columna': i,
-                    'Estado': 'Libre',
-                    'Producto': '',
-                    'Calibre': '',
-                    'Sacos': 0,
-                    'Contenedor': ''
-                })
-        df = pd.DataFrame(posiciones)
-        df.to_excel(EXCEL_PATH, sheet_name='Ubicaciones', index=False)
-        return df
-    else:
-        df_cargado = pd.read_excel(EXCEL_PATH, sheet_name='Ubicaciones')
-        # Limpieza forzada para evitar errores de float64
-        df_cargado['Producto'] = df_cargado['Producto'].fillna('').astype(str)
-        df_cargado['Calibre'] = df_cargado['Calibre'].fillna('').astype(str)
-        df_cargado['Contenedor'] = df_cargado['Contenedor'].fillna('').astype(str)
-        df_cargado['Estado'] = df_cargado['Estado'].fillna('Libre').astype(str)
-        df_cargado['Sacos'] = pd.to_numeric(df_cargado['Sacos'], errors='coerce').fillna(0).astype(int)
-        return df_cargado
+def registrar_log(tipo_mov, camara, posicion, codigo_palet, producto, cajas, usuario):
+    ws_log = get_sheet("Movimientos_Log")
+    fecha_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    nuevo_id = f"LOG-{datetime.now().strftime('%y%m%d%H%M%S')}"
+    ws_log.append_row([nuevo_id, fecha_hora, tipo_mov, camara, posicion, str(codigo_palet), producto, cajas, usuario])
 
-def guardar_datos(df):
-    df.to_excel(EXCEL_PATH, sheet_name='Ubicaciones', index=False)
+# --- GESTIÓN DE SESIÓN Y LOGIN ---
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user_info = None
 
-df = cargar_datos()
+def login_form():
+    st.markdown("<h2 style='text-align: center; color: #1E3D59;'>❄️ WMS Frigosa - Acceso al Sistema</h2>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        with st.form("login_form"):
+            usuario = st.text_input("Usuario").strip().lower()
+            pin = st.text_input("PIN / Clave", type="password").strip()
+            submit = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
+            
+            if submit:
+                try:
+                    df_users = cargar_datos("Usuarios")
+                    if df_users.empty:
+                        st.error("No hay usuarios configurados en la pestaña 'Usuarios' de Google Sheets.")
+                        return
+                    
+                    df_users["usuario"] = df_users["usuario"].astype(str).str.strip().str.lower()
+                    df_users["pin"] = df_users["pin"].astype(str).str.strip()
+                    df_users["estado"] = df_users["estado"].astype(str).str.strip().str.capitalize()
 
-# ----------------- BARRA SUPERIOR / FILTROS -----------------
+                    match = df_users[(df_users["usuario"] == usuario) & (df_users["pin"] == pin) & (df_users["estado"] == "Activo")]
+                    
+                    if not match.empty:
+                        user_data = match.iloc[0].to_dict()
+                        st.session_state.logged_in = True
+                        st.session_state.user_info = user_data
+                        st.rerun()
+                    else:
+                        st.error("Usuario o PIN incorrecto, o usuario inactivo.")
+                except Exception as e:
+                    st.error(f"Error al conectar con la base de datos: {e}")
+
+if not st.session_state.logged_in:
+    login_form()
+    st.stop()
+
+# --- DATOS DEL USUARIO AUTENTICADO ---
+user = st.session_state.user_info
+rol = user.get("rol", "Visualizador")
+nombre = user.get("nombre_completo", user.get("usuario"))
+
+# --- BARRA LATERAL ---
+with st.sidebar:
+    st.markdown(f"### 👤 Usuario: **{nombre}**")
+    st.markdown(f"**Rol:** `{rol}`")
+    st.markdown("---")
+    if st.button("🚪 Cerrar Sesión", use_container_width=True):
+        st.session_state.logged_in = False
+        st.session_state.user_info = None
+        st.rerun()
+
+# --- CARGA PRINCIPAL DE INVENTARIO ---
+try:
+    df_inv = cargar_datos("Inventario")
+except Exception as e:
+    st.error(f"Error cargando inventario: {e}")
+    st.stop()
+
 st.title("❄️ Control de Cámaras - Frigosa")
 
-camara_sel = st.selectbox("Seleccionar Cámara:", ["Camara 01", "Camara 02"])
-df_cam = df[df['Camara'] == camara_sel]
+# Selector de Cámara
+camaras_disponibles = ["Camara 01", "Camara 02", "Camara 03"]
+cam_sel = st.selectbox("Seleccionar Cámara:", camaras_disponibles)
 
-# Indicadores
-total_pos = len(df_cam)
-ocupadas = len(df_cam[df_cam['Estado'] == 'Ocupado'])
-libres = total_pos - ocupadas
-porc_ocupacion = int((ocupadas / total_pos) * 100) if total_pos > 0 else 0
+# Filtrar datos de la cámara actual
+df_cam = df_inv[df_inv["camara"] == cam_sel] if not df_inv.empty else pd.DataFrame()
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Ocupación", f"{porc_ocupacion}%")
-col2.metric("Ocupadas", ocupadas)
-col3.metric("Libres", libres)
+# Métricas
+total_posiciones = 180  # 20 columnas x 3 niveles (A, B, C) x 3 bloques aprox o estándar
+ocupadas = len(df_cam[df_cam["estado"] == "Ocupado"]) if not df_cam.empty and "estado" in df_cam.columns else 0
+libres = max(0, total_posiciones - ocupadas)
+pct_ocupacion = (ocupadas / total_posiciones) * 100 if total_posiciones > 0 else 0
 
-buscar_prod = st.text_input("🔍 Buscar Producto o Calibre (Resalta en amarillo):", "").strip().lower()
+m1, m2, m3 = st.columns(3)
+m1.metric("Ocupación", f"{pct_ocupacion:.1f}%")
+m2.metric("Ocupadas", ocupadas)
+m3.metric("Libres", libres)
 
-# ----------------- TABS PRINCIPALES -----------------
-tab_mapa, tab_ingreso, tab_salida, tab_stock = st.tabs(["🗺️ Layout Cámara", "📥 Ingreso Palet", "📤 Despacho / Embarque", "📊 Stock Total"])
+filtro_busqueda = st.text_input("🔍 Buscar Producto, Calibre o Lote (Resalta coincidencias):", "").strip().lower()
 
-# --- TAB 1: LAYOUT ---
-with tab_mapa:
-    st.subheader(f"Distribución Física: {camara_sel}")
-    st.caption("🟩 Verde = Libre | 🟥 Rojo = Ocupado | 🟨 Amarillo = Coincidencia")
-    
-    columnas_disponibles = sorted(df_cam['Columna'].unique())
-    niveles = ['C', 'B', 'A']
-    
-    tabla_visual = []
+# --- GESTIÓN DE PESTAÑAS SEGÚN ROL ---
+if rol in ["Administrador", "Operador de Cámara"]:
+    tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Layout Cámara", "📥 Ingreso Palet", "📤 Despacho / Embarque", "📊 Stock General"])
+else:
+    # Rol Visualizador / Auditor
+    tab1, tab4 = st.tabs(["🗺️ Layout Cámara", "📊 Stock General"])
+
+# --- TAB 1: LAYOUT VISUAL DE CÁMARA ---
+with tab1:
+    st.subheader(f"Distribución Física: {cam_sel}")
+    st.caption("🟢 Verde = Libre | 🔴 Rojo = Ocupado | 🟡 Amarillo = Coincidencia de búsqueda")
+
+    # Mapeo de posiciones ocupadas
+    ocupadas_map = {}
+    if not df_cam.empty and "posicion" in df_cam.columns:
+        for _, row in df_cam[df_cam["estado"] == "Ocupado"].iterrows():
+            ocupadas_map[str(row["posicion"]).strip().upper()] = row
+
+    niveles = ["C", "B", "A"]
+    cols_num = 20
+    cam_id_num = cam_sel.split()[-1].replace("0", "")
+
     for niv in niveles:
-        fila = {'Nivel': f"Nivel {niv}"}
-        for col in columnas_disponibles:
-            pos_id = f"{niv}{col}-C{'1' if camara_sel == 'Camara 01' else '2'}"
-            item = df_cam[df_cam['Posicion'] == pos_id]
-            
-            if not item.empty:
-                estado = item.iloc[0]['Estado']
-                prod = str(item.iloc[0]['Producto'])
-                cal = str(item.iloc[0]['Calibre'])
-                sacos = item.iloc[0]['Sacos']
-                
-                es_busqueda = buscar_prod != "" and (buscar_prod in prod.lower() or buscar_prod in cal.lower())
-                
-                if es_busqueda:
-                    icono = f"🟨 [{pos_id}] {prod[:6]} ({sacos})"
-                elif estado == "Ocupado":
-                    icono = f"🟥 [{pos_id}] {prod[:6]} ({sacos})"
+        cols_ui = st.columns([1] + [1] * cols_num)
+        cols_ui[0].markdown(f"**Nivel {niv}**")
+        for col_idx in range(1, cols_num + 1):
+            pos_label = f"{niv}{col_idx}-C{cam_id_num}"
+            btn_color = "🟢"
+            hover_text = f"Pos: {pos_label} (Libre)"
+
+            if pos_label in ocupadas_map:
+                item = ocupadas_map[pos_label]
+                prod = str(item.get("producto", ""))
+                cal = str(item.get("calibre", ""))
+                palet = str(item.get("codigo_palet", ""))
+                cajas = item.get("cajas", "")
+
+                hover_text = f"Palet: {palet} | {prod} ({cal}) | Cajas: {cajas}"
+
+                if filtro_busqueda and (filtro_busqueda in prod.lower() or filtro_busqueda in cal.lower() or filtro_busqueda in palet.lower()):
+                    btn_color = "🟡"
                 else:
-                    icono = f"🟩 [{pos_id}]"
-                fila[f"Col {col}"] = icono
-            else:
-                fila[f"Col {col}"] = "⬜"
-        tabla_visual.append(fila)
-        
-    df_layout = pd.DataFrame(tabla_visual).set_index('Nivel')
-    st.dataframe(df_layout, width='stretch')
+                    btn_color = "🔴"
+
+            cols_ui[col_idx].button(f"{btn_color}", key=f"btn_{cam_sel}_{pos_label}", help=hover_text)
 
 # --- TAB 2: INGRESO DE PALET ---
-with tab_ingreso:
-    st.subheader(f"📥 Registro de Ingreso - {camara_sel}")
-    with st.form("form_ingreso"):
-        # Muestra solo las posiciones libres de la cámara seleccionada arriba
-        pos_libres = df_cam[df_cam['Estado'] == 'Libre']['Posicion'].tolist()
-        pos_destino = st.selectbox("Posición Destino (Solo Libres):", pos_libres if pos_libres else ["Sin posiciones libres"])
-        
-        # Desplegables directos
-        producto = st.selectbox("Producto:", LISTA_PRODUCTOS)
-        calibre = st.selectbox("Calibre:", LISTA_CALIBRES)
-        sacos = st.number_input("Cantidad de Sacos / Cajas:", min_value=1, value=50, step=1)
-        
-        btn_guardar = st.form_submit_button("✅ Guardar Ingreso")
-        
-        if btn_guardar:
-            if pos_destino and pos_destino != "Sin posiciones libres":
-                idx = df[df['Posicion'] == pos_destino].index[0]
-                df.at[idx, 'Estado'] = 'Ocupado'
-                df.at[idx, 'Producto'] = str(producto)
-                df.at[idx, 'Calibre'] = str(calibre)
-                df.at[idx, 'Sacos'] = int(sacos)
-                guardar_datos(df)
-                st.success(f"Palet ingresado con éxito en {pos_destino}")
-                st.rerun()
-            else:
-                st.error("No hay posiciones libres disponibles en esta cámara.")
-
-# --- TAB 3: DESPACHO ---
-with tab_salida:
-    st.subheader(f"📤 Registrar Salida - {camara_sel}")
-    pos_ocupadas = df_cam[df_cam['Estado'] == 'Ocupado']['Posicion'].tolist()
-    
-    if not pos_ocupadas:
-        st.info(f"No hay posiciones ocupadas en {camara_sel}.")
-    else:
-        with st.form("form_despacho"):
-            pos_a_liberar = st.selectbox("Seleccionar Posición a Retirar:", pos_ocupadas)
-            nro_contenedor = st.text_input("Nº de Contenedor / Booking:", placeholder="Ej. MEDU123456-7")
-            btn_despachar = st.form_submit_button("🚚 Confirmar Embarque y Liberar Posición")
+if rol in ["Administrador", "Operador de Cámara"]:
+    with tab2:
+        st.subheader("Registrar Nuevo Ingreso a Cámara")
+        with st.form("form_ingreso", clear_on_submit=True):
+            ci1, ci2 = st.columns(2)
+            with ci1:
+                in_camara = st.selectbox("Cámara de Destino", camaras_disponibles)
+                in_posicion = st.text_input("Código de Posición (Ej: A1-C1, B5-C2)").strip().upper()
+                in_codigo_palet = st.text_input("Código de Palet / Lote").strip()
+                in_producto = st.text_input("Descripción del Producto").strip()
+            with ci2:
+                in_calibre = st.text_input("Calibre / Especificación").strip()
+                in_cajas = st.number_input("Cantidad de Cajas / Sacos", min_value=1, step=1, value=40)
+                in_peso = st.number_input("Peso Total (kg)", min_value=0.0, step=0.5, value=1000.0)
             
-            if btn_despachar:
-                idx = df[df['Posicion'] == pos_a_liberar].index[0]
-                prod_retirado = df.at[idx, 'Producto']
-                df.at[idx, 'Estado'] = 'Libre'
-                df.at[idx, 'Producto'] = ''
-                df.at[idx, 'Calibre'] = ''
-                df.at[idx, 'Sacos'] = 0
-                guardar_datos(df)
-                st.success(f"Posición {pos_a_liberar} liberada ({prod_retirado} enviado al contenedor {nro_contenedor}).")
-                st.rerun()
+            btn_guardar_ingreso = st.form_submit_button("📥 Confirmar Ingreso y Guardar en Nube", use_container_width=True)
 
-# --- TAB 4: STOCK TOTAL ---
-with tab_stock:
-    st.subheader("📊 Inventario General de Cámaras")
-    df_stock = df[df['Estado'] == 'Ocupado'][['Camara', 'Posicion', 'Producto', 'Calibre', 'Sacos']]
-    if not df_stock.empty:
-        st.dataframe(df_stock, width='stretch')
-        st.metric("Total Sacos Almacenados (Todas las cámaras)", int(df_stock['Sacos'].sum()))
+            if btn_guardar_ingreso:
+                if not in_posicion or not in_codigo_palet or not in_producto:
+                    st.error("Completa la posición, código de palet y producto para guardar.")
+                else:
+                    ws_inv = get_sheet("Inventario")
+                    fecha_hoy = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    # Agregar fila en Google Sheets
+                    ws_inv.append_row([
+                        in_camara, in_posicion, in_codigo_palet, in_producto,
+                        in_calibre, in_cajas, in_peso, fecha_hoy, nombre, "Ocupado"
+                    ])
+                    registrar_log("INGRESO", in_camara, in_posicion, in_codigo_palet, in_producto, in_cajas, nombre)
+                    st.success(f"Palet {in_codigo_palet} registrado con éxito en {in_posicion}.")
+                    st.rerun()
+
+# --- TAB 3: DESPACHO / EMBARQUE ---
+if rol in ["Administrador", "Operador de Cámara"]:
+    with tab3:
+        st.subheader("Despacho / Salida de Palet")
+        if df_inv.empty or len(df_inv[df_inv["estado"] == "Ocupado"]) == 0:
+            st.info("No hay palets registrados en inventario para despachar.")
+        else:
+            df_ocupados = df_inv[df_inv["estado"] == "Ocupado"]
+            opciones_despacho = [
+                f"{row['codigo_palet']} | {row['camara']} - Pos: {row['posicion']} | {row['producto']} ({row['cajas']} cjs)"
+                for _, row in df_ocupados.iterrows()
+            ]
+            seleccion = st.selectbox("Seleccione el Palet a Despachar:", opciones_despacho)
+
+            if st.button("📤 Procesar Salida / Despacho", use_container_width=True):
+                palet_sel = seleccion.split(" | ")[0].strip()
+                ws_inv = get_sheet("Inventario")
+                celda = ws_inv.find(palet_sel)
+                
+                if celda:
+                    fila_num = celda.row
+                    # Obtener valores para el log antes de actualizar o marcar libre
+                    valores_fila = ws_inv.row_values(fila_num)
+                    cam = valores_fila[0] if len(valores_fila) > 0 else ""
+                    pos = valores_fila[1] if len(valores_fila) > 1 else ""
+                    prod = valores_fila[3] if len(valores_fila) > 3 else ""
+                    cjs = valores_fila[5] if len(valores_fila) > 5 else 0
+
+                    # Opción estándar: actualizar estado a 'Despachado' o eliminar fila
+                    ws_inv.update_cell(fila_num, 10, "Despachado") # Columna estado
+                    registrar_log("DESPACHO", cam, pos, palet_sel, prod, cjs, nombre)
+                    st.success(f"Palet {palet_sel} despachado correctamente.")
+                    st.rerun()
+                else:
+                    st.error("No se encontró el registro en la hoja de cálculo.")
+
+# --- TAB 4: STOCK GENERAL Y REPORTES ---
+with tab4:
+    st.subheader("Reporte General de Stock en Cámaras")
+    if not df_inv.empty:
+        df_stock = df_inv[df_inv["estado"] == "Ocupado"]
+        st.dataframe(df_stock, use_container_width=True)
+
+        if rol == "Administrador":
+            st.download_button(
+                label="📥 Descargar Reporte Completo a CSV",
+                data=df_stock.to_csv(index=False).encode("utf-8"),
+                file_name=f"Reporte_Camaras_Frigosa_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
     else:
-        st.write("No hay stock registrado actualmente.")
+        st.info("Sin registros cargados.")
