@@ -11,10 +11,35 @@ st.set_page_config(
     layout="wide"
 )
 
-# ID directo de tu Google Sheets
+# ID directo de Google Sheets
 SPREADSHEET_ID = "1Yi5OwKDnidykEFG7d2xSEjBCwl2nYFKOU7ZX86nlroU"
 
-# --- CONEXIÓN DIRECTA Y ROBUSTA A GOOGLE SHEETS ---
+# Listas maestras para selección rápida
+LISTA_PRODUCTOS = [
+    "Aleta Fresca",
+    "Tubo de Pota",
+    "Tentáculo / Rejo",
+    "Pota Entera",
+    "Filete de Pota",
+    "Anillas / Rabas",
+    "Aleta Congelada",
+    "Bloque de Pota",
+    "Otro (Escribir)"
+]
+
+LISTA_CALIBRES = [
+    "0-300 gr",
+    "300-500 gr",
+    "500-1000 gr",
+    "1000 UP",
+    "1000-2000 gr",
+    "2000-3000 gr",
+    "3000 UP",
+    "S/C (Sin Calibre)",
+    "Otro (Escribir)"
+]
+
+# --- CONEXIÓN A GOOGLE SHEETS ---
 @st.cache_resource
 def get_gspread_client():
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -147,12 +172,13 @@ else:
 # --- TAB 1: LAYOUT VISUAL DE CÁMARA ---
 with tab1:
     st.subheader(f"Distribución Física: {cam_sel}")
-    st.caption("🟢 Verde = Libre | 🔴 Rojo = Ocupado | 🟡 Amarillo = Coincidencia de búsqueda")
+    st.caption("🟩 Verde = Libre | 🟥 Rojo = Ocupado | 🟨 Amarillo = Coincidencia de búsqueda")
 
     ocupadas_map = {}
     if not df_cam.empty and "posicion" in df_cam.columns and "estado" in df_cam.columns:
         for _, row in df_cam[df_cam["estado"].str.strip().str.capitalize() == "Ocupado"].iterrows():
-            ocupadas_map[str(row["posicion"]).strip().upper()] = row
+            pos_key = str(row["posicion"]).strip().upper()
+            ocupadas_map[pos_key] = row
 
     niveles = ["C", "B", "A"]
     cols_num = 20
@@ -163,24 +189,25 @@ with tab1:
         cols_ui[0].markdown(f"**Nivel {niv}**")
         for col_idx in range(1, cols_num + 1):
             pos_label = f"{niv}{col_idx}-C{cam_id_num}"
-            btn_color = "🟢"
-            hover_text = f"Pos: {pos_label} (Libre)"
-
+            
             if pos_label in ocupadas_map:
                 item = ocupadas_map[pos_label]
-                prod = str(item.get("producto", ""))
-                cal = str(item.get("calibre", ""))
-                palet = str(item.get("codigo_palet", ""))
+                prod = str(item.get("producto", "")).strip().upper()
+                cal = str(item.get("calibre", "")).strip()
+                palet = str(item.get("codigo_palet", "")).strip()
                 cajas = item.get("cajas", "")
 
-                hover_text = f"Palet: {palet} | {prod} ({cal}) | Cajas: {cajas}"
+                # Etiqueta con Código de Posición + Producto
+                btn_label = f"🟥 [{pos_label}]\n{prod}"
+                hover_text = f"📍 Posición: {pos_label}\n📦 Palet: {palet}\n🐟 Producto: {prod} ({cal})\n📊 Cajas: {cajas}"
 
                 if filtro_busqueda and (filtro_busqueda in prod.lower() or filtro_busqueda in cal.lower() or filtro_busqueda in palet.lower()):
-                    btn_color = "🟡"
-                else:
-                    btn_color = "🔴"
+                    btn_label = f"🟨 [{pos_label}]\n{prod}"
+            else:
+                btn_label = f"🟩 [{pos_label}]"
+                hover_text = f"Posición: {pos_label} (Libre)"
 
-            cols_ui[col_idx].button(f"{btn_color}", key=f"btn_{cam_sel}_{pos_label}", help=hover_text)
+            cols_ui[col_idx].button(btn_label, key=f"btn_{cam_sel}_{pos_label}", help=hover_text)
 
 # --- TAB 2: INGRESO DE PALET ---
 if rol in ["Administrador", "Operador de Cámara"]:
@@ -190,15 +217,41 @@ if rol in ["Administrador", "Operador de Cámara"]:
             ci1, ci2 = st.columns(2)
             with ci1:
                 in_camara = st.selectbox("Cámara de Destino", camaras_disponibles)
-                in_posicion = st.text_input("Código de Posición (Ej: A1-C1, B5-C2)").strip().upper()
-                in_codigo_palet = st.text_input("Código de Palet / Lote").strip()
-                in_producto = st.text_input("Descripción del Producto").strip()
+                
+                # Selector de Posición Asistido
+                col_pos1, col_pos2 = st.columns(2)
+                with col_pos1:
+                    nivel_sel = st.selectbox("Nivel", ["Nivel A (Piso)", "Nivel B (Medio)", "Nivel C (Alto)"])
+                with col_pos2:
+                    columna_sel = st.selectbox("Columna", [f"Col {i}" for i in range(1, 21)])
+                
+                n_letra = nivel_sel.split()[1]
+                c_num = columna_sel.split()[1]
+                cam_n = in_camara.split()[-1].replace("0", "")
+                pos_calculada = f"{n_letra}{c_num}-C{cam_n}"
+                
+                in_posicion = st.text_input("Código de Posición Asignado:", value=pos_calculada)
+                in_codigo_palet = st.text_input("Código de Palet / Lote (Ej: PAL-2026-001)").strip()
+
             with ci2:
-                in_calibre = st.text_input("Calibre / Especificación").strip()
+                # Lista desplegable de Productos
+                prod_sel = st.selectbox("Producto:", LISTA_PRODUCTOS)
+                if prod_sel == "Otro (Escribir)":
+                    in_producto = st.text_input("Especifique el Producto:").strip()
+                else:
+                    in_producto = prod_sel
+
+                # Lista desplegable de Calibres
+                cal_sel = st.selectbox("Calibre / Especificación:", LISTA_CALIBRES)
+                if cal_sel == "Otro (Escribir)":
+                    in_calibre = st.text_input("Especifique el Calibre:").strip()
+                else:
+                    in_calibre = cal_sel
+
                 in_cajas = st.number_input("Cantidad de Cajas / Sacos", min_value=1, step=1, value=40)
                 in_peso = st.number_input("Peso Total (kg)", min_value=0.0, step=0.5, value=1000.0)
             
-            btn_guardar_ingreso = st.form_submit_button("📥 Confirmar Ingreso y Guardar en Nube", use_container_width=True)
+            btn_guardar_ingreso = st.form_submit_button("📥 Confirmar Ingreso y Guardar en Google Sheets", use_container_width=True)
 
             if btn_guardar_ingreso:
                 if not in_posicion or not in_codigo_palet or not in_producto:
@@ -223,7 +276,7 @@ if rol in ["Administrador", "Operador de Cámara"]:
         else:
             df_ocupados = df_inv[df_inv["estado"].str.strip().str.capitalize() == "Ocupado"]
             opciones_despacho = [
-                f"{row['codigo_palet']} | {row['camara']} - Pos: {row['posicion']} | {row['producto']} ({row['cajas']} cjs)"
+                f"{row['codigo_palet']} | {row['camara']} - Pos: {row['posicion']} | {row['producto']} ({row.get('calibre', '')}) - {row['cajas']} cjs"
                 for _, row in df_ocupados.iterrows()
             ]
             seleccion = st.selectbox("Seleccione el Palet a Despachar:", opciones_despacho)
