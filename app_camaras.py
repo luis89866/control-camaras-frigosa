@@ -11,7 +11,10 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- CONEXIÓN OFICIAL A GOOGLE SHEETS ---
+# ID directo de tu Google Sheets
+SPREADSHEET_ID = "1Yi5OwKDnidykEFG7d2xSEjBCwl2nYFKOU7ZX86nlroU"
+
+# --- CONEXIÓN DIRECTA Y ROBUSTA A GOOGLE SHEETS ---
 @st.cache_resource
 def get_gspread_client():
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -24,19 +27,28 @@ def get_gspread_client():
 
 def get_sheet(sheet_name):
     client = get_gspread_client()
-    sh = client.open("BD_Control_Camaras_Frigosa")
+    sh = client.open_by_key(SPREADSHEET_ID)
     return sh.worksheet(sheet_name)
 
 def cargar_datos(sheet_name):
     ws = get_sheet(sheet_name)
-    data = ws.get_all_records()
-    return pd.DataFrame(data)
+    rows = ws.get_all_values()
+    if len(rows) > 1:
+        headers = [str(h).strip() for h in rows[0]]
+        data = rows[1:]
+        return pd.DataFrame(data, columns=headers)
+    elif len(rows) == 1:
+        return pd.DataFrame(columns=[str(h).strip() for h in rows[0]])
+    return pd.DataFrame()
 
 def registrar_log(tipo_mov, camara, posicion, codigo_palet, producto, cajas, usuario):
-    ws_log = get_sheet("Movimientos_Log")
-    fecha_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    nuevo_id = f"LOG-{datetime.now().strftime('%y%m%d%H%M%S')}"
-    ws_log.append_row([nuevo_id, fecha_hora, tipo_mov, camara, posicion, str(codigo_palet), producto, cajas, usuario])
+    try:
+        ws_log = get_sheet("Movimientos_Log")
+        fecha_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        nuevo_id = f"LOG-{datetime.now().strftime('%y%m%d%H%M%S')}"
+        ws_log.append_row([nuevo_id, fecha_hora, tipo_mov, camara, posicion, str(codigo_palet), str(producto), str(cajas), str(usuario)])
+    except Exception as e:
+        st.warning(f"No se pudo registrar log: {e}")
 
 # --- GESTIÓN DE SESIÓN Y LOGIN ---
 if "logged_in" not in st.session_state:
@@ -53,10 +65,13 @@ def login_form():
             submit = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
             
             if submit:
+                if not usuario or not pin:
+                    st.warning("Por favor ingresa usuario y PIN.")
+                    return
                 try:
                     df_users = cargar_datos("Usuarios")
                     if df_users.empty:
-                        st.error("No hay usuarios configurados en la pestaña 'Usuarios' de Google Sheets.")
+                        st.error("No se encontraron registros en la tabla de Usuarios.")
                         return
                     
                     df_users["usuario"] = df_users["usuario"].astype(str).str.strip().str.lower()
@@ -73,7 +88,7 @@ def login_form():
                     else:
                         st.error("Usuario o PIN incorrecto, o usuario inactivo.")
                 except Exception as e:
-                    st.error(f"Error al conectar con la base de datos: {e}")
+                    st.error(f"Error de conexión: {e}")
 
 if not st.session_state.logged_in:
     login_form()
@@ -108,11 +123,11 @@ camaras_disponibles = ["Camara 01", "Camara 02", "Camara 03"]
 cam_sel = st.selectbox("Seleccionar Cámara:", camaras_disponibles)
 
 # Filtrar datos de la cámara actual
-df_cam = df_inv[df_inv["camara"] == cam_sel] if not df_inv.empty else pd.DataFrame()
+df_cam = df_inv[df_inv["camara"] == cam_sel] if not df_inv.empty and "camara" in df_inv.columns else pd.DataFrame()
 
 # Métricas
-total_posiciones = 180  # 20 columnas x 3 niveles (A, B, C) x 3 bloques aprox o estándar
-ocupadas = len(df_cam[df_cam["estado"] == "Ocupado"]) if not df_cam.empty and "estado" in df_cam.columns else 0
+total_posiciones = 180
+ocupadas = len(df_cam[df_cam["estado"].str.strip().str.capitalize() == "Ocupado"]) if not df_cam.empty and "estado" in df_cam.columns else 0
 libres = max(0, total_posiciones - ocupadas)
 pct_ocupacion = (ocupadas / total_posiciones) * 100 if total_posiciones > 0 else 0
 
@@ -127,7 +142,6 @@ filtro_busqueda = st.text_input("🔍 Buscar Producto, Calibre o Lote (Resalta c
 if rol in ["Administrador", "Operador de Cámara"]:
     tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Layout Cámara", "📥 Ingreso Palet", "📤 Despacho / Embarque", "📊 Stock General"])
 else:
-    # Rol Visualizador / Auditor
     tab1, tab4 = st.tabs(["🗺️ Layout Cámara", "📊 Stock General"])
 
 # --- TAB 1: LAYOUT VISUAL DE CÁMARA ---
@@ -135,10 +149,9 @@ with tab1:
     st.subheader(f"Distribución Física: {cam_sel}")
     st.caption("🟢 Verde = Libre | 🔴 Rojo = Ocupado | 🟡 Amarillo = Coincidencia de búsqueda")
 
-    # Mapeo de posiciones ocupadas
     ocupadas_map = {}
-    if not df_cam.empty and "posicion" in df_cam.columns:
-        for _, row in df_cam[df_cam["estado"] == "Ocupado"].iterrows():
+    if not df_cam.empty and "posicion" in df_cam.columns and "estado" in df_cam.columns:
+        for _, row in df_cam[df_cam["estado"].str.strip().str.capitalize() == "Ocupado"].iterrows():
             ocupadas_map[str(row["posicion"]).strip().upper()] = row
 
     niveles = ["C", "B", "A"]
@@ -193,10 +206,9 @@ if rol in ["Administrador", "Operador de Cámara"]:
                 else:
                     ws_inv = get_sheet("Inventario")
                     fecha_hoy = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    # Agregar fila en Google Sheets
                     ws_inv.append_row([
-                        in_camara, in_posicion, in_codigo_palet, in_producto,
-                        in_calibre, in_cajas, in_peso, fecha_hoy, nombre, "Ocupado"
+                        in_camara, in_posicion, str(in_codigo_palet), in_producto,
+                        in_calibre, str(in_cajas), str(in_peso), fecha_hoy, nombre, "Ocupado"
                     ])
                     registrar_log("INGRESO", in_camara, in_posicion, in_codigo_palet, in_producto, in_cajas, nombre)
                     st.success(f"Palet {in_codigo_palet} registrado con éxito en {in_posicion}.")
@@ -206,10 +218,10 @@ if rol in ["Administrador", "Operador de Cámara"]:
 if rol in ["Administrador", "Operador de Cámara"]:
     with tab3:
         st.subheader("Despacho / Salida de Palet")
-        if df_inv.empty or len(df_inv[df_inv["estado"] == "Ocupado"]) == 0:
+        if df_inv.empty or len(df_inv[df_inv["estado"].str.strip().str.capitalize() == "Ocupado"]) == 0:
             st.info("No hay palets registrados en inventario para despachar.")
         else:
-            df_ocupados = df_inv[df_inv["estado"] == "Ocupado"]
+            df_ocupados = df_inv[df_inv["estado"].str.strip().str.capitalize() == "Ocupado"]
             opciones_despacho = [
                 f"{row['codigo_palet']} | {row['camara']} - Pos: {row['posicion']} | {row['producto']} ({row['cajas']} cjs)"
                 for _, row in df_ocupados.iterrows()
@@ -223,15 +235,13 @@ if rol in ["Administrador", "Operador de Cámara"]:
                 
                 if celda:
                     fila_num = celda.row
-                    # Obtener valores para el log antes de actualizar o marcar libre
                     valores_fila = ws_inv.row_values(fila_num)
                     cam = valores_fila[0] if len(valores_fila) > 0 else ""
                     pos = valores_fila[1] if len(valores_fila) > 1 else ""
                     prod = valores_fila[3] if len(valores_fila) > 3 else ""
                     cjs = valores_fila[5] if len(valores_fila) > 5 else 0
 
-                    # Opción estándar: actualizar estado a 'Despachado' o eliminar fila
-                    ws_inv.update_cell(fila_num, 10, "Despachado") # Columna estado
+                    ws_inv.update_cell(fila_num, 10, "Despachado")
                     registrar_log("DESPACHO", cam, pos, palet_sel, prod, cjs, nombre)
                     st.success(f"Palet {palet_sel} despachado correctamente.")
                     st.rerun()
@@ -242,10 +252,10 @@ if rol in ["Administrador", "Operador de Cámara"]:
 with tab4:
     st.subheader("Reporte General de Stock en Cámaras")
     if not df_inv.empty:
-        df_stock = df_inv[df_inv["estado"] == "Ocupado"]
+        df_stock = df_inv[df_inv["estado"].str.strip().str.capitalize() == "Ocupado"]
         st.dataframe(df_stock, use_container_width=True)
 
-        if rol == "Administrador":
+        if rol in ["Administrador", "Jefatura Auditoría"]:
             st.download_button(
                 label="📥 Descargar Reporte Completo a CSV",
                 data=df_stock.to_csv(index=False).encode("utf-8"),
