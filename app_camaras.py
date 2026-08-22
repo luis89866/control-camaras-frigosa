@@ -77,11 +77,6 @@ def registrar_log(tipo_mov, camara, posicion, codigo_palet, producto, cajas, usu
 
 # --- CÁLCULO DE HORAS EXTRAS SEGÚN REGLA RR.HH. ---
 def calcular_horas_extras(hora_salida_dt, modo_turno):
-    """
-    Evalúa la salida según la jornada:
-    - Sin Producción: Límite 18:00 (6:00 PM)
-    - Con Producción: Límite 20:00 (8:00 PM) -> 1h pagada, excedente a compensación
-    """
     fmt = "%H:%M"
     hora_str = hora_salida_dt.strftime(fmt)
     h_salida = datetime.strptime(hora_str, fmt)
@@ -120,12 +115,13 @@ def login_form():
     with col2:
         with st.form("login_form"):
             usuario = st.text_input("Usuario").strip().lower()
-            pin = st.text_input("PIN / Clave", type="password").strip()
+            # Ahora usa codigo_personal en vez de pin
+            codigo_ingresado = st.text_input("Código de Personal / Clave", type="password").strip()
             submit = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
             
             if submit:
-                if not usuario or not pin:
-                    st.warning("Por favor ingresa usuario y PIN.")
+                if not usuario or not codigo_ingresado:
+                    st.warning("Por favor ingresa usuario y código de personal.")
                     return
                 try:
                     df_users = cargar_datos("Usuarios")
@@ -134,10 +130,10 @@ def login_form():
                         return
                     
                     df_users["usuario"] = df_users["usuario"].astype(str).str.strip().str.lower()
-                    df_users["pin"] = df_users["pin"].astype(str).str.strip()
+                    df_users["codigo_personal"] = df_users["codigo_personal"].astype(str).str.strip()
                     df_users["estado"] = df_users["estado"].astype(str).str.strip().str.capitalize()
 
-                    match = df_users[(df_users["usuario"] == usuario) & (df_users["pin"] == pin) & (df_users["estado"] == "Activo")]
+                    match = df_users[(df_users["usuario"] == usuario) & (df_users["codigo_personal"] == codigo_ingresado) & (df_users["estado"] == "Activo")]
                     
                     if not match.empty:
                         user_data = match.iloc[0].to_dict()
@@ -145,7 +141,7 @@ def login_form():
                         st.session_state.user_info = user_data
                         st.rerun()
                     else:
-                        st.error("Usuario o PIN incorrecto, o usuario inactivo.")
+                        st.error("Usuario o Código incorrecto, o usuario inactivo.")
                 except Exception as e:
                     st.error(f"Error de conexión: {e}")
 
@@ -157,7 +153,7 @@ if not st.session_state.logged_in:
 user = st.session_state.user_info
 rol = user.get("rol", "Visualizador")
 nombre = user.get("nombre_completo", user.get("usuario"))
-codigo_per = user.get("codigo_personal", user.get("codigo", "P000"))
+codigo_per = user.get("codigo_personal", "P000")
 
 # --- BARRA LATERAL ---
 with st.sidebar:
@@ -197,7 +193,6 @@ else:
         "⏱️ Control Asistencia"
     ])
 
-# Selector de Cámara (Para las pestañas de Layout y Stock)
 camaras_disponibles = ["Camara 01", "Camara 02", "Camara 03"]
 
 # --- TAB 1: LAYOUT VISUAL DE CÁMARA ---
@@ -370,7 +365,6 @@ with tab5:
     
     col_btn1, col_btn2 = st.columns(2)
     
-    # 1. BOTÓN MARCAR ENTRADA
     with col_btn1:
         st.markdown("#### 📥 Ingreso Diario")
         if st.button("Marcar Mi Hora de Entrada", use_container_width=True):
@@ -379,7 +373,6 @@ with tab5:
                 hora_in = datetime.now().strftime("%H:%M")
                 id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
                 
-                # Columnas: ID_Registro, Codigo_Persona, Fecha, Hora_Entrada, Hora_Salida, Horas_Extras, Observacion, Estado, Fecha_Compensacion
                 ws_asist.append_row([
                     id_registro, codigo_per, fecha_actual_str, hora_in, "", "0", "", "Pendiente", ""
                 ])
@@ -387,7 +380,6 @@ with tab5:
             except Exception as e:
                 st.error(f"Error al guardar entrada: {e}")
                 
-    # 2. BOTÓN MARCAR SALIDA Y HORAS EXTRAS
     with col_btn2:
         st.markdown("#### 📤 Salida Diaria")
         ahora_dt = datetime.now()
