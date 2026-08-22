@@ -306,10 +306,18 @@ if rol in roles_operativos:
             st.info("No hay palets registrados en inventario para despachar.")
         else:
             df_ocupados = df_inv[df_inv["estado"].str.strip().str.capitalize() == "Ocupado"]
-            opciones_despacho = [
-                f"{row['codigo_palet']} | {row['camara']} - Pos: {row['posicion']} | {row['producto']} ({row.get('calibre', '')}) - {row['cajas']} cjs"
-                for _, row in df_ocupados.iterrows()
-            ]
+            
+            # Usamos .get() para evitar errores si el nombre de columna varía ligeramente
+            opciones_despacho = []
+            for _, row in df_ocupados.iterrows():
+                p_code = row.get("codigo_palet", row.get("palet", "S/C"))
+                p_cam = row.get("camara", "")
+                p_pos = row.get("posicion", "")
+                p_prod = row.get("producto", "")
+                p_cal = row.get("calibre", "")
+                p_cjs = row.get("cajas", "0")
+                opciones_despacho.append(f"{p_code} | {p_cam} - Pos: {p_pos} | {p_prod} ({p_cal}) - {p_cjs} cjs")
+                
             seleccion = st.selectbox("Seleccione el Palet a Despachar:", opciones_despacho)
 
             if st.button("📤 Procesar Salida / Despacho", use_container_width=True):
@@ -331,7 +339,6 @@ if rol in roles_operativos:
                     st.rerun()
                 else:
                     st.error("No se encontró el registro en la hoja de cálculo.")
-
 # --- TAB 4: STOCK GENERAL Y REPORTES ---
 with tab4:
     st.subheader("Reporte General de Stock en Cámaras")
