@@ -356,49 +356,69 @@ with tab4:
     else:
         st.info("Sin registros cargados.")
 
-# --- TAB 5: CONTROL DE ASISTENCIA Y HORAS EXTRAS ---
+# --- TAB 5: CONTROL DE ASISTENCIA Y HORA MANUAL ---
 with tab5:
-    st.subheader("⏱️ Registro de Asistencia y Horas Extras")
+    st.subheader("⏱️ Registro de Asistencia y Horas Extras (Manual)")
     st.markdown(f"Colaborador: **{nombre}** | Código: `{codigo_per}` | Rol: `{rol}`")
     
     col_t1, col_t2 = st.columns(2)
     with col_t1:
         modo_turno = st.selectbox("Modalidad del Turno de Hoy:", ["Sin Producción", "Con Producción"], key="asist_modo_turno")
     with col_t2:
-        fecha_actual_str = datetime.now().strftime("%Y-%m-%d")
-        st.info(f"📅 Fecha actual del sistema: **{fecha_actual_str}**")
+        fecha_actual_str = st.date_input("Fecha de Registro:", datetime.now()).strftime("%Y-%m-%d")
         
     st.markdown("---")
     
     col_btn1, col_btn2 = st.columns(2)
     
+    # 1. REGISTRO MANUAL DE ENTRADA
     with col_btn1:
-        st.markdown("#### 📥 Ingreso Diario")
-        if st.button("Marcar Mi Hora de Entrada", use_container_width=True):
+        st.markdown("#### 📥 Ingreso Diario (Manual)")
+        hora_ingreso_manual = st.text_input("Ingrese Hora de Entrada (Formato HH:MM, ej. 08:00):", value="08:00", key="input_h_ingreso")
+        
+        if st.button("Guardar Ingreso Manual", use_container_width=True):
             try:
                 ws_asist = get_sheet("Asistencia_Personal")
-                hora_in = datetime.now().strftime("%H:%M")
                 id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
                 
                 ws_asist.append_row([
-                    id_registro, codigo_per, fecha_actual_str, hora_in, "", "0", "", "Pendiente", ""
+                    id_registro, codigo_per, fecha_actual_str, hora_ingreso_manual, "", "0", "", "Pendiente", ""
                 ])
-                st.success(f"✅ ¡Entrada registrada con éxito a las {hora_in} hrs!")
+                st.success(f"✅ Ingreso registrado manualmente a las {hora_ingreso_manual} hrs.")
             except Exception as e:
-                st.error(f"Error al guardar entrada: {e}")
+                st.error(f"Error al guardar ingreso: {e}")
                 
+    # 2. REGISTRO MANUAL DE SALIDA Y CÁLCULO DE EXTRAS
     with col_btn2:
-        st.markdown("#### 📤 Salida Diaria")
-        ahora_dt = datetime.now()
-        hora_out_str = ahora_dt.strftime("%H:%M")
+        st.markdown("#### 📤 Salida Diaria y Horas Extras (Manual)")
+        hora_salida_manual = st.text_input("Ingrese Hora de Salida (Formato HH:MM, ej. 18:00 o 20:00):", value="18:00", key="input_h_salida")
         
-        he_tot, h_pag, h_bolsa = calcular_horas_extras(ahora_dt, modo_turno)
-        
-        if he_tot > 0:
-            st.warning(f"⚠️ Se detectaron **{he_tot} hrs extras** (Pagadas: {h_pag}h | Bolsa: {h_bolsa}h).")
-            obs_texto = st.text_input("Observación obligatoria del sobretiempo:", key="obs_input_he")
-            
-            if st.button("Confirmar Salida con Horas Extras", use_container_width=True):
+        # Botón para calcular en base a la hora manual escrita
+        if st.button("Calcular Horas Extras con Salida Manual", use_container_width=True):
+            try:
+                # Convertimos la hora manual escrita a datetime para procesarla en la función
+                h_salida_dt = datetime.strptime(hora_salida_manual.strip(), "%H:%M")
+                he_tot, h_pag, h_bolsa = calcular_horas_extras(h_salida_dt, modo_turno)
+                
+                # Guardamos temporalmente en el session_state para que el usuario confirme
+                st.session_state.temp_he = he_tot
+                st.session_state.temp_pag = h_pag
+                st.session_state.temp_bolsa = h_bolsa
+                st.session_state.temp_salida = hora_salida_manual
+                st.session_state.temp_fecha = fecha_actual_str
+                st.session_state.temp_modo = modo_turno
+                
+                if he_tot > 0:
+                    st.warning(f"⚠️ Se detectaron **{he_tot} hrs extras** (Pagadas: {h_pag}h | Bolsa: {h_bolsa}h).")
+                else:
+                    st.info("ℹ️ Salida dentro del horario regular (Cero horas extras).")
+            except ValueError:
+                st.error("❌ Formato de hora inválido. Utiliza el formato HH:MM (Ej: 19:30).")
+
+        # Si ya se hizo el cálculo previo, mostramos la opción de confirmar y guardar
+        if "temp_he" in st.session_state and st.session_state.temp_he > 0:
+            obs_texto = st.text_input("Observación obligatoria del sobretiempo:", key="obs_input_he_manual")
+            if st.button("Confirmar y Guardar Salida con Horas Extras", use_container_width=True):
                 if not obs_texto.strip():
                     st.error("❌ La observación es obligatoria cuando se generan horas extras.")
                 else:
@@ -407,20 +427,26 @@ with tab5:
                         id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
                         
                         ws_asist.append_row([
-                            id_registro, codigo_per, fecha_actual_str, "08:00", hora_out_str, str(he_tot), obs_texto, "Pendiente", ""
+                            id_registro, codigo_per, st.session_state.temp_fecha, "08:00", st.session_state.temp_salida, 
+                            str(st.session_state.temp_he), obs_texto, "Pendiente", ""
                         ])
-                        st.success(f"✅ Salida registrada a las {hora_out_str}. Horas extras enviadas a revisión.")
+                        st.success(f"✅ Salida a las {st.session_state.temp_salida} registrada con éxito. Horas extras enviadas a revisión.")
+                        # Limpiamos variables temporales
+                        del st.session_state.temp_he
                     except Exception as e:
                         st.error(f"Error al guardar salida: {e}")
-        else:
-            if st.button("Marcar Salida Normal", use_container_width=True):
+                        
+        elif "temp_he" in st.session_state and st.session_state.temp_he == 0:
+            if st.button("Confirmar Salida Regular", use_container_width=True):
                 try:
                     ws_asist = get_sheet("Asistencia_Personal")
                     id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
                     
                     ws_asist.append_row([
-                        id_registro, codigo_per, fecha_actual_str, "08:00", hora_out_str, "0", "Jornada Regular", "Completado", ""
+                        id_registro, codigo_per, st.session_state.temp_fecha, "08:00", st.session_state.temp_salida, 
+                        "0", "Jornada Regular", "Completado", ""
                     ])
-                    st.success(f"✅ Salida regular registrada a las {hora_out_str} hrs.")
+                    st.success(f"✅ Salida regular a las {st.session_state.temp_salida} registrada correctamente.")
+                    del st.session_state.temp_he
                 except Exception as e:
                     st.error(f"Error al guardar salida: {e}")
