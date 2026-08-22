@@ -6,7 +6,7 @@ from datetime import datetime
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
-    page_title="WMS Frigosa - Control de Cámaras",
+    page_title="WMS Frigosa - Control de Cámaras y Asistencia",
     page_icon="❄️",
     layout="wide"
 )
@@ -75,13 +75,47 @@ def registrar_log(tipo_mov, camara, posicion, codigo_palet, producto, cajas, usu
     except Exception as e:
         st.warning(f"No se pudo registrar log: {e}")
 
+# --- CÁLCULO DE HORAS EXTRAS SEGÚN REGLA RR.HH. ---
+def calcular_horas_extras(hora_salida_dt, modo_turno):
+    """
+    Evalúa la salida según la jornada:
+    - Sin Producción: Límite 18:00 (6:00 PM)
+    - Con Producción: Límite 20:00 (8:00 PM) -> 1h pagada, excedente a compensación
+    """
+    fmt = "%H:%M"
+    hora_str = hora_salida_dt.strftime(fmt)
+    h_salida = datetime.strptime(hora_str, fmt)
+    
+    horas_extras_totales = 0.0
+    horas_pagadas = 0.0
+    horas_bolsa = 0.0
+    
+    if modo_turno == "Sin Producción":
+        limite_normal = datetime.strptime("18:00", fmt)
+        if h_salida > limite_normal:
+            horas_extras_totales = (h_salida - limite_normal).seconds / 3600.0
+            horas_bolsa = horas_extras_totales
+            
+    elif modo_turno == "Con Producción":
+        limite_produccion = datetime.strptime("20:00", fmt)
+        if h_salida > limite_produccion:
+            horas_extras_totales = (h_salida - limite_produccion).seconds / 3600.0
+            if horas_extras_totales >= 1.0:
+                horas_pagadas = 1.0
+                horas_bolsa = horas_extras_totales - 1.0
+            else:
+                horas_pagadas = horas_extras_totales
+                horas_bolsa = 0.0
+                
+    return round(horas_extras_totales, 2), round(horas_pagadas, 2), round(horas_bolsa, 2)
+
 # --- GESTIÓN DE SESIÓN Y LOGIN ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_info = None
 
 def login_form():
-    st.markdown("<h2 style='text-align: center; color: #1E3D59;'>❄️ WMS Frigosa - Acceso al Sistema</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: #1E3D59;'>❄️ ECAPRO / WMS Frigosa - Acceso</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         with st.form("login_form"):
@@ -123,10 +157,12 @@ if not st.session_state.logged_in:
 user = st.session_state.user_info
 rol = user.get("rol", "Visualizador")
 nombre = user.get("nombre_completo", user.get("usuario"))
+codigo_per = user.get("codigo_personal", user.get("codigo", "P000"))
 
 # --- BARRA LATERAL ---
 with st.sidebar:
-    st.markdown(f"### 👤 Usuario: **{nombre}**")
+    st.markdown(f"### 👤 **{nombre}**")
+    st.markdown(f"**Código:** `{codigo_per}`")
     st.markdown(f"**Rol:** `{rol}`")
     st.markdown("---")
     if st.button("🚪 Cerrar Sesión", use_container_width=True):
@@ -141,36 +177,46 @@ except Exception as e:
     st.error(f"Error cargando inventario: {e}")
     st.stop()
 
-st.title("❄️ Control de Cámaras - Frigosa")
+st.title("❄️ ECAPRO - Gestión Integral Frigosa")
 
-# Selector de Cámara
-camaras_disponibles = ["Camara 01", "Camara 02", "Camara 03"]
-cam_sel = st.selectbox("Seleccionar Cámara:", camaras_disponibles)
+# --- DEFINICIÓN DE PESTAÑAS SEGÚN ROL ---
+roles_operativos = ["Administrador", "Operador de Cámara", "SUPERVISOR DE PRODUCCION", "JEFE DE TURNO"]
 
-# Filtrar datos de la cámara actual
-df_cam = df_inv[df_inv["camara"] == cam_sel] if not df_inv.empty and "camara" in df_inv.columns else pd.DataFrame()
-
-# Métricas
-total_posiciones = 180
-ocupadas = len(df_cam[df_cam["estado"].str.strip().str.capitalize() == "Ocupado"]) if not df_cam.empty and "estado" in df_cam.columns else 0
-libres = max(0, total_posiciones - ocupadas)
-pct_ocupacion = (ocupadas / total_posiciones) * 100 if total_posiciones > 0 else 0
-
-m1, m2, m3 = st.columns(3)
-m1.metric("Ocupación", f"{pct_ocupacion:.1f}%")
-m2.metric("Ocupadas", ocupadas)
-m3.metric("Libres", libres)
-
-filtro_busqueda = st.text_input("🔍 Buscar Producto, Calibre o Lote (Resalta coincidencias):", "").strip().lower()
-
-# --- GESTIÓN DE PESTAÑAS SEGÚN ROL ---
-if rol in ["Administrador", "Operador de Cámara"]:
-    tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Layout Cámara", "📥 Ingreso Palet", "📤 Despacho / Embarque", "📊 Stock General"])
+if rol in roles_operativos:
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "🗺️ Layout Cámara", 
+        "📥 Ingreso Palet", 
+        "📤 Despacho / Embarque", 
+        "📊 Stock General",
+        "⏱️ Control Asistencia"
+    ])
 else:
-    tab1, tab4 = st.tabs(["🗺️ Layout Cámara", "📊 Stock General"])
+    tab1, tab4, tab5 = st.tabs([
+        "🗺️ Layout Cámara", 
+        "📊 Stock General",
+        "⏱️ Control Asistencia"
+    ])
+
+# Selector de Cámara (Para las pestañas de Layout y Stock)
+camaras_disponibles = ["Camara 01", "Camara 02", "Camara 03"]
 
 # --- TAB 1: LAYOUT VISUAL DE CÁMARA ---
 with tab1:
+    cam_sel = st.selectbox("Seleccionar Cámara:", camaras_disponibles, key="select_cam_layout")
+    df_cam = df_inv[df_inv["camara"] == cam_sel] if not df_inv.empty and "camara" in df_inv.columns else pd.DataFrame()
+
+    total_posiciones = 180
+    ocupadas = len(df_cam[df_cam["estado"].str.strip().str.capitalize() == "Ocupado"]) if not df_cam.empty and "estado" in df_cam.columns else 0
+    libres = max(0, total_posiciones - ocupadas)
+    pct_ocupacion = (ocupadas / total_posiciones) * 100 if total_posiciones > 0 else 0
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Ocupación", f"{pct_ocupacion:.1f}%")
+    m2.metric("Ocupadas", ocupadas)
+    m3.metric("Libres", libres)
+
+    filtro_busqueda = st.text_input("🔍 Buscar Producto, Calibre o Lote:", "").strip().lower()
+
     st.subheader(f"Distribución Física: {cam_sel}")
     st.caption("🟩 Verde = Libre | 🟥 Rojo = Ocupado | 🟨 Amarillo = Coincidencia de búsqueda")
 
@@ -197,7 +243,6 @@ with tab1:
                 palet = str(item.get("codigo_palet", "")).strip()
                 cajas = item.get("cajas", "")
 
-                # Etiqueta con Código de Posición + Producto
                 btn_label = f"🟥 [{pos_label}]\n{prod}"
                 hover_text = f"📍 Posición: {pos_label}\n📦 Palet: {palet}\n🐟 Producto: {prod} ({cal})\n📊 Cajas: {cajas}"
 
@@ -210,7 +255,7 @@ with tab1:
             cols_ui[col_idx].button(btn_label, key=f"btn_{cam_sel}_{pos_label}", help=hover_text)
 
 # --- TAB 2: INGRESO DE PALET ---
-if rol in ["Administrador", "Operador de Cámara"]:
+if rol in roles_operativos:
     with tab2:
         st.subheader("Registrar Nuevo Ingreso a Cámara")
         with st.form("form_ingreso", clear_on_submit=True):
@@ -218,7 +263,6 @@ if rol in ["Administrador", "Operador de Cámara"]:
             with ci1:
                 in_camara = st.selectbox("Cámara de Destino", camaras_disponibles)
                 
-                # Selector de Posición Asistido
                 col_pos1, col_pos2 = st.columns(2)
                 with col_pos1:
                     nivel_sel = st.selectbox("Nivel", ["Nivel A (Piso)", "Nivel B (Medio)", "Nivel C (Alto)"])
@@ -234,24 +278,16 @@ if rol in ["Administrador", "Operador de Cámara"]:
                 in_codigo_palet = st.text_input("Código de Palet / Lote (Ej: PAL-2026-001)").strip()
 
             with ci2:
-                # Lista desplegable de Productos
                 prod_sel = st.selectbox("Producto:", LISTA_PRODUCTOS)
-                if prod_sel == "Otro (Escribir)":
-                    in_producto = st.text_input("Especifique el Producto:").strip()
-                else:
-                    in_producto = prod_sel
+                in_producto = st.text_input("Especifique el Producto:").strip() if prod_sel == "Otro (Escribir)" else prod_sel
 
-                # Lista desplegable de Calibres
                 cal_sel = st.selectbox("Calibre / Especificación:", LISTA_CALIBRES)
-                if cal_sel == "Otro (Escribir)":
-                    in_calibre = st.text_input("Especifique el Calibre:").strip()
-                else:
-                    in_calibre = cal_sel
+                in_calibre = st.text_input("Especifique el Calibre:").strip() if cal_sel == "Otro (Escribir)" else cal_sel
 
                 in_cajas = st.number_input("Cantidad de Cajas / Sacos", min_value=1, step=1, value=40)
                 in_peso = st.number_input("Peso Total (kg)", min_value=0.0, step=0.5, value=1000.0)
             
-            btn_guardar_ingreso = st.form_submit_button("📥 Confirmar Ingreso y Guardar en Google Sheets", use_container_width=True)
+            btn_guardar_ingreso = st.form_submit_button("📥 Confirmar Ingreso y Guardar", use_container_width=True)
 
             if btn_guardar_ingreso:
                 if not in_posicion or not in_codigo_palet or not in_producto:
@@ -268,7 +304,7 @@ if rol in ["Administrador", "Operador de Cámara"]:
                     st.rerun()
 
 # --- TAB 3: DESPACHO / EMBARQUE ---
-if rol in ["Administrador", "Operador de Cámara"]:
+if rol in roles_operativos:
     with tab3:
         st.subheader("Despacho / Salida de Palet")
         if df_inv.empty or len(df_inv[df_inv["estado"].str.strip().str.capitalize() == "Ocupado"]) == 0:
@@ -317,3 +353,75 @@ with tab4:
             )
     else:
         st.info("Sin registros cargados.")
+
+# --- TAB 5: CONTROL DE ASISTENCIA Y HORAS EXTRAS ---
+with tab5:
+    st.subheader("⏱️ Registro de Asistencia y Horas Extras")
+    st.markdown(f"Colaborador: **{nombre}** | Código: `{codigo_per}` | Rol: `{rol}`")
+    
+    col_t1, col_t2 = st.columns(2)
+    with col_t1:
+        modo_turno = st.selectbox("Modalidad del Turno de Hoy:", ["Sin Producción", "Con Producción"], key="asist_modo_turno")
+    with col_t2:
+        fecha_actual_str = datetime.now().strftime("%Y-%m-%d")
+        st.info(f"📅 Fecha actual del sistema: **{fecha_actual_str}**")
+        
+    st.markdown("---")
+    
+    col_btn1, col_btn2 = st.columns(2)
+    
+    # 1. BOTÓN MARCAR ENTRADA
+    with col_btn1:
+        st.markdown("#### 📥 Ingreso Diario")
+        if st.button("Marcar Mi Hora de Entrada", use_container_width=True):
+            try:
+                ws_asist = get_sheet("Asistencia_Personal")
+                hora_in = datetime.now().strftime("%H:%M")
+                id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
+                
+                # Columnas: ID_Registro, Codigo_Persona, Fecha, Hora_Entrada, Hora_Salida, Horas_Extras, Observacion, Estado, Fecha_Compensacion
+                ws_asist.append_row([
+                    id_registro, codigo_per, fecha_actual_str, hora_in, "", "0", "", "Pendiente", ""
+                ])
+                st.success(f"✅ ¡Entrada registrada con éxito a las {hora_in} hrs!")
+            except Exception as e:
+                st.error(f"Error al guardar entrada: {e}")
+                
+    # 2. BOTÓN MARCAR SALIDA Y HORAS EXTRAS
+    with col_btn2:
+        st.markdown("#### 📤 Salida Diaria")
+        ahora_dt = datetime.now()
+        hora_out_str = ahora_dt.strftime("%H:%M")
+        
+        he_tot, h_pag, h_bolsa = calcular_horas_extras(ahora_dt, modo_turno)
+        
+        if he_tot > 0:
+            st.warning(f"⚠️ Se detectaron **{he_tot} hrs extras** (Pagadas: {h_pag}h | Bolsa: {h_bolsa}h).")
+            obs_texto = st.text_input("Observación obligatoria del sobretiempo:", key="obs_input_he")
+            
+            if st.button("Confirmar Salida con Horas Extras", use_container_width=True):
+                if not obs_texto.strip():
+                    st.error("❌ La observación es obligatoria cuando se generan horas extras.")
+                else:
+                    try:
+                        ws_asist = get_sheet("Asistencia_Personal")
+                        id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
+                        
+                        ws_asist.append_row([
+                            id_registro, codigo_per, fecha_actual_str, "08:00", hora_out_str, str(he_tot), obs_texto, "Pendiente", ""
+                        ])
+                        st.success(f"✅ Salida registrada a las {hora_out_str}. Horas extras enviadas a revisión.")
+                    except Exception as e:
+                        st.error(f"Error al guardar salida: {e}")
+        else:
+            if st.button("Marcar Salida Normal", use_container_width=True):
+                try:
+                    ws_asist = get_sheet("Asistencia_Personal")
+                    id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
+                    
+                    ws_asist.append_row([
+                        id_registro, codigo_per, fecha_actual_str, "08:00", hora_out_str, "0", "Jornada Regular", "Completado", ""
+                    ])
+                    st.success(f"✅ Salida regular registrada a las {hora_out_str} hrs.")
+                except Exception as e:
+                    st.error(f"Error al guardar salida: {e}")
