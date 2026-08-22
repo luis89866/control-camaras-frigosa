@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -75,33 +75,46 @@ def registrar_log(tipo_mov, camara, posicion, codigo_palet, producto, cajas, usu
     except Exception as e:
         st.warning(f"No se pudo registrar log: {e}")
 
-# --- CÁLCULO DE HORAS EXTRAS SEGÚN REGLA RR.HH. ---
-def calcular_horas_extras(hora_salida_dt, modo_turno):
+# --- CÁLCULO DE HORAS EXTRAS ( SOPORTE TURNOS NOCTURNOS ) ---
+def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno):
     fmt = "%H:%M"
-    hora_str = hora_salida_dt.strftime(fmt)
-    h_salida = datetime.strptime(hora_str, fmt)
-    
     horas_extras_totales = 0.0
+    
+    # Si la hora de salida es menor o igual a la de entrada, cruza la medianoche (Turno Nocturno)
+    if hora_salida_dt <= hora_entrada_dt:
+        # Turno nocturno base de 12 horas (ej: 20:00 a 08:00 del día siguiente)
+        # Calculamos exceso sobre las 08:00 AM
+        hora_corte_nocturno = datetime.strptime("08:00", fmt)
+        if hora_salida_dt > hora_corte_nocturno:
+            horas_extras_totales = (hora_salida_dt - hora_corte_nocturno).seconds / 3600.0
+        else:
+            horas_extras_totales = 0.0
+    else:
+        # Turno diurno normal
+        diferencia_total = (hora_salida_dt - hora_entrada_dt).seconds / 3600.0
+        if modo_turno == "Sin Producción":
+            limite_normal = datetime.strptime("18:00", fmt)
+            if hora_salida_dt > limite_normal:
+                horas_extras_totales = (hora_salida_dt - limite_normal).seconds / 3600.0
+        elif modo_turno == "Con Producción":
+            limite_produccion = datetime.strptime("20:00", fmt)
+            if hora_salida_dt > limite_produccion:
+                horas_extras_totales = (hora_salida_dt - limite_produccion).seconds / 3600.0
+
     horas_pagadas = 0.0
     horas_bolsa = 0.0
     
-    if modo_turno == "Sin Producción":
-        limite_normal = datetime.strptime("18:00", fmt)
-        if h_salida > limite_normal:
-            horas_extras_totales = (h_salida - limite_normal).seconds / 3600.0
-            horas_bolsa = horas_extras_totales
-            
-    elif modo_turno == "Con Producción":
-        limite_produccion = datetime.strptime("20:00", fmt)
-        if h_salida > limite_produccion:
-            horas_extras_totales = (h_salida - limite_produccion).seconds / 3600.0
+    if horas_extras_totales > 0:
+        if modo_turno == "Con Producción":
             if horas_extras_totales >= 1.0:
                 horas_pagadas = 1.0
                 horas_bolsa = horas_extras_totales - 1.0
             else:
                 horas_pagadas = horas_extras_totales
                 horas_bolsa = 0.0
-                
+        elif modo_turno == "Sin Producción":
+            horas_bolsa = horas_extras_totales
+
     return round(horas_extras_totales, 2), round(horas_pagadas, 2), round(horas_bolsa, 2)
 
 # --- GESTIÓN DE SESIÓN Y LOGIN ---
@@ -115,7 +128,6 @@ def login_form():
     with col2:
         with st.form("login_form"):
             usuario = st.text_input("Usuario").strip().lower()
-            # Ahora usa codigo_personal en vez de pin
             codigo_ingresado = st.text_input("Código de Personal / Clave", type="password").strip()
             submit = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
             
@@ -306,8 +318,6 @@ if rol in roles_operativos:
             st.info("No hay palets registrados en inventario para despachar.")
         else:
             df_ocupados = df_inv[df_inv["estado"].str.strip().str.capitalize() == "Ocupado"]
-            
-            # Usamos .get() para evitar errores si el nombre de columna varía ligeramente
             opciones_despacho = []
             for _, row in df_ocupados.iterrows():
                 p_code = row.get("codigo_palet", row.get("palet", "S/C"))
@@ -339,6 +349,7 @@ if rol in roles_operativos:
                     st.rerun()
                 else:
                     st.error("No se encontró el registro en la hoja de cálculo.")
+
 # --- TAB 4: STOCK GENERAL Y REPORTES ---
 with tab4:
     st.subheader("Reporte General de Stock en Cámaras")
@@ -371,30 +382,43 @@ with tab5:
     
     col_reg1, col_reg2 = st.columns(2)
     
-    # 1. ACCIÓN DE INGRESO
+    # 1. ACCIÓN DE INGRESO CON ANTIDUPLICADOS
     with col_reg1:
         st.markdown("#### 📥 Ingreso")
-        hora_ingreso_input = st.text_input("Hora de Entrada:", value="08:00", key="h_ingreso_val")
+        hora_ingreso_input = st.text_input("Hora de Entrada:", value="20:00", key="h_ingreso_val")
+        
         if st.button("Registrar Ingreso", use_container_width=True):
             try:
                 ws_asist = get_sheet("Asistencia_Personal")
-                id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
-                # Guardamos entrada con estado Pendiente
-                ws_asist.append_row([
-                    id_registro, codigo_per, fecha_actual_str, hora_ingreso_input, "", modo_turno, "0", "0", "0", "Ingreso Registrado", "Pendiente"
-                ])
-                st.success(f"✅ ¡Se registró su ingreso exitosamente a las {hora_ingreso_input}!")
+                registros_existentes = ws_asist.get_all_values()
+                
+                ya_registrado = False
+                if len(registros_existentes) > 1:
+                    for fila in registros_existentes[1:]:
+                        if len(fila) >= 3 and fila[1].strip() == codigo_per.strip() and fila[2].strip() == fecha_actual_str:
+                            ya_registrado = True
+                            break
+                
+                if ya_registrado:
+                    st.warning(f"⚠️ ¡Atención! Su registro de asistencia para la fecha **{fecha_actual_str}** ya ha sido ingresado anteriormente.")
+                else:
+                    id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
+                    ws_asist.append_row([
+                        id_registro, codigo_per, fecha_actual_str, hora_ingreso_input, "", modo_turno, "0", "0", "0", "Ingreso Registrado", "Pendiente"
+                    ])
+                    st.success(f"✅ ¡Se registró su ingreso exitosamente a las {hora_ingreso_input}!")
             except Exception as e:
                 st.error(f"Error al registrar ingreso: {e}")
 
-    # 2. ACCIÓN DE SALIDA Y CÁLCULO AUTOMÁTICO
+    # 2. ACCIÓN DE SALIDA Y CÁLCULO PARA TURNO NOCTURNO
     with col_reg2:
         st.markdown("#### 📤 Salida y Cálculo de Extras")
-        hora_salida_input = st.text_input("Hora de Salida:", value="18:00", key="h_salida_val")
+        hora_salida_input = st.text_input("Hora de Salida:", value="08:00", key="h_salida_val")
         
         try:
-            h_salida_dt = datetime.strptime(hora_salida_input.strip(), "%H:%M")
-            he_tot, h_pag, h_bolsa = calcular_horas_extras(h_salida_dt, modo_turno)
+            h_in_dt = datetime.strptime(hora_ingreso_input.strip(), "%H:%M")
+            h_sal_dt = datetime.strptime(hora_salida_input.strip(), "%H:%M")
+            he_tot, h_pag, h_bolsa = calcular_horas_extras(h_in_dt, h_sal_dt, modo_turno)
         except:
             he_tot, h_pag, h_bolsa = 0.0, 0.0, 0.0
 
@@ -413,40 +437,34 @@ with tab5:
                     ws_asist = get_sheet("Asistencia_Personal")
                     id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
                     
-                    # Guardamos el registro completo de salida en Asistencia_Personal
                     ws_asist.append_row([
                         id_registro, codigo_per, fecha_actual_str, hora_ingreso_input, hora_salida_input, 
                         modo_turno, str(he_tot), str(h_pag), str(h_bolsa), obs_input, "Completado"
                     ])
                     
-                    # ACTUALIZACIÓN AUTOMÁTICA EN LA BOLSA DE HORAS
+                    # ACTUALIZACIÓN EN BOLSA DE HORAS
                     if h_bolsa > 0:
                         ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
                         filas_bolsa = ws_bolsa.get_all_values()
                         encontrado = False
                         
-                        # Buscamos si el usuario ya tiene una fila creada en la bolsa
                         if len(filas_bolsa) > 1:
                             for idx, fila in enumerate(filas_bolsa[1:], start=2):
                                 if len(fila) > 0 and fila[0].strip() == codigo_per.strip():
-                                    # Actualizamos sumando las nuevas horas a la bolsa
                                     actual_acum = float(fila[2]) if fila[2] else 0.0
                                     actual_saldo = float(fila[4]) if fila[4] else 0.0
                                     
-                                    nuevo_acum = actual_acum + h_bolsa
-                                    nuevo_saldo = actual_saldo + h_bolsa
-                                    
-                                    ws_bolsa.update_cell(idx, 3, str(nuevo_acum))
-                                    ws_bolsa.update_cell(idx, 5, str(nuevo_saldo))
+                                    ws_bolsa.update_cell(idx, 3, str(actual_acum + h_bolsa))
+                                    ws_bolsa.update_cell(idx, 5, str(actual_saldo + h_bolsa))
                                     encontrado = True
                                     break
                         
-                        # Si no existe en la bolsa, creamos su registro inicial
                         if not encontrado:
                             ws_bolsa.append_row([
                                 codigo_per, nombre, str(h_bolsa), "0", str(h_bolsa), "", "", "Activo"
                             ])
                             
-                    st.success("✅ ¡Salida registrada y horas de bolsa actualizadas correctamente!")
+                    st.success("✅ ¡Salida registrada y bolsa de horas actualizada correctamente!")
                 except Exception as e:
                     st.error(f"Error al registrar salida: {e}")
+               
