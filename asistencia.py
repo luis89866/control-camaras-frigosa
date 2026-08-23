@@ -6,25 +6,28 @@ from datetime import datetime
 def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno):
     horas_totales_trabajadas = 0.0
     
-    # Si la hora de salida es menor o igual a la de entrada, significa que cruzó la medianoche (Turno Noche)
-    if hora_salida_dt <= hora_entrada_dt:
-        delta = (datetime.combine(datetime.today() + timedelta(days=1), hora_salida_dt) - 
-                 datetime.combine(datetime.today(), hora_entrada_dt))
-        horas_totales_trabajadas = delta.seconds / 3600.0
+    # Convertimos las horas a minutos totales del día para comparar con precisión
+    minutos_entrada = hora_entrada_dt.hour * 60 + hora_entrada_dt.minute
+    minutos_salida = hora_salida_dt.hour * 60 + hora_salida_dt.minute
+    
+    # Si la salida en minutos es menor o igual a la entrada, cruzó la medianoche (ej: 20:00 a 11:00)
+    if minutos_salida <= minutos_entrada:
+        # Minutos desde las 20:00 hasta la medianoche (24:00) + minutos desde las 00:00 hasta las 11:00
+        minutos_totales = (1440 - minutos_entrada) + minutos_salida
     else:
-        delta = hora_salida_dt - hora_entrada_dt
-        horas_totales_trabajadas = delta.seconds / 3600.0
+        minutos_totales = minutos_salida - minutos_entrada
+        
+    horas_totales_trabajadas = minutos_totales / 60.0
 
     horas_pagadas = 0.0
     horas_bolsa = 0.0
     horas_extras_totales = 0.0
 
     if modo_turno == "Con Producción":
-        # Si el turno es de 20:00 a 11:00, son 15 horas trabajadas
         if horas_totales_trabajadas >= 12.0:
-            horas_pagadas = 1.0  # 1 hora fija por cumplir las 12 horas de turno
-            horas_bolsa = horas_totales_trabajadas - 12.0  # Exceso a la bolsa (ej: 15 - 12 = 3 horas)
-            horas_extras_totales = horas_pagadas + horas_bolsa  # Total: 1 + 3 = 4 horas
+            horas_pagadas = 1.0  # 1 hora fija por cumplir el turno de 12 horas
+            horas_bolsa = horas_totales_trabajadas - 12.0  # El exceso va a la bolsa
+            horas_extras_totales = horas_pagadas + horas_bolsa
         else:
             horas_pagadas = 0.0
             horas_bolsa = 0.0
