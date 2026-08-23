@@ -7,7 +7,6 @@ def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno):
     fmt = "%H:%M"
     horas_totales_trabajadas = 0.0
     
-    # Cálculo de horas totales transcurridas en el turno
     if hora_salida_dt <= hora_entrada_dt:
         delta = (datetime.combine(datetime.today() + timedelta(days=1), hora_salida_dt) - 
                  datetime.combine(datetime.today(), hora_entrada_dt))
@@ -21,16 +20,11 @@ def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno):
     horas_extras_totales = 0.0
 
     if modo_turno == "Con Producción":
-        # Si cumplió al menos las 12 horas de turno
+        # Turno de 8:00 a 23:00 = 15 horas totales
         if horas_totales_trabajadas >= 12.0:
-            # 1. Por cumplir las 12 horas, se gana 1 hora pagada obligatoria
-            horas_pagadas = 1.0
-            
-            # 2. Todo el tiempo que exceda las 12 horas va directo a la bolsa
-            horas_bolsa = horas_totales_trabajadas - 12.0
-            
-            # El total de horas extras es la suma de la pagada + la bolsa
-            horas_extras_totales = horas_pagadas + horas_bolsa
+            horas_pagadas = 1.0  # 1 hora fija por cumplir el turno de 12 horas
+            horas_bolsa = horas_totales_trabajadas - 12.0  # El exceso (15 - 12 = 3 horas) va a la bolsa
+            horas_extras_totales = horas_pagadas + horas_bolsa  # Total: 1 + 3 = 4 horas
         else:
             horas_pagadas = 0.0
             horas_bolsa = 0.0
