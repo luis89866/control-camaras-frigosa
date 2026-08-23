@@ -59,6 +59,9 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_info = None
 
+if "modulo_activo" not in st.session_state:
+    st.session_state.modulo_activo = "Home"
+
 def login_form():
     st.markdown("<h2 style='text-align: center; color: #1E3D59;'>❄️ ECAPRO / WMS Frigosa - ERP Acceso</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1.2, 1])
@@ -80,6 +83,7 @@ def login_form():
                     if not match.empty:
                         st.session_state.logged_in = True
                         st.session_state.user_info = match.iloc[0].to_dict()
+                        st.session_state.modulo_activo = "Home"
                         st.rerun()
                     else:
                         st.error("Usuario o Código incorrecto.")
@@ -98,49 +102,118 @@ codigo_per = user.get("codigo_personal", "P000")
 
 # --- BARRA LATERAL ---
 with st.sidebar:
-    st.markdown("### 🏢 **ECAPRO Suite**")
+    st.markdown(f"### 🏢 **ECAPRO Suite**")
     st.markdown(f"👤 **{nombre}**")
     st.markdown(f"🔑 Código: `{codigo_per}`")
     st.markdown(f"🛡️ Rol: `{rol}`")
     st.markdown("---")
-    st.markdown("##### 🧭 Navegación ERP")
     
-    # Menú lateral tipo botones corporativos para cambiar de módulo
-    menu_opcion = st.radio(
-        "Seleccione Módulo:",
-        [
-            "⏱️ Módulo 1: Asistencia",
-            "📥 Módulo 2: Ingreso PPTT",
-            "📤 Módulo 3: Despachos",
-            "🗺️ Módulo 4: Layout Cámaras"
-        ],
-        label_visibility="collapsed"
-    )
-    
-    st.markdown("---")
+    if st.session_state.modulo_activo != "Home":
+        if st.button("🏠 Ir al Menú Principal", use_container_width=True):
+            st.session_state.modulo_activo = "Home"
+            st.rerun()
+            
     if st.button("🚪 Cerrar Sesión", use_container_width=True):
         st.session_state.logged_in = False
         st.session_state.user_info = None
+        st.session_state.modulo_activo = "Home"
         st.rerun()
 
 # --- HEADER PRINCIPAL ESTILO ERP ---
 st.markdown(
     """
-    <div style="background-color: #1E3D59; padding: 15px; border-radius: 8px; color: white; margin-bottom: 20px;">
-        <h2 style="margin: 0; font-size: 24px;">❄️ ECAPRO - Enterprise Resource Planning (Frigosa)</h2>
-        <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.8;">Sistema Integrado de Control Logístico y de Personal</p>
+    <div style="background: linear-gradient(135deg, #1E3D59 0%, #172B3A 100%); padding: 20px; border-radius: 10px; color: white; margin-bottom: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+        <h1 style="margin: 0; font-size: 26px;">❄️ ECAPRO - Enterprise Resource Planning (Frigosa)</h1>
+        <p style="margin: 5px 0 0 0; font-size: 15px; opacity: 0.85;">Sistema Integrado de Control Logístico, Producción y Personal</p>
     </div>
     """,
     unsafe_allow_html=True
 )
 
-# --- CARGA DEL MÓDULO SELECCIONADO DESDE LA BARRA LATERAL ---
-if "Módulo 1" in menu_opcion:
-    asistencia.render_module(user, get_sheet, cargar_datos)
-elif "Módulo 2" in menu_opcion:
-    pptt.render_module(user, get_sheet, cargar_datos, registrar_log)
-elif "Módulo 3" in menu_opcion:
-    st.info("🚧 Módulo 3 (Despachos y Embarques) en proceso de integración modular.")
-elif "Módulo 4" in menu_opcion:
-    st.info("🚧 Módulo 4 (Layout de Cámaras) en proceso de integración modular.")
-      
+# --- VISTA 1: DASHBOARD PRINCIPAL CON CUADROS / TARJETAS GRANDES (ESTILO SAP/NETSUITE) ---
+if st.session_state.modulo_activo == "Home":
+    st.markdown("### 🎛️ Panel de Módulos del Sistema")
+    st.caption("Seleccione un módulo haciendo clic en el cuadro correspondiente para gestionar las operaciones.")
+    
+    # Creamos una cuadrícula de 2x2 para las tarjetas grandes estilo ERP
+    col_card1, col_card2 = st.columns(2)
+    
+    with col_card1:
+        st.markdown(
+            """
+            <div style="background-color: #f8f9fa; border: 2px solid #1E3D59; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
+                <h3 style="color: #1E3D59; margin-top: 0;">⏱️ Módulo 1</h3>
+                <h4 style="color: #333;">Control de Asistencia y Bolsa de Horas</h4>
+                <p style="font-size: 13px; color: #666;">Gestión de ingresos, salidas, cálculo de horas extras (diurnas/nocturnas) y panel de compensaciones RR.HH.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        if st.button("🚀 Ingresar a Asistencia", use_container_width=True, key="btn_m1"):
+            st.session_state.modulo_activo = "Asistencia"
+            st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        st.markdown(
+            """
+            <div style="background-color: #f8f9fa; border: 2px solid #28a745; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
+                <h3 style="color: #28a745; margin-top: 0;">📤 Módulo 3</h3>
+                <h4 style="color: #333;">Despachos y Embarques</h4>
+                <p style="font-size: 13px; color: #666;">Salidas de palets, control de embarques y trazabilidad de productos terminados hacia clientes.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        if st.button("🚀 Ingresar a Despachos", use_container_width=True, key="btn_m3"):
+            st.session_state.modulo_activo = "Despachos"
+            st.rerun()
+
+    with col_card2:
+        st.markdown(
+            """
+            <div style="background-color: #f8f9fa; border: 2px solid #007bff; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
+                <h3 style="color: #007bff; margin-top: 0;">📥 Módulo 2</h3>
+                <h4 style="color: #333;">Ingreso de PPTT (Productos Terminados)</h4>
+                <p style="font-size: 13px; color: #666;">Registro de palets, asignación automática de posiciones en cámaras (01, 02, 03), calibres y pesos.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        if st.button("🚀 Ingresar a PPTT", use_container_width=True, key="btn_m2"):
+            st.session_state.modulo_activo = "PPTT"
+            st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        st.markdown(
+            """
+            <div style="background-color: #f8f9fa; border: 2px solid #ffc107; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
+                <h3 style="color: #d39e00; margin-top: 0;">🗺️ Módulo 4</h3>
+                <h4 style="color: #333;">Layout y Stock de Cámaras</h4>
+                <p style="font-size: 13px; color: #666;">Visualización gráfica en tiempo real de ocupación de cámaras, ubicaciones libres y reportes de inventario.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        if st.button("🚀 Ingresar a Layout", use_container_width=True, key="btn_m4"):
+            st.session_state.modulo_activo = "Layout"
+            st.rerun()
+
+# --- VISTA 2: CARGA DEL MÓDULO SELECCIONADO ---
+else:
+    # Botón superior para regresar al menú
+    if st.button("⬅️ Volver al Panel de Módulos (Home)", type="secondary"):
+        st.session_state.modulo_activo = "Home"
+        st.rerun()
+    
+    st.markdown("---")
+
+    if st.session_state.modulo_activo == "Asistencia":
+        asistencia.render_module(user, get_sheet, cargar_datos)
+    elif st.session_state.modulo_activo == "PPTT":
+        pptt.render_module(user, get_sheet, cargar_datos, registrar_log)
+    elif st.session_state.modulo_activo == "Despachos":
+        st.info("🚧 Módulo 3 (Despachos y Embarques) en proceso de integración modular.")
+    elif st.session_state.modulo_activo == "Layout":
+        st.info("🚧 Módulo 4 (Layout de Cámaras) en proceso de integración modular.")
