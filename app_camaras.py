@@ -5,8 +5,7 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 
 # Importamos el Módulo 1 desde la carpeta modulos
-from modulos import asistencia
-
+import asistencia
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
     page_title="WMS Frigosa - ERP Industrial",
