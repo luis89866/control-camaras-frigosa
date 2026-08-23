@@ -551,7 +551,7 @@ with tab5:
                                         break
                             
                             if ya_compensado_hoy:
-                                st.error(f"❌ **Restricción:** El colaborador seleccionado ya cuenta con una compensación registrada para la fecha **{fecha_liberacion_manual**}.")
+                               st.error(f"❌ **Restricción:** El colaborador seleccionado ya cuenta con una compensación registrada para la fecha **{fecha_liberacion_manual}**.")
                             else:
                                 ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
                                 try:
