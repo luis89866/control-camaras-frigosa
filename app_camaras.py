@@ -4,8 +4,10 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
-# Importamos el Módulo 1 desde la carpeta modulos
+# Importamos nuestros módulos independientes
 import asistencia
+import pptt
+
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
     page_title="WMS Frigosa - ERP Industrial",
@@ -42,6 +44,15 @@ def cargar_datos(sheet_name):
     elif len(rows) == 1:
         return pd.DataFrame(columns=[str(h).strip() for h in rows[0]])
     return pd.DataFrame()
+
+def registrar_log(tipo_mov, camara, posicion, codigo_palet, producto, cajas, usuario):
+    try:
+        ws_log = get_sheet("Movimientos_Log")
+        fecha_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        nuevo_id = f"LOG-{datetime.now().strftime('%y%m%d%H%M%S')}"
+        ws_log.append_row([nuevo_id, fecha_hora, tipo_mov, camara, posicion, str(codigo_palet), str(producto), str(cajas), str(usuario)])
+    except Exception as e:
+        st.warning(f"No se pudo registrar log: {e}")
 
 # --- LOGIN ---
 if "logged_in" not in st.session_state:
@@ -105,7 +116,7 @@ modulo_seleccionado = st.selectbox(
     "Módulos Disponibles en el Sistema:",
     [
         "MÓDULO 1: Asistencia de Personal",
-        "MÓDULO 2: Ingreso de PPTT (Próximamente)",
+        "MÓDULO 2: Ingreso de PPTT (Productos Terminados)",
         "MÓDULO 3: Despachos de Embarques (Próximamente)",
         "MÓDULO 4: Layout de Cámaras (Próximamente)"
     ]
@@ -117,7 +128,7 @@ st.markdown("---")
 if "MÓDULO 1" in modulo_seleccionado:
     asistencia.render_module(user, get_sheet, cargar_datos)
 elif "MÓDULO 2" in modulo_seleccionado:
-    st.info("🚧 Módulo 2 en desarrollo. ¡Aquí programaremos el Ingreso de Productos Terminados a continuación!")
+    pptt.render_module(user, get_sheet, cargar_datos, registrar_log)
 elif "MÓDULO 3" in modulo_seleccionado:
     st.info("🚧 Módulo 3 en desarrollo.")
 elif "MÓDULO 4" in modulo_seleccionado:
