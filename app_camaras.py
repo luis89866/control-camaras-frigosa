@@ -55,6 +55,7 @@ def get_sheet(sheet_name):
     sh = client.open_by_key(SPREADSHEET_ID)
     return sh.worksheet(sheet_name)
 
+@st.cache_data(ttl=30)
 def cargar_datos(sheet_name):
     ws = get_sheet(sheet_name)
     rows = ws.get_all_values()
