@@ -75,23 +75,20 @@ def registrar_log(tipo_mov, camara, posicion, codigo_palet, producto, cajas, usu
     except Exception as e:
         st.warning(f"No se pudo registrar log: {e}")
 
-# --- CÁLCULO DE HORAS EXTRAS ( SOPORTE TURNOS NOCTURNOS ) ---
+# --- CÁLCULO DE HORAS EXTRAS ( DIURNO Y NOCTURNO CON REGLA RR.HH. ) ---
 def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno):
     fmt = "%H:%M"
     horas_extras_totales = 0.0
     
-    # Si la hora de salida es menor o igual a la de entrada, cruza la medianoche (Turno Nocturno)
+    # Detección de Turno Nocturno (cruza la medianoche, ej: entra 20:00, sale 08:00 o 10:00)
     if hora_salida_dt <= hora_entrada_dt:
-        # Turno nocturno base de 12 horas (ej: 20:00 a 08:00 del día siguiente)
-        # Calculamos exceso sobre las 08:00 AM
         hora_corte_nocturno = datetime.strptime("08:00", fmt)
         if hora_salida_dt > hora_corte_nocturno:
             horas_extras_totales = (hora_salida_dt - hora_corte_nocturno).seconds / 3600.0
         else:
             horas_extras_totales = 0.0
     else:
-        # Turno diurno normal
-        diferencia_total = (hora_salida_dt - hora_entrada_dt).seconds / 3600.0
+        # Turno Diurno Normal
         if modo_turno == "Sin Producción":
             limite_normal = datetime.strptime("18:00", fmt)
             if hora_salida_dt > limite_normal:
@@ -106,6 +103,7 @@ def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno):
     
     if horas_extras_totales > 0:
         if modo_turno == "Con Producción":
+            # Aplica regla RR.HH.: 1 hora fija pagada, el resto a bolsa (tanto en diurno como nocturno)
             if horas_extras_totales >= 1.0:
                 horas_pagadas = 1.0
                 horas_bolsa = horas_extras_totales - 1.0
@@ -400,7 +398,7 @@ with tab5:
                             break
                 
                 if ya_registrado:
-                    st.warning(f"⚠️ ¡Atención! Su registro de asistencia para la fecha **{fecha_actual_str}** ya ha sido ingresado anteriormente.")
+                    st.warning(f"⚠️ ¡Atención! Su registro de ingreso para la fecha **{fecha_actual_str}** ya ha sido registrado anteriormente.")
                 else:
                     id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
                     ws_asist.append_row([
@@ -410,7 +408,7 @@ with tab5:
             except Exception as e:
                 st.error(f"Error al registrar ingreso: {e}")
 
-    # 2. ACCIÓN DE SALIDA Y CÁLCULO PARA TURNO NOCTURNO
+    # 2. ACCIÓN DE SALIDA CON ANTIDUPLICADOS Y CÁLCULO NOCTURNO
     with col_reg2:
         st.markdown("#### 📤 Salida y Cálculo de Extras")
         hora_salida_input = st.text_input("Hora de Salida:", value="08:00", key="h_salida_val")
@@ -430,11 +428,23 @@ with tab5:
             obs_input = "Jornada Regular"
 
         if st.button("Registrar Salida y Actualizar Bolsa", use_container_width=True):
-            if he_tot > 0 and not obs_input.strip():
-                st.error("❌ La observación es obligatoria cuando se generan horas extras.")
-            else:
-                try:
-                    ws_asist = get_sheet("Asistencia_Personal")
+            try:
+                ws_asist = get_sheet("Asistencia_Personal")
+                registros_existentes = ws_asist.get_all_values()
+                
+                # Verificamos si ya existe una salida completada para hoy
+                salida_registrada = False
+                if len(registros_existentes) > 1:
+                    for fila in registros_existentes[1:]:
+                        if len(fila) >= 11 and fila[1].strip() == codigo_per.strip() and fila[2].strip() == fecha_actual_str and fila[10].strip() == "Completado":
+                            salida_registrada = True
+                            break
+                
+                if salida_registrada:
+                    st.warning(f"⚠️ ¡Atención! Su registro de salida para la fecha **{fecha_actual_str}** ya fue procesado y completado anteriormente.")
+                elif he_tot > 0 and not obs_input.strip():
+                    st.error("❌ La observación es obligatoria cuando se generan horas extras.")
+                else:
                     id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
                     
                     ws_asist.append_row([
@@ -465,6 +475,6 @@ with tab5:
                             ])
                             
                     st.success("✅ ¡Salida registrada y bolsa de horas actualizada correctamente!")
-                except Exception as e:
-                    st.error(f"Error al registrar salida: {e}")
-               
+            except Exception as e:
+                st.error(f"Error al registrar salida: {e}")
+                   
