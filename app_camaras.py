@@ -362,35 +362,37 @@ with tab4:
     else:
         st.info("Sin registros cargados.")
 
-# --- TAB 5: CONTROL DE ASISTENCIA Y BOLSA DE HORAS ---
-with tab5:
-    st.subheader("⏱️ Control de Asistencia y Bolsa de Horas")
-    st.markdown(f"Colaborador: **{nombre}** | Código: `{codigo_per}` | Rol: `{rol}`")
-    
-    # 1. MOSTRAR SALDO ACTUAL DE LA BOLSA PARA EL COLABORADOR
-    try:
-        df_bolsa_check = cargar_datos("Bolsa_Horas_Compensacion")
-        saldo_usuario = 0.0
-        if not df_bolsa_check.empty and "codigo_personal" in df_bolsa_check.columns:
-            fila_usu = df_bolsa_check[df_bolsa_check["codigo_personal"].astype(str).str.strip() == codigo_per.strip()]
-            if not fila_usu.empty:
-                saldo_usuario = float(fila_usu.iloc[0].get("saldo_actual", 0.0))
-        
-        st.info(f"💼 **Mi Bolsa de Horas Actual:** `{saldo_usuario} horas` disponibles para compensación.")
-    except Exception as e:
-        pass
 
-    st.markdown("---")
-    
-    col_t1, col_t2 = st.columns(2)
-    with col_t1:
-        modo_turno = st.selectbox("Modalidad del Turno de Hoy:", ["Sin Producción", "Con Producción"], key="asist_modo_turno")
-    with col_t2:
-        fecha_actual_str = st.date_input("Fecha de Registro:", datetime.now()).strftime("%Y-%m-%d")
-        
-    st.markdown("---")
-    
-    col_reg1, col_reg2 = st.columns(2)
+# ACTUALIZACIÓN SEGURA EN BOLSA DE HORAS
+                    if h_bolsa > 0:
+                        ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
+                        
+                        # Buscamos directamente la celda donde está el código personal
+                        try:
+                            celda_codigo = ws_bolsa.find(codigo_per.strip())
+                        except:
+                            celda_codigo = None
+                            
+                        if celda_codigo:
+                            fila_idx = celda_codigo.row
+                            # Leemos los valores actuales de esa fila (Columnas C: horas_acumuladas, E: saldo_actual)
+                            vals_fila = ws_bolsa.row_values(fila_idx)
+                            
+                            # Aseguramos leer los valores de forma segura (índice 2 para col C, índice 4 para col E)
+                            actual_acum = float(vals_fila[2]) if len(vals_fila) > 2 and vals_fila[2] != "" else 0.0
+                            actual_saldo = float(vals_fila[4]) if len(vals_fila) > 4 and vals_fila[4] != "" else 0.0
+                            
+                            nuevo_acum = actual_acum + h_bolsa
+                            nuevo_saldo = actual_saldo + h_bolsa
+                            
+                            # Actualizamos las celdas exactas
+                            ws_bolsa.update_cell(fila_idx, 3, str(nuevo_acum))
+                            ws_bolsa.update_cell(fila_idx, 5, str(nuevo_saldo))
+                        else:
+                            # Si no existe en la bolsa, creamos el registro inicial (Columnas A a H)
+                            ws_bolsa.append_row([
+                                codigo_per, nombre, str(h_bolsa), "0", str(h_bolsa), "", "", "Activo"
+                            ])
     
     # INGRESO
     with col_reg1:
