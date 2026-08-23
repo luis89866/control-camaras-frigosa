@@ -76,7 +76,7 @@ def render_module(user, get_sheet, cargar_datos):
     with col_t1:
         modo_turno = st.selectbox("Modalidad del Turno de Hoy:", ["Sin Producción", "Con Producción"], key="asist_modo_turno")
     with col_t2:
-        fecha_actual_str = st.date_input("Fecha de Registro:", datetime.now()).strftime("%Y-%m-%d")
+        fecha_actual_str = st.date_input("Fecha de Registro:", datetime.now(), key="asist_fecha_reg").strftime("%Y-%m-%d")
         
     st.markdown("---")
     
@@ -87,7 +87,7 @@ def render_module(user, get_sheet, cargar_datos):
         st.markdown("#### 📥 Ingreso")
         hora_ingreso_input = st.text_input("Hora de Entrada:", value="20:00", key="h_ingreso_val")
         
-        if st.button("Registrar Ingreso", use_container_width=True):
+        if st.button("Registrar Ingreso", use_container_width=True, key="btn_reg_ingreso"):
             try:
                 ws_asist = get_sheet("Asistencia_Personal")
                 registros_existentes = ws_asist.get_all_values()
@@ -130,7 +130,7 @@ def render_module(user, get_sheet, cargar_datos):
             st.info("ℹ️ Jornada regular (Sin horas extras).")
             obs_input = "Jornada Regular"
 
-        if st.button("Registrar Salida y Actualizar Bolsa", use_container_width=True):
+        if st.button("Registrar Salida y Actualizar Bolsa", use_container_width=True, key="btn_reg_salida"):
             try:
                 ws_asist = get_sheet("Asistencia_Personal")
                 registros_existentes = ws_asist.get_all_values()
@@ -192,7 +192,7 @@ def render_module(user, get_sheet, cargar_datos):
                 
                 lista_personal_bolsa = [f"{r.get('codigo_personal','').strip()} - {r.get('nombre_trabajador','').strip()} (Saldo: {r.get('saldo_actual','0')} hrs)" for _, r in df_bolsa_admin.iterrows()]
                 
-                accion_rrhh = st.radio("Seleccione acción de RR.HH.:", ["Registrar Compensación (Descontar)", "Revertir Compensación (Devolver Horas por Error)"], horizontal=True)
+                accion_rrhh = st.radio("Seleccione acción de RR.HH.:", ["Registrar Compensación (Descontar)", "Revertir Compensación (Devolver Horas por Error)"], horizontal=True, key="radio_accion_rrhh")
                 
                 if accion_rrhh == "Registrar Compensación (Descontar)":
                     if lista_personal_bolsa:
@@ -206,7 +206,7 @@ def render_module(user, get_sheet, cargar_datos):
                             fec_lib = st.date_input("Fecha:", datetime.now(), key="i_f_c").strftime("%Y-%m-%d")
                         with col_l4:
                             st.markdown("<br>", unsafe_allow_html=True)
-                            btn_comp = st.button("Descontar Horas", use_container_width=True)
+                            btn_comp = st.button("Descontar Horas", use_container_width=True, key="btn_desc_horas")
 
                         if btn_comp:
                             ws_h = get_sheet("Historial_Compensaciones")
@@ -246,7 +246,7 @@ def render_module(user, get_sheet, cargar_datos):
                             hrs_dev = st.number_input("Horas a devolver:", min_value=0.5, step=0.5, value=1.0, key="i_h_r")
                         with col_r3:
                             st.markdown("<br>", unsafe_allow_html=True)
-                            btn_rev = st.button("🔄 Devolver", use_container_width=True)
+                            btn_rev = st.button("🔄 Devolver", use_container_width=True, key="btn_rev_horas")
                             
                         if btn_rev:
                             ws_b = get_sheet("Bolsa_Horas_Compensacion")
@@ -281,9 +281,9 @@ def render_module(user, get_sheet, cargar_datos):
             if not df_asist_hist.empty:
                 col_f1, col_f2 = st.columns(2)
                 with col_f1:
-                    mes_sel = st.selectbox("Seleccione Mes de Auditoría:", ["01 - Enero", "02 - Febrero", "03 - Marzo", "04 - Abril", "05 - Mayo", "06 - Junio", "07 - Julio", "08 - Agosto", "09 - Setiembre", "10 - Octubre", "11 - Noviembre", "12 - Diciembre"], index=7, key="sel_mes_auditoria")
+                    mes_sel = st.selectbox("Seleccione Mes de Auditoría:", ["01 - Enero", "02 - Febrero", "03 - Marzo", "04 - Abril", "05 - Mayo", "06 - Junio", "07 - Julio", "08 - Agosto", "09 - Setiembre", "10 - Octubre", "11 - Noviembre", "12 - Diciembre"], index=7, key="sel_mes_auditoria_gerencial")
                 with col_f2:
-                    anio_sel = st.selectbox("Seleccione Año:", ["2026", "2027", "2025"], index=0, key="sel_anio_auditoria")
+                    anio_sel = st.selectbox("Seleccione Año:", ["2026", "2027", "2025"], index=0, key="sel_anio_auditoria_gerencial")
                 
                 mes_num = mes_sel.split(" - ")[0]
                 
@@ -338,7 +338,7 @@ def render_module(user, get_sheet, cargar_datos):
                             data=df_resumen_final.to_csv(index=False).encode("utf-8"),
                             file_name=f"Resumen_Asistencia_Frigosa_{mes_num}_{anio_sel}.csv",
                             mime="text/csv",
-                            key="btn_descarga_csv_resumen"
+                            key="btn_descarga_csv_resumen_final"
                         )
                     else:
                         st.info(f"No hay registros de asistencia para el período {mes_sel} {anio_sel}.")
@@ -346,3 +346,4 @@ def render_module(user, get_sheet, cargar_datos):
                 st.info("Aún no hay datos históricos suficientes en la tabla de asistencia.")
         except Exception as e:
             st.warning(f"Nota: El módulo de resumen mensual se calibrará con los datos de las columnas. Detalle: {e}")
+            
