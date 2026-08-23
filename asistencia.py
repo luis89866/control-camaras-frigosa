@@ -4,9 +4,9 @@ from datetime import datetime
 
 # --- CÁLCULO DE HORAS EXTRAS (REGLA DEFINITIVA FRIGOSA) ---
 def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno):
-    fmt = "%H:%M"
     horas_totales_trabajadas = 0.0
     
+    # Si la hora de salida es menor o igual a la de entrada, significa que cruzó la medianoche (Turno Noche)
     if hora_salida_dt <= hora_entrada_dt:
         delta = (datetime.combine(datetime.today() + timedelta(days=1), hora_salida_dt) - 
                  datetime.combine(datetime.today(), hora_entrada_dt))
@@ -20,10 +20,10 @@ def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno):
     horas_extras_totales = 0.0
 
     if modo_turno == "Con Producción":
-        # Turno de 8:00 a 23:00 = 15 horas totales
+        # Si el turno es de 20:00 a 11:00, son 15 horas trabajadas
         if horas_totales_trabajadas >= 12.0:
-            horas_pagadas = 1.0  # 1 hora fija por cumplir el turno de 12 horas
-            horas_bolsa = horas_totales_trabajadas - 12.0  # El exceso (15 - 12 = 3 horas) va a la bolsa
+            horas_pagadas = 1.0  # 1 hora fija por cumplir las 12 horas de turno
+            horas_bolsa = horas_totales_trabajadas - 12.0  # Exceso a la bolsa (ej: 15 - 12 = 3 horas)
             horas_extras_totales = horas_pagadas + horas_bolsa  # Total: 1 + 3 = 4 horas
         else:
             horas_pagadas = 0.0
