@@ -2,39 +2,55 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
+# --- CÁLCULO DE HORAS EXTRAS (REGLA OFICIAL FRIGOSA) ---
 def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno):
     fmt = "%H:%M"
-    horas_extras_totales = 0.0
+    horas_totales_trabajadas = 0.0
     
+    # Cálculo de horas totales transcurridas en el turno
     if hora_salida_dt <= hora_entrada_dt:
-        hora_corte_nocturno = datetime.strptime("08:00", fmt)
-        if hora_salida_dt > hora_corte_nocturno:
-            horas_extras_totales = (hora_salida_dt - hora_corte_nocturno).seconds / 3600.0
-        else:
-            horas_extras_totales = 0.0
+        # Turno que cruza la medianoche (ej: 20:00 a 08:00 del día siguiente = 12 horas)
+        # O calculamos la diferencia considerando el cambio de día
+        delta = (datetime.combine(datetime.today() + timedelta(days=1), hora_salida_dt) - 
+                 datetime.combine(datetime.today(), hora_entrada_dt))
+        horas_totales_trabajadas = delta.seconds / 3600.0
     else:
-        if modo_turno == "Sin Producción":
-            limite_normal = datetime.strptime("18:00", fmt)
-            if hora_salida_dt > limite_normal:
-                horas_extras_totales = (hora_salida_dt - limite_normal).seconds / 3600.0
-        elif modo_turno == "Con Producción":
-            limite_produccion = datetime.strptime("20:00", fmt)
-            if hora_salida_dt > limite_produccion:
-                horas_extras_totales = (hora_salida_dt - limite_produccion).seconds / 3600.0
+        delta = hora_salida_dt - hora_entrada_dt
+        horas_totales_trabajadas = delta.seconds / 3600.0
 
     horas_pagadas = 0.0
     horas_bolsa = 0.0
-    
-    if horas_extras_totales > 0:
-        if modo_turno == "Con Producción":
-            if horas_extras_totales >= 1.0:
-                horas_pagadas = 1.0
-                horas_bolsa = horas_extras_totales - 1.0
-            else:
-                horas_pagadas = horas_extras_totales
-                horas_bolsa = 0.0
-        elif modo_turno == "Sin Producción":
-            horas_bolsa = horas_extras_totales
+    horas_extras_totales = 0.0
+
+    if modo_turno == "Con Producción":
+        # Si trabajó 12 horas o más
+        if horas_totales_trabajadas >= 12.0:
+            # 1. Por cumplir las 12 horas, gana obligatoriamente 1 hora pagada
+            horas_pagadas = 1.0
+            
+            # 2. Todo el tiempo que pase por encima de las 12 horas se va a la bolsa
+            exceso_12h = horas_totales_trabajadas - 12.0
+            horas_bolsa = exceso_12h
+            
+            # El total de horas extras es la suma de la pagada + la bolsa
+            horas_extras_totales = horas_pagadas + horas_bolsa
+        else:
+            # Si trabajó menos de 12 horas, no hay horas extras
+            horas_pagadas = 0.0
+            horas_bolsa = 0.0
+            horas_extras_totales = 0.0
+            
+    elif modo_turno == "Sin Producción":
+        # Sin producción, si trabaja más de lo normal (ej: más de 8 o 9 horas, o lo que definan), 
+        # todo va a la bolsa según el exceso sobre 8 horas por ejemplo:
+        jornada_regular = 8.0 # (O ajusta si tu jornada sin producción es diferente)
+        if horas_totales_trabajadas > jornada_regular:
+            horas_bolsa = horas_totales_trabajadas - jornada_regular
+            horas_extras_totales = horas_bolsa
+        else:
+            horas_bolsa = 0.0
+            horas_extras_totales = 0.0
+        horas_pagadas = 0.0
 
     return round(horas_extras_totales, 2), round(horas_pagadas, 2), round(horas_bolsa, 2)
 
