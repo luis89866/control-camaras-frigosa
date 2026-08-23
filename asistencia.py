@@ -1,18 +1,15 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- CÁLCULO DE HORAS EXTRAS (REGLA DEFINITIVA FRIGOSA) ---
 def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno):
     horas_totales_trabajadas = 0.0
     
-    # Convertimos las horas a minutos totales del día para comparar con precisión
     minutos_entrada = hora_entrada_dt.hour * 60 + hora_entrada_dt.minute
     minutos_salida = hora_salida_dt.hour * 60 + hora_salida_dt.minute
     
-    # Si la salida en minutos es menor o igual a la entrada, cruzó la medianoche (ej: 20:00 a 11:00)
     if minutos_salida <= minutos_entrada:
-        # Minutos desde las 20:00 hasta la medianoche (24:00) + minutos desde las 00:00 hasta las 11:00
         minutos_totales = (1440 - minutos_entrada) + minutos_salida
     else:
         minutos_totales = minutos_salida - minutos_entrada
@@ -44,6 +41,7 @@ def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno):
         horas_pagadas = 0.0
 
     return round(horas_extras_totales, 2), round(horas_pagadas, 2), round(horas_bolsa, 2)
+
 def render_module(user, get_sheet, cargar_datos):
     nombre = user.get("nombre_completo", user.get("usuario"))
     codigo_per = user.get("codigo_personal", "P000")
@@ -109,6 +107,7 @@ def render_module(user, get_sheet, cargar_datos):
                         id_registro, codigo_per, fecha_actual_str, hora_ingreso_input, "", modo_turno, "0", "0", "0", "Ingreso Registrado", "Pendiente"
                     ])
                     st.success(f"✅ ¡Se registró su ingreso exitosamente a las {hora_ingreso_input}!")
+                    st.rerun()
             except Exception as e:
                 st.error(f"Error al registrar ingreso: {e}")
 
@@ -175,10 +174,13 @@ def render_module(user, get_sheet, cargar_datos):
                             ])
                             
                     st.success("✅ ¡Salida registrada y bolsa de horas actualizada correctamente!")
+                    st.rerun()
             except Exception as e:
                 st.error(f"Error al registrar salida: {e}")
 
-    # PANEL RR.HH.
+    # =========================================================================
+    # PANEL RR.HH. - LIBERACIÓN Y REVERSIÓN
+    # =========================================================================
     if rol in ["Administrador", "JEFE DE TURNO"]:
         st.markdown("---")
         st.subheader("🛠️ Panel de RR.HH. - Liberación y Reversión de Horas")
@@ -258,13 +260,14 @@ def render_module(user, get_sheet, cargar_datos):
                                 
                                 ws_b.update_cell(f_r, 4, str(max(0.0, a_comp - hrs_dev)))
                                 ws_b.update_cell(f_r, 5, str(a_sald + hrs_dev))
-                                get_sheet("Historial_Compensaciones").append_row([f"REV-{datetime.now().strftime('%y%m%d%H%M%S')}", cod_rev, nom_r, f"-{hrs_dev}", datetime.now().strftime("%Y-%m-%d"), f"REVERSIÓN POR {nombre}"])
-                                st.success(f"✅ Se devolvieron {hrs_dev} horas a **{nom_r}**.")
+                                get_sheet("Historial_Compensaciones").append_row([f"REV-{datetime.now().strftime('%y%m%d%H%M%S')}", cod_rev, nom_r, f"-{hrs_dev}", datetime.now().strftime("%Y-%m-%d"), f"REVERSIÓN BY {nombre}"])
+                                st.success(f"✅ Se devolvieron {hrs_dev} horas al saldo de **{nom_r}**.")
                                 st.rerun()
         except Exception as e:
             st.error(f"Error en panel RR.HH.: {e}")
-            # =========================================================================
-    # NUEVO: PANEL GERENCIAL / RESUMEN MENSUAL DE ASISTENCIA Y PLANILLAS (RR.HH.)
+
+    # =========================================================================
+    # PANEL GERENCIAL / RESUMEN MENSUAL DE ASISTENCIA Y PLANILLAS (RR.HH.)
     # =========================================================================
     if rol in ["Administrador", "JEFE DE TURNO"]:
         st.markdown("---")
@@ -272,23 +275,19 @@ def render_module(user, get_sheet, cargar_datos):
         st.caption("Panel ejecutivo para auditoría de días trabajados, tardanzas, permisos, descansos médicos y bolsa de horas.")
         
         try:
-            # Cargamos el historial de asistencias registradas
             df_asist_hist = cargar_datos("Asistencia_Personal")
             df_bolsa_hist = cargar_datos("Bolsa_Horas_Compensacion")
             
             if not df_asist_hist.empty:
-                # Filtro por Mes / Año para el reporte
                 col_f1, col_f2 = st.columns(2)
                 with col_f1:
-                    mes_sel = st.selectbox("Seleccione Mes de Auditoría:", ["01 - Enero", "02 - Febrero", "03 - Marzo", "04 - Abril", "05 - Mayo", "06 - Junio", "07 - Julio", "08 - Agosto", "09 - Setiembre", "10 - Octubre", "11 - Noviembre", "12 - Diciembre"], index=7)
+                    mes_sel = st.selectbox("Seleccione Mes de Auditoría:", ["01 - Enero", "02 - Febrero", "03 - Marzo", "04 - Abril", "05 - Mayo", "06 - Junio", "07 - Julio", "08 - Agosto", "09 - Setiembre", "10 - Octubre", "11 - Noviembre", "12 - Diciembre"], index=7, key="sel_mes_auditoria")
                 with col_f2:
-                    anio_sel = st.selectbox("Seleccione Año:", ["2026", "2027", "2025"], index=0)
+                    anio_sel = st.selectbox("Seleccione Año:", ["2026", "2027", "2025"], index=0, key="sel_anio_auditoria")
                 
                 mes_num = mes_sel.split(" - ")[0]
                 
-                # Procesamos los datos asegurando las columnas clave
                 if "fecha" in df_asist_hist.columns and "codigo_personal" in df_asist_hist.columns:
-                    # Filtramos por el año y mes seleccionado
                     df_asist_hist["mes"] = df_asist_hist["fecha"].astype(str).str.slice(5, 7)
                     df_asist_hist["anio"] = df_asist_hist["fecha"].astype(str).str.slice(0, 4)
                     
@@ -297,28 +296,20 @@ def render_module(user, get_sheet, cargar_datos):
                     if not df_filtrado.empty:
                         st.markdown(f"#### 📋 Consolidado Operativo - Período: {mes_sel} {anio_sel}")
                         
-                        # Agrupamos por colaborador para armar el cuadro maestro tipo planilla
                         resumen_list = []
-                        
                         for cod_p, grupo in df_filtrado.groupby("codigo_personal"):
                             nombre_trab = grupo.iloc[0].get("nombre_trabajador", f"Colaborador {cod_p}")
-                            
-                            # Contadores basados en registros y observaciones
                             dias_trabajados = len(grupo[grupo["estado_registro"] == "Completado"])
                             
-                            # Sumatorias de horas de la base
-                            # Asumimos columnas: [id, codigo, fecha, h_ingreso, h_salida, modo, h_extras, h_pagadas, h_bolsa, observacion, estado]
                             horas_bolsa_acum = pd.to_numeric(grupo["horas_bolsa"], errors="coerce").sum()
                             horas_pagadas_acum = pd.to_numeric(grupo["horas_pagadas"], errors="coerce").sum()
                             
-                            # Detección de tardanzas o permisos por texto en observaciones
                             tardanzas = grupo["observacion"].str.contains("tardanza|tarde", case=False, na=False).sum()
                             permisos = grupo["observacion"].str.contains("permiso", case=False, na=False).sum()
                             descanso_medico = grupo["observacion"].str.contains("medico|descanso medico|dm", case=False, na=False).sum()
                             subsidiados = grupo["observacion"].str.contains("subsidiado", case=False, na=False).sum()
                             vacaciones = grupo["observacion"].str.contains("vacaciones", case=False, na=False).sum()
                             
-                            # Buscamos su saldo actual en la bolsa de horas
                             sald_bolsa = 0.0
                             if not df_bolsa_hist.empty and "codigo_personal" in df_bolsa_hist.columns:
                                 match_b = df_bolsa_hist[df_bolsa_hist["codigo_personal"].astype(str).str.strip() == str(cod_p).strip()]
@@ -342,12 +333,12 @@ def render_module(user, get_sheet, cargar_datos):
                         df_resumen_final = pd.DataFrame(resumen_list)
                         st.dataframe(df_resumen_final, use_container_width=True)
                         
-                        # Botón de descarga para gerencia / administración
                         st.download_button(
                             label="📥 Descargar Reporte Mensual de Asistencia a CSV",
                             data=df_resumen_final.to_csv(index=False).encode("utf-8"),
                             file_name=f"Resumen_Asistencia_Frigosa_{mes_num}_{anio_sel}.csv",
-                            mime="text/csv"
+                            mime="text/csv",
+                            key="btn_descarga_csv_resumen"
                         )
                     else:
                         st.info(f"No hay registros de asistencia para el período {mes_sel} {anio_sel}.")
