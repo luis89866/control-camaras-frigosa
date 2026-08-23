@@ -98,39 +98,49 @@ codigo_per = user.get("codigo_personal", "P000")
 
 # --- BARRA LATERAL ---
 with st.sidebar:
-    st.markdown(f"### 👤 **{nombre}**")
-    st.markdown(f"**Código:** `{codigo_per}`")
-    st.markdown(f"**Rol:** `{rol}`")
+    st.markdown("### 🏢 **ECAPRO Suite**")
+    st.markdown(f"👤 **{nombre}**")
+    st.markdown(f"🔑 Código: `{codigo_per}`")
+    st.markdown(f"🛡️ Rol: `{rol}`")
+    st.markdown("---")
+    st.markdown("##### 🧭 Navegación ERP")
+    
+    # Menú lateral tipo botones corporativos para cambiar de módulo
+    menu_opcion = st.radio(
+        "Seleccione Módulo:",
+        [
+            "⏱️ Módulo 1: Asistencia",
+            "📥 Módulo 2: Ingreso PPTT",
+            "📤 Módulo 3: Despachos",
+            "🗺️ Módulo 4: Layout Cámaras"
+        ],
+        label_visibility="collapsed"
+    )
+    
     st.markdown("---")
     if st.button("🚪 Cerrar Sesión", use_container_width=True):
         st.session_state.logged_in = False
         st.session_state.user_info = None
         st.rerun()
 
-st.title("❄️ ECAPRO - ERP Frigosa")
-
-# --- MENÚ ESTILO ERP (SELECCIÓN DE MÓDULOS) ---
-st.markdown("### Seleccione el Módulo de Operación:")
-
-modulo_seleccionado = st.selectbox(
-    "Módulos Disponibles en el Sistema:",
-    [
-        "MÓDULO 1: Asistencia de Personal",
-        "MÓDULO 2: Ingreso de PPTT (Productos Terminados)",
-        "MÓDULO 3: Despachos de Embarques (Próximamente)",
-        "MÓDULO 4: Layout de Cámaras (Próximamente)"
-    ]
+# --- HEADER PRINCIPAL ESTILO ERP ---
+st.markdown(
+    """
+    <div style="background-color: #1E3D59; padding: 15px; border-radius: 8px; color: white; margin-bottom: 20px;">
+        <h2 style="margin: 0; font-size: 24px;">❄️ ECAPRO - Enterprise Resource Planning (Frigosa)</h2>
+        <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.8;">Sistema Integrado de Control Logístico y de Personal</p>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
-st.markdown("---")
-
-# --- CARGA DEL MÓDULO SELECCIONADO ---
-if "MÓDULO 1" in modulo_seleccionado:
+# --- CARGA DEL MÓDULO SELECCIONADO DESDE LA BARRA LATERAL ---
+if "Módulo 1" in menu_opcion:
     asistencia.render_module(user, get_sheet, cargar_datos)
-elif "MÓDULO 2" in modulo_seleccionado:
+elif "Módulo 2" in menu_opcion:
     pptt.render_module(user, get_sheet, cargar_datos, registrar_log)
-elif "MÓDULO 3" in modulo_seleccionado:
-    st.info("🚧 Módulo 3 en desarrollo.")
-elif "MÓDULO 4" in modulo_seleccionado:
-    st.info("🚧 Módulo 4 en desarrollo.")
+elif "Módulo 3" in menu_opcion:
+    st.info("🚧 Módulo 3 (Despachos y Embarques) en proceso de integración modular.")
+elif "Módulo 4" in menu_opcion:
+    st.info("🚧 Módulo 4 (Layout de Cámaras) en proceso de integración modular.")
       
