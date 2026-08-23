@@ -263,3 +263,95 @@ def render_module(user, get_sheet, cargar_datos):
                                 st.rerun()
         except Exception as e:
             st.error(f"Error en panel RR.HH.: {e}")
+            # =========================================================================
+    # NUEVO: PANEL GERENCIAL / RESUMEN MENSUAL DE ASISTENCIA Y PLANILLAS (RR.HH.)
+    # =========================================================================
+    if rol in ["Administrador", "JEFE DE TURNO"]:
+        st.markdown("---")
+        st.subheader("📊 Resumen Mensual y Control de Asistencia (RR.HH.)")
+        st.caption("Panel ejecutivo para auditoría de días trabajados, tardanzas, permisos, descansos médicos y bolsa de horas.")
+        
+        try:
+            # Cargamos el historial de asistencias registradas
+            df_asist_hist = cargar_datos("Asistencia_Personal")
+            df_bolsa_hist = cargar_datos("Bolsa_Horas_Compensacion")
+            
+            if not df_asist_hist.empty:
+                # Filtro por Mes / Año para el reporte
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    mes_sel = st.selectbox("Seleccione Mes de Auditoría:", ["01 - Enero", "02 - Febrero", "03 - Marzo", "04 - Abril", "05 - Mayo", "06 - Junio", "07 - Julio", "08 - Agosto", "09 - Setiembre", "10 - Octubre", "11 - Noviembre", "12 - Diciembre"], index=7)
+                with col_f2:
+                    anio_sel = st.selectbox("Seleccione Año:", ["2026", "2027", "2025"], index=0)
+                
+                mes_num = mes_sel.split(" - ")[0]
+                
+                # Procesamos los datos asegurando las columnas clave
+                if "fecha" in df_asist_hist.columns and "codigo_personal" in df_asist_hist.columns:
+                    # Filtramos por el año y mes seleccionado
+                    df_asist_hist["mes"] = df_asist_hist["fecha"].astype(str).str.slice(5, 7)
+                    df_asist_hist["anio"] = df_asist_hist["fecha"].astype(str).str.slice(0, 4)
+                    
+                    df_filtrado = df_asist_hist[(df_asist_hist["mes"] == mes_num) & (df_asist_hist["anio"] == anio_sel)]
+                    
+                    if not df_filtrado.empty:
+                        st.markdown(f"#### 📋 Consolidado Operativo - Período: {mes_sel} {anio_sel}")
+                        
+                        # Agrupamos por colaborador para armar el cuadro maestro tipo planilla
+                        resumen_list = []
+                        
+                        for cod_p, grupo in df_filtrado.groupby("codigo_personal"):
+                            nombre_trab = grupo.iloc[0].get("nombre_trabajador", f"Colaborador {cod_p}")
+                            
+                            # Contadores basados en registros y observaciones
+                            dias_trabajados = len(grupo[grupo["estado_registro"] == "Completado"])
+                            
+                            # Sumatorias de horas de la base
+                            # Asumimos columnas: [id, codigo, fecha, h_ingreso, h_salida, modo, h_extras, h_pagadas, h_bolsa, observacion, estado]
+                            horas_bolsa_acum = pd.to_numeric(grupo["horas_bolsa"], errors="coerce").sum()
+                            horas_pagadas_acum = pd.to_numeric(grupo["horas_pagadas"], errors="coerce").sum()
+                            
+                            # Detección de tardanzas o permisos por texto en observaciones
+                            tardanzas = grupo["observacion"].str.contains("tardanza|tarde", case=False, na=False).sum()
+                            permisos = grupo["observacion"].str.contains("permiso", case=False, na=False).sum()
+                            descanso_medico = grupo["observacion"].str.contains("medico|descanso medico|dm", case=False, na=False).sum()
+                            subsidiados = grupo["observacion"].str.contains("subsidiado", case=False, na=False).sum()
+                            vacaciones = grupo["observacion"].str.contains("vacaciones", case=False, na=False).sum()
+                            
+                            # Buscamos su saldo actual en la bolsa de horas
+                            sald_bolsa = 0.0
+                            if not df_bolsa_hist.empty and "codigo_personal" in df_bolsa_hist.columns:
+                                match_b = df_bolsa_hist[df_bolsa_hist["codigo_personal"].astype(str).str.strip() == str(cod_p).strip()]
+                                if not match_b.empty:
+                                    sald_bolsa = float(match_b.iloc[0].get("saldo_actual", 0.0))
+
+                            resumen_list.append({
+                                "Código": cod_p,
+                                "Colaborador": nombre_trab,
+                                "Días Trabajados": dias_trabajados,
+                                "Tardanzas": int(tardanzas),
+                                "Permisos": int(permisos),
+                                "Descanso Médico": int(descanso_medico),
+                                "Subsidiados": int(subsidiados),
+                                "Vacaciones": int(vacaciones),
+                                "H. Pagadas (25%)": round(horas_pagadas_acum, 2),
+                                "H. Compensación / Bolsa (35%)": round(horas_bolsa_acum, 2),
+                                "Saldo Actual en Bolsa": round(sald_bolsa, 2)
+                            })
+                        
+                        df_resumen_final = pd.DataFrame(resumen_list)
+                        st.dataframe(df_resumen_final, use_container_width=True)
+                        
+                        # Botón de descarga para gerencia / administración
+                        st.download_button(
+                            label="📥 Descargar Reporte Mensual de Asistencia a CSV",
+                            data=df_resumen_final.to_csv(index=False).encode("utf-8"),
+                            file_name=f"Resumen_Asistencia_Frigosa_{mes_num}_{anio_sel}.csv",
+                            mime="text/csv"
+                        )
+                    else:
+                        st.info(f"No hay registros de asistencia para el período {mes_sel} {anio_sel}.")
+            else:
+                st.info("Aún no hay datos históricos suficientes en la tabla de asistencia.")
+        except Exception as e:
+            st.warning(f"Nota: El módulo de resumen mensual se calibrará con los datos de las columnas. Detalle: {e}")
