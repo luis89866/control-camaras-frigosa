@@ -500,11 +500,11 @@ with tab5:
             except Exception as e:
                 st.error(f"Error al registrar salida: {e}")
 
-  # 3. PANEL DE ADMINISTRADOR / RR.HH. (CON OPCIÓN DE REVERTIR COMPENSACIÓN)
+ # 3. PANEL DE ADMINISTRADOR / RR.HH. (CON SELECTOR DE NOMBRES PARA EVITAR ERRORES)
     if rol in ["Administrador", "JEFE DE TURNO"]:
         st.markdown("---")
         st.subheader("🛠️ Panel de RR.HH. - Liberación y Reversión de Horas")
-        st.caption("Administra los descuentos por compensación y devuelve horas en caso de error.")
+        st.caption("Administra los descuentos por compensación y devuelve horas seleccionando directamente al colaborador.")
         
         try:
             df_bolsa_admin = cargar_datos("Bolsa_Horas_Compensacion")
@@ -512,113 +512,128 @@ with tab5:
                 st.markdown("#### 💼 Estado Actual de Bolsas")
                 st.dataframe(df_bolsa_admin, use_container_width=True)
                 
-                # Pestañas internas en el panel para separar Liberar vs Revertir
+                # Preparamos la lista de opciones para los selectores (Ej: "P001 - LUIS ENRIQUE FIESTAS ECA")
+                lista_personal_bolsa = []
+                for _, r_row in df_bolsa_admin.iterrows():
+                    c_per = str(r_row.get("codigo_personal", "")).strip()
+                    n_per = str(r_row.get("nombre_trabajador", "")).strip()
+                    s_act = str(r_row.get("saldo_actual", "0"))
+                    lista_personal_bolsa.append(f"{c_per} - {n_per} (Saldo: {s_act} hrs)")
+                
                 accion_rrhh = st.radio("Seleccione acción de RR.HH.:", ["Registrar Compensación (Descontar)", "Revertir Compensación (Devolver Horas por Error)"], horizontal=True)
                 
                 if accion_rrhh == "Registrar Compensación (Descontar)":
-                    col_lib1, col_lib2, col_lib3, col_lib4 = st.columns(4)
-                    with col_lib1:
-                        cod_a_compensar = st.text_input("Código a Compensar (Ej: P002):", key="in_cod_c").strip()
-                    with col_lib2:
-                        horas_a_retirar = st.number_input("Horas a descontar:", min_value=0.5, step=0.5, value=1.0, key="in_hrs_c")
-                    with col_lib3:
-                        fecha_liberacion_manual = st.date_input("Fecha de Compensación:", datetime.now(), key="in_fec_c").strftime("%Y-%m-%d")
-                    with col_lib4:
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        btn_compensar = st.button("Liberar / Descontar Horas", use_container_width=True)
+                    if not lista_personal_bolsa:
+                        st.warning("No hay personal disponible en la bolsa.")
+                    else:
+                        col_lib1, col_lib2, col_lib3, col_lib4 = st.columns([1.5, 1, 1, 1])
+                        with col_lib1:
+                            seleccion_colaborador = st.selectbox("Seleccione Colaborador:", lista_personal_bolsa, key="sel_comp_desc")
+                            # Extraemos el código limpio del selectbox (ej: "P001")
+                            cod_a_compensar = seleccion_colaborador.split(" - ")[0].strip()
+                        with col_lib2:
+                            horas_a_retirar = st.number_input("Horas a descontar:", min_value=0.5, step=0.5, value=1.0, key="in_hrs_c")
+                        with col_lib3:
+                            fecha_liberacion_manual = st.date_input("Fecha de Compensación:", datetime.now(), key="in_fec_c").strftime("%Y-%m-%d")
+                        with col_lib4:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            btn_compensar = st.button("Descontar Horas", use_container_width=True)
 
-                    if btn_compensar:
-                        ws_hist_check = get_sheet("Historial_Compensaciones")
-                        registros_hist = ws_hist_check.get_all_values()
-                        
-                        ya_compensado_hoy = False
-                        if len(registros_hist) > 1:
-                            for fila_h in registros_hist[1:]:
-                                if len(fila_h) >= 5 and fila_h[1].strip() == cod_a_compensar.strip() and fila_h[4].strip() == fecha_liberacion_manual:
-                                    ya_compensado_hoy = True
-                                    break
-                        
-                        if ya_compensado_hoy:
-                            st.error(f"❌ **Restricción de duplicidad:** El colaborador `{cod_a_compensar}` ya cuenta con una compensación registrada para la fecha **{fecha_liberacion_manual}**.")
-                        else:
-                            ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
-                            try:
-                                celda_lib = ws_bolsa.find(cod_a_compensar.strip())
-                            except:
-                                celda_lib = None
-                                
-                            if celda_lib:
-                                fila_idx_lib = celda_lib.row
-                                vals_lib = ws_bolsa.row_values(fila_idx_lib)
-                                
-                                nombre_trabajador_afectado = vals_lib[1] if len(vals_lib) > 1 else ""
-                                actual_comp = float(vals_lib[3]) if len(vals_lib) > 3 and vals_lib[3] != "" else 0.0
-                                actual_saldo = float(vals_lib[4]) if len(vals_lib) > 4 and vals_lib[4] != "" else 0.0
-                                
-                                if horas_a_retirar > actual_saldo:
-                                    st.error(f"❌ **Restricción de saldo:** El colaborador `{cod_a_compensar}` solo tiene un saldo actual de **{actual_saldo} horas** disponibles.")
-                                else:
-                                    nuevo_saldo = max(0.0, actual_saldo - horas_a_retirar)
-                                    nuevo_comp = actual_comp + horas_a_retirar
-                                    
-                                    ws_bolsa.update_cell(fila_idx_lib, 4, str(nuevo_comp))
-                                    ws_bolsa.update_cell(fila_idx_lib, 5, str(nuevo_saldo))
-                                    ws_bolsa.update_cell(fila_idx_lib, 6, fecha_liberacion_manual)
-                                    ws_bolsa.update_cell(fila_idx_lib, 7, nombre)
-                                    
-                                    id_comp = f"COMP-{datetime.now().strftime('%y%m%d%H%M%S')}"
-                                    ws_hist_check.append_row([
-                                        id_comp, cod_a_compensar, nombre_trabajador_afectado, str(horas_a_retirar), fecha_liberacion_manual, nombre
-                                    ])
-                                    
-                                    st.success(f"✅ Se descontaron exitosamente {horas_a_retirar} horas al colaborador `{cod_a_compensar}`.")
-                                    st.rerun()
+                        if btn_compensar:
+                            ws_hist_check = get_sheet("Historial_Compensaciones")
+                            registros_hist = ws_hist_check.get_all_values()
+                            
+                            ya_compensado_hoy = False
+                            if len(registros_hist) > 1:
+                                for fila_h in registros_hist[1:]:
+                                    if len(fila_h) >= 5 and fila_h[1].strip() == cod_a_compensar.strip() and fila_h[4].strip() == fecha_liberacion_manual:
+                                        ya_compensado_hoy = True
+                                        break
+                            
+                            if ya_compensado_hoy:
+                                st.error(f"❌ **Restricción:** El colaborador seleccionado ya cuenta con una compensación registrada para la fecha **{fecha_liberacion_manual**}.")
                             else:
-                                st.error(f"❌ No se encontró el código `{cod_a_compensar}` en la bolsa de horas.")
+                                ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
+                                try:
+                                    celda_lib = ws_bolsa.find(cod_a_compensar.strip())
+                                except:
+                                    celda_lib = None
+                                    
+                                if celda_lib:
+                                    fila_idx_lib = celda_lib.row
+                                    vals_lib = ws_bolsa.row_values(fila_idx_lib)
+                                    
+                                    nombre_trabajador_afectado = vals_lib[1] if len(vals_lib) > 1 else ""
+                                    actual_comp = float(vals_lib[3]) if len(vals_lib) > 3 and vals_lib[3] != "" else 0.0
+                                    actual_saldo = float(vals_lib[4]) if len(vals_lib) > 4 and vals_lib[4] != "" else 0.0
+                                    
+                                    if horas_a_retirar > actual_saldo:
+                                        st.error(f"❌ **Restricción de saldo:** El colaborador tiene un saldo actual de **{actual_saldo} horas**. No puedes descontar {horas_a_retirar} horas.")
+                                    else:
+                                        nuevo_saldo = max(0.0, actual_saldo - horas_a_retirar)
+                                        nuevo_comp = actual_comp + horas_a_retirar
+                                        
+                                        ws_bolsa.update_cell(fila_idx_lib, 4, str(nuevo_comp))
+                                        ws_bolsa.update_cell(fila_idx_lib, 5, str(nuevo_saldo))
+                                        ws_bolsa.update_cell(fila_idx_lib, 6, fecha_liberacion_manual)
+                                        ws_bolsa.update_cell(fila_idx_lib, 7, nombre)
+                                        
+                                        id_comp = f"COMP-{datetime.now().strftime('%y%m%d%H%M%S')}"
+                                        ws_hist_check.append_row([
+                                            id_comp, cod_a_compensar, nombre_trabajador_afectado, str(horas_a_retirar), fecha_liberacion_manual, nombre
+                                        ])
+                                        
+                                        st.success(f"✅ Se descontaron exitosamente {horas_a_retirar} horas a **{nombre_trabajador_afectado}**.")
+                                        st.rerun()
+                                else:
+                                    st.error("❌ No se encontró el registro en la bolsa.")
 
                 elif accion_rrhh == "Revertir Compensación (Devolver Horas por Error)":
-                    st.markdown("#### ↩️ Devolver horas descontadas por error")
-                    col_rev1, col_rev2, col_rev3 = st.columns(3)
-                    with col_rev1:
-                        cod_a_revertir = st.text_input("Código del Personal (Ej: P002):", key="in_cod_r").strip()
-                    with col_rev2:
-                        horas_a_devolver = st.number_input("Horas a devolver:", min_value=0.5, step=0.5, value=1.0, key="in_hrs_r")
-                    with col_rev3:
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        btn_revertir = st.button("🔄 Devolver Horas a la Bolsa", use_container_width=True)
-                        
-                    if btn_revertir:
-                        ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
-                        try:
-                            celda_rev = ws_bolsa.find(cod_a_revertir.strip())
-                        except:
-                            celda_rev = None
+                    if not lista_personal_bolsa:
+                        st.warning("No hay personal disponible.")
+                    else:
+                        st.markdown("#### ↩️ Devolver horas descontadas por error")
+                        col_rev1, col_rev2, col_rev3 = st.columns([2, 1, 1])
+                        with col_rev1:
+                            seleccion_colaborador_rev = st.selectbox("Seleccione Colaborador a Revertir:", lista_personal_bolsa, key="sel_comp_rev")
+                            cod_a_revertir = seleccion_colaborador_rev.split(" - ")[0].strip()
+                        with col_rev2:
+                            horas_a_devolver = st.number_input("Horas a devolver:", min_value=0.5, step=0.5, value=1.0, key="in_hrs_r")
+                        with col_rev3:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            btn_revertir = st.button("🔄 Devolver a la Bolsa", use_container_width=True)
                             
-                        if celda_rev:
-                            fila_idx_r = celda_rev.row
-                            vals_r = ws_bolsa.row_values(fila_idx_r)
-                            
-                            actual_comp = float(vals_r[3]) if len(vals_r) > 3 and vals_r[3] != "" else 0.0
-                            actual_saldo = float(vals_r[4]) if len(vals_r) > 4 and vals_r[4] != "" else 0.0
-                            
-                            # Validar que las horas a descontar del compensado no sean menores a cero
-                            nuevo_comp = max(0.0, actual_comp - horas_a_devolver)
-                            nuevo_saldo = actual_saldo + horas_a_devolver # Se devuelven las horas al saldo actual
-                            
-                            ws_bolsa.update_cell(fila_idx_r, 4, str(nuevo_comp))
-                            ws_bolsa.update_cell(fila_idx_r, 5, str(nuevo_saldo))
-                            
-                            # Opcional: Registramos una nota en el historial de compensaciones indicando la devolución
-                            ws_hist_rev = get_sheet("Historial_Compensaciones")
-                            id_rev = f"REV-{datetime.now().strftime('%y%m%d%H%M%S')}"
-                            ws_hist_rev.append_row([
-                                id_rev, cod_a_revertir, vals_r[1] if len(vals_r) > 1 else "", f"-{horas_a_devolver}", datetime.now().strftime("%Y-%m-%d"), f"REVERSIÓN POR {nombre}"
-                            ])
-                            
-                            st.success(f"✅ Se devolvieron exitosamente {horas_a_devolver} horas al saldo del colaborador `{cod_a_revertir}`.")
-                            st.rerun()
-                        else:
-                            st.error(f"❌ No se encontró el código `{cod_a_revertir}` en la bolsa de horas.")
+                        if btn_revertir:
+                            ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
+                            try:
+                                celda_rev = ws_bolsa.find(cod_a_revertir.strip())
+                            except:
+                                celda_rev = None
+                                
+                            if celda_rev:
+                                fila_idx_r = celda_rev.row
+                                vals_r = ws_bolsa.row_values(fila_idx_r)
+                                nombre_rev = vals_r[1] if len(vals_r) > 1 else ""
+                                
+                                actual_comp = float(vals_r[3]) if len(vals_r) > 3 and vals_r[3] != "" else 0.0
+                                actual_saldo = float(vals_r[4]) if len(vals_r) > 4 and vals_r[4] != "" else 0.0
+                                
+                                nuevo_comp = max(0.0, actual_comp - horas_a_devolver)
+                                nuevo_saldo = actual_saldo + horas_a_devolver
+                                
+                                ws_bolsa.update_cell(fila_idx_r, 4, str(nuevo_comp))
+                                ws_bolsa.update_cell(fila_idx_r, 5, str(nuevo_saldo))
+                                
+                                ws_hist_rev = get_sheet("Historial_Compensaciones")
+                                id_rev = f"REV-{datetime.now().strftime('%y%m%d%H%M%S')}"
+                                ws_hist_rev.append_row([
+                                    id_rev, cod_a_revertir, nombre_rev, f"-{horas_a_devolver}", datetime.now().strftime("%Y-%m-%d"), f"REVERSIÓN POR {nombre}"
+                                ])
+                                
+                                st.success(f"✅ Se devolvieron exitosamente {horas_a_devolver} horas al saldo de **{nombre_rev}**.")
+                                st.rerun()
+                            else:
+                                st.error("❌ No se encontró el registro en la bolsa.")
             else:
                 st.info("No hay registros en la bolsa de horas de compensación.")
         except Exception as e:
