@@ -492,53 +492,61 @@ with tab5:
             except Exception as e:
                 st.error(f"Error al registrar salida: {e}")
 
-    # 3. PANEL DE ADMINISTRADOR / RR.HH. PARA LIBERAR HORAS
+    # 3. PANEL DE ADMINISTRADOR / RR.HH. PARA LIBERAR HORAS (CON VALIDACIÓN DE SALDO Y FECHA MANUAL)
     if rol in ["Administrador", "JEFE DE TURNO"]:
         st.markdown("---")
         st.subheader("🛠️ Panel de RR.HH. - Liberación / Compensación de Horas")
-        st.caption("Permite descontar horas de la bolsa del personal cuando hacen uso de su descanso compensatorio.")
+        st.caption("Permite descontar horas de la bolsa del personal cuando hacen uso de su descanso compensatorio con validación de saldo.")
         
         try:
             df_bolsa_admin = cargar_datos("Bolsa_Horas_Compensacion")
             if not df_bolsa_admin.empty:
                 st.dataframe(df_bolsa_admin, use_container_width=True)
                 
-                col_lib1, col_lib2, col_lib3 = st.columns(3)
+                col_lib1, col_lib2, col_lib3, col_lib4 = st.columns(4)
                 with col_lib1:
-                    cod_a_compensar = st.text_input("Código de Personal a Compensar (Ej: P002):").strip()
+                    cod_a_compensar = st.text_input("Código a Compensar (Ej: P002):").strip()
                 with col_lib2:
-                    horas_a_retirar = st.number_input("Horas a descontar/compensar:", min_value=0.5, step=0.5, value=2.0)
+                    horas_a_retirar = st.number_input("Horas a descontar:", min_value=0.5, step=0.5, value=2.0)
                 with col_lib3:
+                    fecha_liberacion_manual = st.date_input("Fecha de Compensación:", datetime.now()).strftime("%Y-%m-%d")
+                with col_lib4:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("Liberar / Descontar Horas", use_container_width=True):
-                        ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
-                        try:
-                            celda_lib = ws_bolsa.find(cod_a_compensar.strip())
-                        except:
-                            celda_lib = None
-                            
-                        if celda_lib:
-                            fila_idx_lib = celda_lib.row
-                            vals_lib = ws_bolsa.row_values(fila_idx_lib)
-                            
-                            actual_comp = float(vals_lib[3]) if len(vals_lib) > 3 and vals_lib[3] != "" else 0.0
-                            actual_saldo = float(vals_lib[4]) if len(vals_lib) > 4 and vals_lib[4] != "" else 0.0
-                            
+                    btn_compensar = st.button("Liberar / Descontar Horas", use_container_width=True)
+
+                if btn_compensar:
+                    ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
+                    try:
+                        celda_lib = ws_bolsa.find(cod_a_compensar.strip())
+                    except:
+                        celda_lib = None
+                        
+                    if celda_lib:
+                        fila_idx_lib = celda_lib.row
+                        vals_lib = ws_bolsa.row_values(fila_idx_lib)
+                        
+                        actual_comp = float(vals_lib[3]) if len(vals_lib) > 3 and vals_lib[3] != "" else 0.0
+                        actual_saldo = float(vals_lib[4]) if len(vals_lib) > 4 and vals_lib[4] != "" else 0.0
+                        
+                        # RESTRICCIÓN: Validar si las horas a retirar superan el saldo actual disponible
+                        if horas_a_retirar > actual_saldo:
+                            st.error(f"❌ **Restricción de saldo:** El colaborador `{cod_a_compensar}` solo tiene un saldo actual de **{actual_saldo} horas** disponibles. No puedes descontar {horas_a_retirar} horas.")
+                        else:
                             nuevo_saldo = max(0.0, actual_saldo - horas_a_retirar)
                             nuevo_comp = actual_comp + horas_a_retirar
-                            fecha_hoy_str = datetime.now().strftime("%Y-%m-%d")
                             
-                            ws_bolsa.update_cell(fila_idx_lib, 4, str(nuevo_comp)) # horas_compensadas
-                            ws_bolsa.update_cell(fila_idx_lib, 5, str(nuevo_saldo)) # saldo_actual
-                            ws_bolsa.update_cell(fila_idx_lib, 6, fecha_hoy_str)    # fecha_liberacion
-                            ws_bolsa.update_cell(fila_idx_lib, 7, nombre)           # responsable_rrhh
+                            ws_bolsa.update_cell(fila_idx_lib, 4, str(nuevo_comp))           # horas_compensadas
+                            ws_bolsa.update_cell(fila_idx_lib, 5, str(nuevo_saldo))          # saldo_actual
+                            ws_bolsa.update_cell(fila_idx_lib, 6, fecha_liberacion_manual)   # fecha_liberacion manual
+                            ws_bolsa.update_cell(fila_idx_lib, 7, nombre)                    # responsable_rrhh
                             
-                            st.success(f"✅ Se descontaron {horas_a_retirar} horas al colaborador `{cod_a_compensar}` correctamente.")
+                            st.success(f"✅ Se descontaron exitosamente {horas_a_retirar} horas al colaborador `{cod_a_compensar}` con fecha {fecha_liberacion_manual}.")
                             st.rerun()
-                        else:
-                            st.error(f"❌ No se encontró el código `{cod_a_compensar}` en la bolsa de horas.")
+                    else:
+                        st.error(f"❌ No se encontró el código `{cod_a_compensar}` en la bolsa de horas.")
             else:
                 st.info("No hay registros en la bolsa de horas de compensación.")
         except Exception as e:
             st.error(f"Error cargando panel de compensación: {e}")
+            
        
