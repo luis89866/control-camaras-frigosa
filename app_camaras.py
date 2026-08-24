@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 # --- CÁLCULO DE HORAS EXTRAS (REGLA DEFINITIVA FRIGOSA) ---
-def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno):
+def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno): 
     horas_totales_trabajadas = 0.0
     
     minutos_entrada = hora_entrada_dt.hour * 60 + hora_entrada_dt.minute
