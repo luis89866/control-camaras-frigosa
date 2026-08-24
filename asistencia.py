@@ -65,7 +65,7 @@ def render_module(user, get_sheet, cargar_datos):
     st.subheader("⏱️ Control de Asistencia y Bolsa de Horas")
     st.markdown(f"Colaborador: **{nombre}** | Código: `{codigo_per}` | Rol: `{rol}`")
     
-    # 1. VISUALIZADOR DE SALDOS (Bolsa General vs Bolsa Dominical)
+    # 1. VISUALIZADOR DE SALDOS
     try:
         df_bolsa_check = cargar_datos("Bolsa_Horas_Compensacion")
         saldo_general = 0.0
@@ -351,6 +351,16 @@ def render_module(user, get_sheet, cargar_datos):
         try:
             df_asist_hist = cargar_datos("Asistencia_Personal")
             df_bolsa_hist = cargar_datos("Bolsa_Horas_Compensacion")
+            df_users_ref = cargar_datos("Usuarios") # Cargamos la tabla de usuarios para extraer los nombres reales
+            
+            # Diccionario de respaldo código -> nombre real
+            dict_nombres = {}
+            if not df_users_ref.empty and "codigo_personal" in df_users_ref.columns and "nombre_completo" in df_users_ref.columns:
+                for _, u_row in df_users_ref.iterrows():
+                    c_p = str(u_row.get("codigo_personal", "")).strip()
+                    n_c = str(u_row.get("nombre_completo", "")).strip()
+                    if c_p:
+                        dict_nombres[c_p] = n_c
             
             if not df_asist_hist.empty:
                 col_f1, col_f2 = st.columns(2)
@@ -372,7 +382,9 @@ def render_module(user, get_sheet, cargar_datos):
                         
                         resumen_list = []
                         for cod_p, grupo in df_filtrado.groupby("codigo_personal"):
-                            nombre_trab = grupo.iloc[0].get("nombre_trabajador", f"Colaborador {cod_p}")
+                            cod_p_clean = str(cod_p).strip()
+                            # Obtenemos el nombre real desde el diccionario de usuarios, si no existe usamos el guardado en el grupo
+                            nombre_trab = dict_nombres.get(cod_p_clean, grupo.iloc[0].get("nombre_trabajador", f"Colaborador {cod_p_clean}"))
                             
                             obs_serie = grupo["observacion"].astype(str)
                             
@@ -398,13 +410,13 @@ def render_module(user, get_sheet, cargar_datos):
                             sald_general = 0.0
                             sald_dominical = 0.0
                             if not df_bolsa_hist.empty and "codigo_personal" in df_bolsa_hist.columns:
-                                match_b = df_bolsa_hist[df_bolsa_hist["codigo_personal"].astype(str).str.strip() == str(cod_p).strip()]
+                                match_b = df_bolsa_hist[df_bolsa_hist["codigo_personal"].astype(str).str.strip() == cod_p_clean]
                                 if not match_b.empty:
                                     sald_general = float(match_b.iloc[0].get("saldo_actual", 0.0))
                                     sald_dominical = float(match_b.iloc[0].get("saldo_dominical", 0.0) if "saldo_dominical" in match_b.columns else 0.0)
 
                             resumen_list.append({
-                                "Código": cod_p,
+                                "Código": cod_p_clean,
                                 "Colaborador": nombre_trab,
                                 "Días Trabajados": dias_trabajados,
                                 "Feriados": int(feriados_cnt),
