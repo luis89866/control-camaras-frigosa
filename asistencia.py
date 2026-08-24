@@ -47,6 +47,14 @@ def render_module(user, get_sheet, cargar_datos):
     codigo_per = user.get("codigo_personal", "P000")
     rol = user.get("rol", "Visualizador")
 
+    # Inicializamos estados para limpiar campos si es necesario
+    if "h_ingreso_val" not in st.session_state:
+        st.session_state.h_ingreso_val = "20:00"
+    if "h_salida_val" not in st.session_state:
+        st.session_state.h_salida_val = "08:00"
+    if "obs_extra_val" not in st.session_state:
+        st.session_state.obs_extra_val = ""
+
     st.subheader("⏱️ Control de Asistencia y Bolsa de Horas")
     st.markdown(f"Colaborador: **{nombre}** | Código: `{codigo_per}` | Rol: `{rol}`")
     
@@ -85,7 +93,7 @@ def render_module(user, get_sheet, cargar_datos):
     # INGRESO
     with col_reg1:
         st.markdown("#### 📥 Ingreso")
-        hora_ingreso_input = st.text_input("Hora de Entrada:", value="20:00", key="h_ingreso_val")
+        hora_ingreso_input = st.text_input("Hora de Entrada:", key="h_ingreso_val")
         
         if st.button("Registrar Ingreso", use_container_width=True, key="btn_reg_ingreso"):
             try:
@@ -114,7 +122,7 @@ def render_module(user, get_sheet, cargar_datos):
     # SALIDA
     with col_reg2:
         st.markdown("#### 📤 Salida y Cálculo de Extras")
-        hora_salida_input = st.text_input("Hora de Salida:", value="08:00", key="h_salida_val")
+        hora_salida_input = st.text_input("Hora de Salida:", key="h_salida_val")
         
         try:
             h_in_dt = datetime.strptime(hora_ingreso_input.strip(), "%H:%M")
@@ -174,6 +182,10 @@ def render_module(user, get_sheet, cargar_datos):
                             ])
                             
                     st.success("✅ ¡Salida registrada y bolsa de horas actualizada correctamente!")
+                    # Limpiamos los estados de entrada/salida para el siguiente registro
+                    st.session_state.h_ingreso_val = "20:00"
+                    st.session_state.h_salida_val = "08:00"
+                    st.session_state.obs_extra_val = ""
                     st.rerun()
             except Exception as e:
                 st.error(f"Error al registrar salida: {e}")
