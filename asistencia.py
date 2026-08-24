@@ -47,7 +47,6 @@ def render_module(user, get_sheet, cargar_datos):
     codigo_per = user.get("codigo_personal", "P000")
     rol = user.get("rol", "Visualizador")
 
-    # Inicializamos los estados de los inputs para que inicien VACÍOS ("")
     if "h_ingreso_val" not in st.session_state:
         st.session_state.h_ingreso_val = ""
     if "h_salida_val" not in st.session_state:
@@ -118,7 +117,7 @@ def render_module(user, get_sheet, cargar_datos):
                             id_registro, codigo_per, fecha_actual_str, hora_ingreso_input, "", modo_turno, "0", "0", "0", "Ingreso Registrado", "Pendiente"
                         ])
                         st.success(f"✅ ¡Se registró su ingreso exitosamente a las {hora_ingreso_input}!")
-                        st.session_state.h_ingreso_val = ""  # Limpiamos el campo
+                        st.session_state.h_ingreso_val = ""
                         st.rerun()
                 except Exception as e:
                     st.error(f"Error al registrar ingreso: {e}")
@@ -139,7 +138,7 @@ def render_module(user, get_sheet, cargar_datos):
 
         if he_tot > 0:
             st.warning(f"⚠️ Se detectaron **{he_tot} hrs extras** (Pagadas: {h_pag}h | Bolsa: {h_bolsa}h).")
-            obs_input = st.text_input("Observación obligatoria del sobretiempo:", key="obs_extra_val")
+            obs_input = st.text_input("Observación obligatoria del sobretiempo (Ej: Feriado, Licencia, etc.):", key="obs_extra_val")
         else:
             if hora_salida_input.strip():
                 st.info("ℹ️ Jornada regular (Sin horas extras).")
@@ -192,7 +191,6 @@ def render_module(user, get_sheet, cargar_datos):
                                 ])
                                 
                         st.success("✅ ¡Salida registrada y bolsa de horas actualizada correctamente!")
-                        # Limpiamos los campos al terminar
                         st.session_state.h_ingreso_val = ""
                         st.session_state.h_salida_val = ""
                         st.session_state.obs_extra_val = ""
@@ -289,12 +287,12 @@ def render_module(user, get_sheet, cargar_datos):
             st.error(f"Error en panel RR.HH.: {e}")
 
     # =========================================================================
-    # PANEL GERENCIAL / RESUMEN MENSUAL DE ASISTENCIA Y PLANILLAS (RR.HH.)
+    # PANEL GERENCIAL / RESUMEN MENSUAL Y CONTROL DE ASISTENCIA (RR.HH.)
     # =========================================================================
     if rol in ["Administrador", "JEFE DE TURNO"]:
         st.markdown("---")
         st.subheader("📊 Resumen Mensual y Control de Asistencia (RR.HH.)")
-        st.caption("Panel ejecutivo para auditoría de días trabajados, tardanzas, permisos, descansos médicos y bolsa de horas.")
+        st.caption("Panel ejecutivo avanzado: días trabajados, feriados, dominicales, inasistencias, licencias, tardanzas y horas calculadas.")
         
         try:
             df_asist_hist = cargar_datos("Asistencia_Personal")
@@ -326,11 +324,22 @@ def render_module(user, get_sheet, cargar_datos):
                             horas_bolsa_acum = pd.to_numeric(grupo["horas_bolsa"], errors="coerce").sum()
                             horas_pagadas_acum = pd.to_numeric(grupo["horas_pagadas"], errors="coerce").sum()
                             
+                            # Indicadores avanzados por palabras clave en observaciones
                             tardanzas = grupo["observacion"].str.contains("tardanza|tarde", case=False, na=False).sum()
                             permisos = grupo["observacion"].str.contains("permiso", case=False, na=False).sum()
                             descanso_medico = grupo["observacion"].str.contains("medico|descanso medico|dm", case=False, na=False).sum()
                             subsidiados = grupo["observacion"].str.contains("subsidiado", case=False, na=False).sum()
                             vacaciones = grupo["observacion"].str.contains("vacaciones", case=False, na=False).sum()
+                            
+                            # Nuevos indicadores solicitados
+                            feriados_cnt = grupo["observacion"].str.contains("feriado", case=False, na=False).sum()
+                            dominicales_cnt = grupo["observacion"].str.contains("dominical", case=False, na=False).sum()
+                            licencias_cnt = grupo["observacion"].str.contains("licencia", case=False, na=False).sum()
+                            inasistencias_cnt = grupo["observacion"].str.contains("inasistencia|falta", case=False, na=False).sum()
+                            
+                            # Horas calculadas (Asumiendo turno estándar de 12h por incidencia o sumatoria)
+                            horas_inasistencia = inasistencias_cnt * 12.0
+                            horas_feriados = feriados_cnt * 12.0 # O el acumulado de sobretiempo en feriados
                             
                             sald_bolsa = 0.0
                             if not df_bolsa_hist.empty and "codigo_personal" in df_bolsa_hist.columns:
@@ -342,13 +351,19 @@ def render_module(user, get_sheet, cargar_datos):
                                 "Código": cod_p,
                                 "Colaborador": nombre_trab,
                                 "Días Trabajados": dias_trabajados,
+                                "Feriados": int(feriados_cnt),
+                                "Días Dominicales": int(dominicales_cnt),
+                                "Inasistencias": int(inasistencias_cnt),
+                                "Días Licencia": int(licencias_cnt),
                                 "Tardanzas": int(tardanzas),
                                 "Permisos": int(permisos),
                                 "Descanso Médico": int(descanso_medico),
                                 "Subsidiados": int(subsidiados),
                                 "Vacaciones": int(vacaciones),
+                                "H. Inasistencias": round(horas_inasistencia, 2),
+                                "H. Feriados Trabajados": round(horas_feriados, 2),
                                 "H. Pagadas (25%)": round(horas_pagadas_acum, 2),
-                                "H. Compensación / Bolsa (35%)": round(horas_bolsa_acum, 2),
+                                "H. Compensación (35%)": round(horas_bolsa_acum, 2),
                                 "Saldo Actual en Bolsa": round(sald_bolsa, 2)
                             })
                         
@@ -368,4 +383,3 @@ def render_module(user, get_sheet, cargar_datos):
                 st.info("Aún no hay datos históricos suficientes en la tabla de asistencia.")
         except Exception as e:
             st.warning(f"Nota: El módulo de resumen mensual se calibrará con los datos de las columnas. Detalle: {e}")
-            
