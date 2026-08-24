@@ -138,7 +138,7 @@ def render_module(user, get_sheet, cargar_datos):
 
         if he_tot > 0:
             st.warning(f"⚠️ Se detectaron **{he_tot} hrs extras** (Pagadas: {h_pag}h | Bolsa: {h_bolsa}h).")
-            obs_input = st.text_input("Observación obligatoria del sobretiempo (Ej: Feriado, Licencia, etc.):", key="obs_extra_val")
+            obs_input = st.text_input("Motivo u observación operativa del sobretiempo:", key="obs_extra_val", placeholder="Ej: Demora en despacho de contenedores")
         else:
             if hora_salida_input.strip():
                 st.info("ℹ️ Jornada regular (Sin horas extras).")
@@ -199,20 +199,30 @@ def render_module(user, get_sheet, cargar_datos):
                     st.error(f"Error al registrar salida: {e}")
 
     # =========================================================================
-    # PANEL RR.HH. - LIBERACIÓN Y REVERSIÓN
+    # PANEL RR.HH. - LIBERACIÓN, REVERSIÓN E INCIDENCIAS (EXCEPCIONES)
     # =========================================================================
     if rol in ["Administrador", "JEFE DE TURNO"]:
         st.markdown("---")
-        st.subheader("🛠️ Panel de RR.HH. - Liberación y Reversión de Horas")
+        st.subheader("🛠️ Panel de RR.HH. - Gestión, Compensaciones e Incidencias")
+        
         try:
             df_bolsa_admin = cargar_datos("Bolsa_Horas_Compensacion")
             if not df_bolsa_admin.empty:
-                st.markdown("#### 💼 Estado Actual de Bolsas")
+                st.markdown("#### 💼 Estado Actual de Bolsas de Horas")
                 st.dataframe(df_bolsa_admin, use_container_width=True)
                 
                 lista_personal_bolsa = [f"{r.get('codigo_personal','').strip()} - {r.get('nombre_trabajador','').strip()} (Saldo: {r.get('saldo_actual','0')} hrs)" for _, r in df_bolsa_admin.iterrows()]
                 
-                accion_rrhh = st.radio("Seleccione acción de RR.HH.:", ["Registrar Compensación (Descontar)", "Revertir Compensación (Devolver Horas por Error)"], horizontal=True, key="radio_accion_rrhh")
+                accion_rrhh = st.radio(
+                    "Seleccione acción de RR.HH.:", 
+                    [
+                        "Registrar Compensación (Descontar)", 
+                        "Revertir Compensación (Devolver Horas)", 
+                        "Registrar Incidencia / Excepción (Feriado, Licencia, DM, Falta)"
+                    ], 
+                    horizontal=True, 
+                    key="radio_accion_rrhh"
+                )
                 
                 if accion_rrhh == "Registrar Compensación (Descontar)":
                     if lista_personal_bolsa:
@@ -256,7 +266,7 @@ def render_module(user, get_sheet, cargar_datos):
                                         st.success(f"✅ Se descontaron {hrs_ret} horas a **{nom_afec}**.")
                                         st.rerun()
 
-                elif accion_rrhh == "Revertir Compensación (Devolver Horas por Error)":
+                elif accion_rrhh == "Revertir Compensación (Devolver Horas)":
                     if lista_personal_bolsa:
                         col_r1, col_r2, col_r3 = st.columns([2, 1, 1])
                         with col_r1:
@@ -283,6 +293,34 @@ def render_module(user, get_sheet, cargar_datos):
                                 get_sheet("Historial_Compensaciones").append_row([f"REV-{datetime.now().strftime('%y%m%d%H%M%S')}", cod_rev, nom_r, f"-{hrs_dev}", datetime.now().strftime("%Y-%m-%d"), f"REVERSIÓN BY {nombre}"])
                                 st.success(f"✅ Se devolvieron {hrs_dev} horas al saldo de **{nom_r}**.")
                                 st.rerun()
+
+                elif accion_rrhh == "Registrar Incidencia / Excepción (Feriado, Licencia, DM, Falta)":
+                    st.markdown("##### 📝 Registro Oficial de Incidencia / Ausencia")
+                    col_inc1, col_inc2, col_inc3 = st.columns(3)
+                    with col_inc1:
+                        sel_col_inc = st.selectbox("Colaborador:", lista_personal_bolsa, key="s_c_inc")
+                        cod_inc = sel_col_inc.split(" - ")[0].strip()
+                        nom_inc = sel_col_inc.split(" - ")[1].split(" (")[0].strip()
+                    with col_inc2:
+                        tipo_inc = st.selectbox("Tipo de Incidencia:", ["Feriado Laborado", "Día Dominical Laborado", "Descanso Médico (DM)", "Licencia con Goce", "Licencia sin Goce", "Inasistencia / Falta Injustificada", "Vacaciones"], key="tipo_incidencia_sel")
+                    with col_inc3:
+                        fec_inc = st.date_input("Fecha de Incidencia:", datetime.now(), key="fec_inc_val").strftime("%Y-%m-%d")
+                    
+                    obs_inc = st.text_input("Detalle o Motivo de la Incidencia:", key="obs_inc_val", placeholder="Ej: Licencia por motivo de salud familiar")
+                    
+                    if st.button("💾 Guardar Incidencia en Asistencia", use_container_width=True, key="btn_guardar_inc"):
+                        try:
+                            ws_asist = get_sheet("Asistencia_Personal")
+                            id_inc = f"INC-{datetime.now().strftime('%y%m%d%H%M%S')}"
+                            # Registramos como un día completado con la etiqueta exacta de la incidencia en la observación
+                            ws_asist.append_row([
+                                id_inc, cod_inc, fec_inc, "00:00", "00:00", "Con Producción", "0", "0", "0", f"INCIDENCIA: {tipo_inc} - {obs_inc}", "Completado"
+                            ])
+                            st.success(f"✅ Incidencia registrada correctamente para **{nom_inc}** ({tipo_inc}).")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error al registrar incidencia: {e}")
+
         except Exception as e:
             st.error(f"Error en panel RR.HH.: {e}")
 
@@ -319,27 +357,29 @@ def render_module(user, get_sheet, cargar_datos):
                         resumen_list = []
                         for cod_p, grupo in df_filtrado.groupby("codigo_personal"):
                             nombre_trab = grupo.iloc[0].get("nombre_trabajador", f"Colaborador {cod_p}")
-                            dias_trabajados = len(grupo[grupo["estado_registro"] == "Completado"])
+                            
+                            # Filtramos registros normales vs incidencias especiales
+                            obs_serie = grupo["observacion"].astype(str)
+                            
+                            dias_trabajados = len(grupo[(grupo["estado_registro"] == "Completado") & (~obs_serie.str.contains("INCIDENCIA:", case=False, na=False))])
                             
                             horas_bolsa_acum = pd.to_numeric(grupo["horas_bolsa"], errors="coerce").sum()
                             horas_pagadas_acum = pd.to_numeric(grupo["horas_pagadas"], errors="coerce").sum()
                             
-                            # Indicadores avanzados por palabras clave en observaciones
-                            tardanzas = grupo["observacion"].str.contains("tardanza|tarde", case=False, na=False).sum()
-                            permisos = grupo["observacion"].str.contains("permiso", case=False, na=False).sum()
-                            descanso_medico = grupo["observacion"].str.contains("medico|descanso medico|dm", case=False, na=False).sum()
-                            subsidiados = grupo["observacion"].str.contains("subsidiado", case=False, na=False).sum()
-                            vacaciones = grupo["observacion"].str.contains("vacaciones", case=False, na=False).sum()
+                            # Conteo limpio de incidencias registradas por RR.HH.
+                            feriados_cnt = obs_serie.str.contains("Feriado Laborado", case=False, na=False).sum()
+                            dominicales_cnt = obs_serie.str.contains("Día Dominical Laborado", case=False, na=False).sum()
+                            descanso_medico = obs_serie.str.contains("Descanso Médico", case=False, na=False).sum()
+                            licencias_cnt = obs_serie.str.contains("Licencia", case=False, na=False).sum()
+                            inasistencias_cnt = obs_serie.str.contains("Inasistencia|Falta", case=False, na=False).sum()
+                            vacaciones = obs_serie.str.contains("Vacaciones", case=False, na=False).sum()
                             
-                            # Nuevos indicadores solicitados
-                            feriados_cnt = grupo["observacion"].str.contains("feriado", case=False, na=False).sum()
-                            dominicales_cnt = grupo["observacion"].str.contains("dominical", case=False, na=False).sum()
-                            licencias_cnt = grupo["observacion"].str.contains("licencia", case=False, na=False).sum()
-                            inasistencias_cnt = grupo["observacion"].str.contains("inasistencia|falta", case=False, na=False).sum()
+                            tardanzas = obs_serie.str.contains("tardanza|tarde", case=False, na=False).sum()
+                            permisos = obs_serie.str.contains("permiso", case=False, na=False).sum()
                             
-                            # Horas calculadas (Asumiendo turno estándar de 12h por incidencia o sumatoria)
+                            # Horas calculadas
                             horas_inasistencia = inasistencias_cnt * 12.0
-                            horas_feriados = feriados_cnt * 12.0 # O el acumulado de sobretiempo en feriados
+                            horas_feriados = feriados_cnt * 12.0
                             
                             sald_bolsa = 0.0
                             if not df_bolsa_hist.empty and "codigo_personal" in df_bolsa_hist.columns:
@@ -358,7 +398,6 @@ def render_module(user, get_sheet, cargar_datos):
                                 "Tardanzas": int(tardanzas),
                                 "Permisos": int(permisos),
                                 "Descanso Médico": int(descanso_medico),
-                                "Subsidiados": int(subsidiados),
                                 "Vacaciones": int(vacaciones),
                                 "H. Inasistencias": round(horas_inasistencia, 2),
                                 "H. Feriados Trabajados": round(horas_feriados, 2),
