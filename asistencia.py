@@ -47,11 +47,11 @@ def render_module(user, get_sheet, cargar_datos):
     codigo_per = user.get("codigo_personal", "P000")
     rol = user.get("rol", "Visualizador")
 
-    # Inicializamos estados para limpiar campos si es necesario
+    # Inicializamos los estados de los inputs para que inicien VACÍOS ("")
     if "h_ingreso_val" not in st.session_state:
-        st.session_state.h_ingreso_val = "20:00"
+        st.session_state.h_ingreso_val = ""
     if "h_salida_val" not in st.session_state:
-        st.session_state.h_salida_val = "08:00"
+        st.session_state.h_salida_val = ""
     if "obs_extra_val" not in st.session_state:
         st.session_state.obs_extra_val = ""
 
@@ -93,102 +93,112 @@ def render_module(user, get_sheet, cargar_datos):
     # INGRESO
     with col_reg1:
         st.markdown("#### 📥 Ingreso")
-        hora_ingreso_input = st.text_input("Hora de Entrada:", key="h_ingreso_val")
+        hora_ingreso_input = st.text_input("Hora de Entrada (Ej: 20:00):", key="h_ingreso_val", placeholder="Ej: 20:00")
         
         if st.button("Registrar Ingreso", use_container_width=True, key="btn_reg_ingreso"):
-            try:
-                ws_asist = get_sheet("Asistencia_Personal")
-                registros_existentes = ws_asist.get_all_values()
-                
-                ya_registrado = False
-                if len(registros_existentes) > 1:
-                    for fila in registros_existentes[1:]:
-                        if len(fila) >= 3 and fila[1].strip() == codigo_per.strip() and fila[2].strip() == fecha_actual_str:
-                            ya_registrado = True
-                            break
-                
-                if ya_registrado:
-                    st.warning(f"⚠️ ¡Atención! Su registro de ingreso para la fecha **{fecha_actual_str}** ya ha sido registrado anteriormente.")
-                else:
-                    id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
-                    ws_asist.append_row([
-                        id_registro, codigo_per, fecha_actual_str, hora_ingreso_input, "", modo_turno, "0", "0", "0", "Ingreso Registrado", "Pendiente"
-                    ])
-                    st.success(f"✅ ¡Se registró su ingreso exitosamente a las {hora_ingreso_input}!")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Error al registrar ingreso: {e}")
+            if not hora_ingreso_input.strip():
+                st.error("❌ Por favor ingrese la hora de entrada.")
+            else:
+                try:
+                    ws_asist = get_sheet("Asistencia_Personal")
+                    registros_existentes = ws_asist.get_all_values()
+                    
+                    ya_registrado = False
+                    if len(registros_existentes) > 1:
+                        for fila in registros_existentes[1:]:
+                            if len(fila) >= 3 and fila[1].strip() == codigo_per.strip() and fila[2].strip() == fecha_actual_str:
+                                ya_registrado = True
+                                break
+                    
+                    if ya_registrado:
+                        st.warning(f"⚠️ ¡Atención! Su registro de ingreso para la fecha **{fecha_actual_str}** ya ha sido registrado anteriormente.")
+                    else:
+                        id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
+                        ws_asist.append_row([
+                            id_registro, codigo_per, fecha_actual_str, hora_ingreso_input, "", modo_turno, "0", "0", "0", "Ingreso Registrado", "Pendiente"
+                        ])
+                        st.success(f"✅ ¡Se registró su ingreso exitosamente a las {hora_ingreso_input}!")
+                        st.session_state.h_ingreso_val = ""  # Limpiamos el campo
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Error al registrar ingreso: {e}")
 
     # SALIDA
     with col_reg2:
         st.markdown("#### 📤 Salida y Cálculo de Extras")
-        hora_salida_input = st.text_input("Hora de Salida:", key="h_salida_val")
+        hora_salida_input = st.text_input("Hora de Salida (Ej: 08:00):", key="h_salida_val", placeholder="Ej: 08:00")
         
-        try:
-            h_in_dt = datetime.strptime(hora_ingreso_input.strip(), "%H:%M")
-            h_sal_dt = datetime.strptime(hora_salida_input.strip(), "%H:%M")
-            he_tot, h_pag, h_bolsa = calcular_horas_extras(h_in_dt, h_sal_dt, modo_turno)
-        except:
-            he_tot, h_pag, h_bolsa = 0.0, 0.0, 0.0
+        he_tot, h_pag, h_bolsa = 0.0, 0.0, 0.0
+        if hora_ingreso_input.strip() and hora_salida_input.strip():
+            try:
+                h_in_dt = datetime.strptime(hora_ingreso_input.strip(), "%H:%M")
+                h_sal_dt = datetime.strptime(hora_salida_input.strip(), "%H:%M")
+                he_tot, h_pag, h_bolsa = calcular_horas_extras(h_in_dt, h_sal_dt, modo_turno)
+            except:
+                pass
 
         if he_tot > 0:
             st.warning(f"⚠️ Se detectaron **{he_tot} hrs extras** (Pagadas: {h_pag}h | Bolsa: {h_bolsa}h).")
             obs_input = st.text_input("Observación obligatoria del sobretiempo:", key="obs_extra_val")
         else:
-            st.info("ℹ️ Jornada regular (Sin horas extras).")
+            if hora_salida_input.strip():
+                st.info("ℹ️ Jornada regular (Sin horas extras).")
             obs_input = "Jornada Regular"
 
         if st.button("Registrar Salida y Actualizar Bolsa", use_container_width=True, key="btn_reg_salida"):
-            try:
-                ws_asist = get_sheet("Asistencia_Personal")
-                registros_existentes = ws_asist.get_all_values()
-                
-                salida_registrada = False
-                if len(registros_existentes) > 1:
-                    for fila in registros_existentes[1:]:
-                        if len(fila) >= 11 and fila[1].strip() == codigo_per.strip() and fila[2].strip() == fecha_actual_str and fila[10].strip() == "Completado":
-                            salida_registrada = True
-                            break
-                
-                if salida_registrada:
-                    st.warning(f"⚠️ ¡Atención! Su registro de salida para la fecha **{fecha_actual_str}** ya fue procesado y completado anteriormente.")
-                elif he_tot > 0 and not obs_input.strip():
-                    st.error("❌ La observación es obligatoria cuando se generan horas extras.")
-                else:
-                    id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
-                    ws_asist.append_row([
-                        id_registro, codigo_per, fecha_actual_str, hora_ingreso_input, hora_salida_input, 
-                        modo_turno, str(he_tot), str(h_pag), str(h_bolsa), obs_input, "Completado"
-                    ])
+            if not hora_salida_input.strip():
+                st.error("❌ Por favor ingrese la hora de salida.")
+            else:
+                try:
+                    ws_asist = get_sheet("Asistencia_Personal")
+                    registros_existentes = ws_asist.get_all_values()
                     
-                    if h_bolsa > 0:
-                        ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
-                        try:
-                            celda_codigo = ws_bolsa.find(codigo_per.strip())
-                        except:
-                            celda_codigo = None
-                            
-                        if celda_codigo:
-                            fila_idx = celda_codigo.row
-                            vals_fila = ws_bolsa.row_values(fila_idx)
-                            actual_acum = float(vals_fila[2]) if len(vals_fila) > 2 and vals_fila[2] != "" else 0.0
-                            actual_saldo = float(vals_fila[4]) if len(vals_fila) > 4 and vals_fila[4] != "" else 0.0
-                            
-                            ws_bolsa.update_cell(fila_idx, 3, str(actual_acum + h_bolsa))
-                            ws_bolsa.update_cell(fila_idx, 5, str(actual_saldo + h_bolsa))
-                        else:
-                            ws_bolsa.append_row([
-                                codigo_per, nombre, str(h_bolsa), "0", str(h_bolsa), "", "", "Activo"
-                            ])
-                            
-                    st.success("✅ ¡Salida registrada y bolsa de horas actualizada correctamente!")
-                    # Limpiamos los estados de entrada/salida para el siguiente registro
-                    st.session_state.h_ingreso_val = "20:00"
-                    st.session_state.h_salida_val = "08:00"
-                    st.session_state.obs_extra_val = ""
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Error al registrar salida: {e}")
+                    salida_registrada = False
+                    if len(registros_existentes) > 1:
+                        for fila in registros_existentes[1:]:
+                            if len(fila) >= 11 and fila[1].strip() == codigo_per.strip() and fila[2].strip() == fecha_actual_str and fila[10].strip() == "Completado":
+                                salida_registrada = True
+                                break
+                    
+                    if salida_registrada:
+                        st.warning(f"⚠️ ¡Atención! Su registro de salida para la fecha **{fecha_actual_str}** ya fue procesado y completado anteriormente.")
+                    elif he_tot > 0 and not obs_input.strip():
+                        st.error("❌ La observación es obligatoria cuando se generan horas extras.")
+                    else:
+                        id_registro = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
+                        ws_asist.append_row([
+                            id_registro, codigo_per, fecha_actual_str, hora_ingreso_input, hora_salida_input, 
+                            modo_turno, str(he_tot), str(h_pag), str(h_bolsa), obs_input, "Completado"
+                        ])
+                        
+                        if h_bolsa > 0:
+                            ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
+                            try:
+                                celda_codigo = ws_bolsa.find(codigo_per.strip())
+                            except:
+                                celda_codigo = None
+                                
+                            if celda_codigo:
+                                fila_idx = celda_codigo.row
+                                vals_fila = ws_bolsa.row_values(fila_idx)
+                                actual_acum = float(vals_fila[2]) if len(vals_fila) > 2 and vals_fila[2] != "" else 0.0
+                                actual_saldo = float(vals_fila[4]) if len(vals_fila) > 4 and vals_fila[4] != "" else 0.0
+                                
+                                ws_bolsa.update_cell(fila_idx, 3, str(actual_acum + h_bolsa))
+                                ws_bolsa.update_cell(fila_idx, 5, str(actual_saldo + h_bolsa))
+                            else:
+                                ws_bolsa.append_row([
+                                    codigo_per, nombre, str(h_bolsa), "0", str(h_bolsa), "", "", "Activo"
+                                ])
+                                
+                        st.success("✅ ¡Salida registrada y bolsa de horas actualizada correctamente!")
+                        # Limpiamos los campos al terminar
+                        st.session_state.h_ingreso_val = ""
+                        st.session_state.h_salida_val = ""
+                        st.session_state.obs_extra_val = ""
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Error al registrar salida: {e}")
 
     # =========================================================================
     # PANEL RR.HH. - LIBERACIÓN Y REVERSIÓN
@@ -358,3 +368,4 @@ def render_module(user, get_sheet, cargar_datos):
                 st.info("Aún no hay datos históricos suficientes en la tabla de asistencia.")
         except Exception as e:
             st.warning(f"Nota: El módulo de resumen mensual se calibrará con los datos de las columnas. Detalle: {e}")
+            
