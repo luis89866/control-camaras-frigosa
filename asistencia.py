@@ -259,6 +259,66 @@ def render_module(user, get_sheet, cargar_datos):
                         st.error(f"Error al registrar salida: {e}")
 
     # =========================================================================
+    # NUEVA ZONA: VISTA DE CONTROL DIARIO PARA EL TARIADOR / JEFE DE TURNO
+    # =========================================================================
+    if rol in ["Administrador", "JEFE DE TURNO"]:
+        st.markdown("---")
+        st.subheader("📋 Control Diario de Asistencias (Vista de Turno)")
+        st.caption("Monitoreo en tiempo real del personal que ha registrado ingresos y salidas en la fecha seleccionada.")
+        
+        try:
+            df_asist_full = cargar_datos("Asistencia_Personal")
+            df_users_ref = cargar_datos("Usuarios")
+            
+            # Diccionario de nombres reales
+            dict_nombres = {}
+            if not df_users_ref.empty and "codigo_personal" in df_users_ref.columns and "nombre_completo" in df_users_ref.columns:
+                for _, u_row in df_users_ref.iterrows():
+                    c_p = str(u_row.get("codigo_personal", "")).strip()
+                    n_c = str(u_row.get("nombre_completo", "")).strip()
+                    if c_p:
+                        dict_nombres[c_p] = n_c
+
+            if not df_asist_full.empty and "fecha" in df_asist_full.columns:
+                col_f_fil1, col_f_fil2 = st.columns([1, 2])
+                with col_f_fil1:
+                    fecha_filtro_obj = st.date_input("Filtrar por Fecha:", datetime.now(), key="filtro_fecha_diaria_tariador")
+                
+                fecha_filtro_str = fecha_filtro_obj.strftime("%Y-%m-%d")
+                
+                # Filtramos las filas de esa fecha exacta
+                df_dia_actual = df_asist_full[df_asist_full["fecha"].astype(str).str.strip() == fecha_filtro_str].copy()
+                
+                if not df_dia_actual.empty:
+                    # Reemplazamos el código por el nombre real si existe
+                    tabla_mostrada = []
+                    for _, r in df_dia_actual.iterrows():
+                        c_code = str(r.get("codigo_personal", "")).strip()
+                        n_real = dict_nombres.get(c_code, r.get("nombre_trabajador", f"Colaborador {c_code}"))
+                        
+                        tabla_mostrada.append({
+                            "Código": c_code,
+                            "Colaborador": n_real,
+                            "Fecha": r.get("fecha"),
+                            "Hora Entrada": r.get("hora_entrada"),
+                            "Hora Salida": r.get("hora_salida"),
+                            "Modalidad": r.get("modo_turno"),
+                            "H. Extras": r.get("horas_extras_totales", r.get("horas_bolsa", "0")),
+                            "Estado": r.get("estado_registro"),
+                            "Observación / Detalle": r.get("observacion")
+                        })
+                    
+                    df_view = pd.DataFrame(tabla_mostrada)
+                    st.dataframe(df_view, use_container_width=True)
+                    st.success(f"📊 Total de registros encontrados para el {fecha_filtro_str}: **{len(df_view)} colaboradores**.")
+                else:
+                    st.info(f"ℹ️ No hay registros de asistencia guardados para la fecha seleccionada ({fecha_filtro_str}).")
+            else:
+                st.info("Aún no hay datos de asistencia para mostrar en el control diario.")
+        except Exception as e:
+            st.warning(f"Nota en control diario: {e}")
+
+    # =========================================================================
     # PANEL RR.HH. - GESTIÓN Y COMPENSACIONES
     # =========================================================================
     if rol in ["Administrador", "JEFE DE TURNO"]:
@@ -351,9 +411,8 @@ def render_module(user, get_sheet, cargar_datos):
         try:
             df_asist_hist = cargar_datos("Asistencia_Personal")
             df_bolsa_hist = cargar_datos("Bolsa_Horas_Compensacion")
-            df_users_ref = cargar_datos("Usuarios") # Cargamos la tabla de usuarios para extraer los nombres reales
+            df_users_ref = cargar_datos("Usuarios")
             
-            # Diccionario de respaldo código -> nombre real
             dict_nombres = {}
             if not df_users_ref.empty and "codigo_personal" in df_users_ref.columns and "nombre_completo" in df_users_ref.columns:
                 for _, u_row in df_users_ref.iterrows():
@@ -383,7 +442,6 @@ def render_module(user, get_sheet, cargar_datos):
                         resumen_list = []
                         for cod_p, grupo in df_filtrado.groupby("codigo_personal"):
                             cod_p_clean = str(cod_p).strip()
-                            # Obtenemos el nombre real desde el diccionario de usuarios, si no existe usamos el guardado en el grupo
                             nombre_trab = dict_nombres.get(cod_p_clean, grupo.iloc[0].get("nombre_trabajador", f"Colaborador {cod_p_clean}"))
                             
                             obs_serie = grupo["observacion"].astype(str)
