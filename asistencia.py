@@ -148,12 +148,12 @@ def render_module(user, get_sheet, cargar_datos):
                         st.error(f"Error: {e}")
 
     # =========================================================================
-    # ZONA 1: CONTROL DIARIO PARA EL TARIADOR (DIRECTO PARA VISUALIZAR HOY)
+    # ZONA: CONTROL DIARIO PARA EL TARIADOR (MOSTRANDO ÚLTIMOS REGISTROS)
     # =========================================================================
     if rol in ["Administrador", "JEFE DE TURNO"]:
         st.markdown("---")
         st.subheader("📋 Control Diario de Asistencias (Vista de Turno)")
-        st.caption("Monitoreo en tiempo real del personal que ha registrado ingresos y salidas.")
+        st.caption("Monitoreo en tiempo real de los últimos ingresos y salidas registrados.")
         
         try:
             df_asist_full = cargar_datos("Asistencia_Personal")
@@ -167,38 +167,32 @@ def render_module(user, get_sheet, cargar_datos):
                     if c_p:
                         dict_nombres[c_p] = n_c
 
-            if not df_asist_full.empty and "fecha" in df_asist_full.columns:
-                col_f1, _ = st.columns([1, 2])
-                with col_f1:
-                    fecha_filtro_obj = st.date_input("Filtrar por Fecha:", datetime.now(), key="filtro_fecha_diaria_tariador")
-                
-                fecha_filtro_str = fecha_filtro_obj.strftime("%Y-%m-%d")
-                df_dia_actual = df_asist_full[df_asist_full["fecha"].astype(str).str.strip() == fecha_filtro_str].copy()
-                
-                if not df_dia_actual.empty:
-                    tabla_mostrada = []
-                    for _, r in df_dia_actual.iterrows():
-                        c_code = str(r.get("codigo_personal", "")).strip()
-                        n_real = dict_nombres.get(c_code, r.get("nombre_trabajador", f"Colaborador {c_code}"))
-                        
-                        tabla_mostrada.append({
-                            "Código": c_code,
-                            "Colaborador": n_real,
-                            "Fecha": r.get("fecha"),
-                            "Hora Entrada": r.get("hora_entrada"),
-                            "Hora Salida": r.get("hora_salida"),
-                            "Modalidad": r.get("modo_turno"),
-                            "Estado": r.get("estado_registro"),
-                            "Observación": r.get("observacion")
-                        })
-                    st.dataframe(pd.DataFrame(tabla_mostrada), use_container_width=True)
-                else:
-                    st.info(f"ℹ️ No hay registros para la fecha {fecha_filtro_str}.")
+            if not df_asist_full.empty:
+                tabla_mostrada = []
+                # Tomamos las últimas 20 filas registradas para garantizar que aparezcan siempre
+                df_ultimos = df_asist_full.tail(20)
+                for _, r in df_ultimos.iterrows():
+                    c_code = str(r.get("codigo_personal", "")).strip()
+                    n_real = dict_nombres.get(c_code, r.get("nombre_trabajador", f"Colaborador {c_code}"))
+                    
+                    tabla_mostrada.append({
+                        "Código": c_code,
+                        "Colaborador": n_real,
+                        "Fecha": r.get("fecha"),
+                        "Hora Entrada": r.get("hora_entrada"),
+                        "Hora Salida": r.get("hora_salida"),
+                        "Modalidad": r.get("modo_turno"),
+                        "Estado": r.get("estado_registro"),
+                        "Observación": r.get("observacion")
+                    })
+                st.dataframe(pd.DataFrame(tabla_mostrada), use_container_width=True)
+            else:
+                st.info("ℹ️ Aún no hay registros de asistencia guardados.")
         except Exception as e:
             st.warning(f"Error en control diario: {e}")
 
         # =========================================================================
-        # ZONA 2: PANEL GERENCIAL / RESUMEN MENSUAL
+        # PANEL GERENCIAL / RESUMEN MENSUAL
         # =========================================================================
         st.markdown("---")
         st.subheader("📊 Resumen Mensual y Control de Asistencia (RR.HH.)")
