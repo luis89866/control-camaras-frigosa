@@ -148,52 +148,51 @@ def render_module(user, get_sheet, cargar_datos):
                         st.error(f"Error: {e}")
 
     # =========================================================================
-    # ZONA PRINCIPAL PARA TARIADORES / ADMIN: CONTROL DIARIO DE ASISTENCIAS
+    # TABLA DE CONTROL DIARIO DEL TARIADOR (VISIBLE DIRECTAMENTE AQUÍ)
+    # =========================================================================
+    st.markdown("---")
+    st.subheader("📋 Control Diario de Asistencias (Vista de Turno)")
+    st.caption("Monitoreo en tiempo real de los ingresos y salidas registrados por el personal.")
+    
+    try:
+        df_asist_full = cargar_datos("Asistencia_Personal")
+        df_users_ref = cargar_datos("Usuarios")
+        
+        dict_nombres = {}
+        if not df_users_ref.empty and "codigo_personal" in df_users_ref.columns and "nombre_completo" in df_users_ref.columns:
+            for _, u_row in df_users_ref.iterrows():
+                c_p = str(u_row.get("codigo_personal", "")).strip()
+                n_c = str(u_row.get("nombre_completo", "")).strip()
+                if c_p:
+                    dict_nombres[c_p] = n_c
+
+        if not df_asist_full.empty:
+            tabla_mostrada = []
+            df_ultimos = df_asist_full.tail(25)
+            for _, r in df_ultimos.iterrows():
+                c_code = str(r.get("codigo_personal", "")).strip()
+                n_real = dict_nombres.get(c_code, r.get("nombre_trabajador", f"Colaborador {c_code}"))
+                
+                tabla_mostrada.append({
+                    "Código": c_code,
+                    "Colaborador": n_real,
+                    "Fecha": r.get("fecha"),
+                    "Hora Entrada": r.get("hora_entrada"),
+                    "Hora Salida": r.get("hora_salida"),
+                    "Modalidad": r.get("modo_turno"),
+                    "Estado": r.get("estado_registro"),
+                    "Observación": r.get("observacion")
+                })
+            st.dataframe(pd.DataFrame(tabla_mostrada), use_container_width=True)
+        else:
+            st.info("ℹ️ Aún no hay registros de asistencia guardados.")
+    except Exception as e:
+        st.warning(f"Error en control diario: {e}")
+
+    # =========================================================================
+    # PANEL RR.HH. - GESTIÓN Y COMPENSACIONES (SOLO ADMIN / JEFE)
     # =========================================================================
     if rol in ["Administrador", "JEFE DE TURNO"]:
-        st.markdown("---")
-        st.subheader("📋 Control Diario de Asistencias (Vista de Turno)")
-        st.caption("Monitoreo en tiempo real de los ingresos y salidas registrados por el personal.")
-        
-        try:
-            df_asist_full = cargar_datos("Asistencia_Personal")
-            df_users_ref = cargar_datos("Usuarios")
-            
-            dict_nombres = {}
-            if not df_users_ref.empty and "codigo_personal" in df_users_ref.columns and "nombre_completo" in df_users_ref.columns:
-                for _, u_row in df_users_ref.iterrows():
-                    c_p = str(u_row.get("codigo_personal", "")).strip()
-                    n_c = str(u_row.get("nombre_completo", "")).strip()
-                    if c_p:
-                        dict_nombres[c_p] = n_c
-
-            if not df_asist_full.empty:
-                # Mostramos los últimos registros de forma directa
-                tabla_mostrada = []
-                df_ultimos = df_asist_full.tail(25)
-                for _, r in df_ultimos.iterrows():
-                    c_code = str(r.get("codigo_personal", "")).strip()
-                    n_real = dict_nombres.get(c_code, r.get("nombre_trabajador", f"Colaborador {c_code}"))
-                    
-                    tabla_mostrada.append({
-                        "Código": c_code,
-                        "Colaborador": n_real,
-                        "Fecha": r.get("fecha"),
-                        "Hora Entrada": r.get("hora_entrada"),
-                        "Hora Salida": r.get("hora_salida"),
-                        "Modalidad": r.get("modo_turno"),
-                        "Estado": r.get("estado_registro"),
-                        "Observación": r.get("observacion")
-                    })
-                st.dataframe(pd.DataFrame(tabla_mostrada), use_container_width=True)
-            else:
-                st.info("ℹ️ Aún no hay registros de asistencia guardados.")
-        except Exception as e:
-            st.warning(f"Error en control diario: {e}")
-
-        # =========================================================================
-        # PANEL RR.HH. - GESTIÓN Y COMPENSACIONES
-        # =========================================================================
         st.markdown("---")
         st.subheader("🛠️ Panel de RR.HH. - Gestión y Compensaciones")
         try:
