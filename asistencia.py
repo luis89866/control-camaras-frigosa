@@ -148,12 +148,12 @@ def render_module(user, get_sheet, cargar_datos):
                         st.error(f"Error: {e}")
 
     # =========================================================================
-    # ZONA: CONTROL DIARIO PARA EL TARIADOR (MOSTRANDO ÚLTIMOS REGISTROS)
+    # ZONA PRINCIPAL PARA TARIADORES / ADMIN: CONTROL DIARIO DE ASISTENCIAS
     # =========================================================================
     if rol in ["Administrador", "JEFE DE TURNO"]:
         st.markdown("---")
         st.subheader("📋 Control Diario de Asistencias (Vista de Turno)")
-        st.caption("Monitoreo en tiempo real de los últimos ingresos y salidas registrados.")
+        st.caption("Monitoreo en tiempo real de los ingresos y salidas registrados por el personal.")
         
         try:
             df_asist_full = cargar_datos("Asistencia_Personal")
@@ -168,9 +168,9 @@ def render_module(user, get_sheet, cargar_datos):
                         dict_nombres[c_p] = n_c
 
             if not df_asist_full.empty:
+                # Mostramos los últimos registros de forma directa
                 tabla_mostrada = []
-                # Tomamos las últimas 20 filas registradas para garantizar que aparezcan siempre
-                df_ultimos = df_asist_full.tail(20)
+                df_ultimos = df_asist_full.tail(25)
                 for _, r in df_ultimos.iterrows():
                     c_code = str(r.get("codigo_personal", "")).strip()
                     n_real = dict_nombres.get(c_code, r.get("nombre_trabajador", f"Colaborador {c_code}"))
@@ -190,6 +190,19 @@ def render_module(user, get_sheet, cargar_datos):
                 st.info("ℹ️ Aún no hay registros de asistencia guardados.")
         except Exception as e:
             st.warning(f"Error en control diario: {e}")
+
+        # =========================================================================
+        # PANEL RR.HH. - GESTIÓN Y COMPENSACIONES
+        # =========================================================================
+        st.markdown("---")
+        st.subheader("🛠️ Panel de RR.HH. - Gestión y Compensaciones")
+        try:
+            df_bolsa_admin = cargar_datos("Bolsa_Horas_Compensacion")
+            if not df_bolsa_admin.empty:
+                st.markdown("#### 💼 Estado Actual de Bolsas de Horas")
+                st.dataframe(df_bolsa_admin, use_container_width=True)
+        except Exception:
+            pass
 
         # =========================================================================
         # PANEL GERENCIAL / RESUMEN MENSUAL
