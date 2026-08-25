@@ -148,7 +148,7 @@ def render_module(user, get_sheet, cargar_datos):
                         st.error(f"Error: {e}")
 
     # =========================================================================
-    # TABLA DE CONTROL DIARIO DEL TARIADOR (VISIBLE DIRECTAMENTE AQUÍ)
+    # 1. ZONA: CONTROL DIARIO PARA EL TARIADOR (VISTA EN TIEMPO REAL)
     # =========================================================================
     st.markdown("---")
     st.subheader("📋 Control Diario de Asistencias (Vista de Turno)")
@@ -190,7 +190,7 @@ def render_module(user, get_sheet, cargar_datos):
         st.warning(f"Error en control diario: {e}")
 
     # =========================================================================
-    # PANEL RR.HH. - GESTIÓN Y COMPENSACIONES (SOLO ADMIN / JEFE)
+    # 2. PANEL RR.HH. - GESTIÓN Y COMPENSACIONES (SOLO ADMIN / JEFE)
     # =========================================================================
     if rol in ["Administrador", "JEFE DE TURNO"]:
         st.markdown("---")
@@ -204,36 +204,103 @@ def render_module(user, get_sheet, cargar_datos):
             pass
 
         # =========================================================================
-        # PANEL GERENCIAL / RESUMEN MENSUAL
+        # 3. PANEL GERENCIAL / RESUMEN MENSUAL COMPLETO (RESTAURADO)
         # =========================================================================
         st.markdown("---")
         st.subheader("📊 Resumen Mensual y Control de Asistencia (RR.HH.)")
+        st.caption("Panel ejecutivo avanzado: días trabajados, feriados, dominicales, inasistencias, licencias, tardanzas y horas calculadas.")
+        
         try:
             df_asist_hist = cargar_datos("Asistencia_Personal")
-            if not df_asist_hist.empty and "fecha" in df_asist_hist.columns and "codigo_personal" in df_asist_hist.columns:
-                col_m1, col_m2 = st.columns(2)
-                with col_m1:
-                    mes_sel = st.selectbox("Seleccione Mes:", ["01 - Enero", "02 - Febrero", "03 - Marzo", "04 - Abril", "05 - Mayo", "06 - Junio", "07 - Julio", "08 - Agosto", "09 - Setiembre", "10 - Octubre", "11 - Noviembre", "12 - Diciembre"], index=7, key="sel_mes_auditoria_gerencial")
-                with col_m2:
+            df_bolsa_hist = cargar_datos("Bolsa_Horas_Compensacion")
+            
+            if not df_asist_hist.empty:
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    mes_sel = st.selectbox("Seleccione Mes de Auditoría:", ["01 - Enero", "02 - Febrero", "03 - Marzo", "04 - Abril", "05 - Mayo", "06 - Junio", "07 - Julio", "08 - Agosto", "09 - Setiembre", "10 - Octubre", "11 - Noviembre", "12 - Diciembre"], index=7, key="sel_mes_auditoria_gerencial")
+                with col_f2:
                     anio_sel = st.selectbox("Seleccione Año:", ["2026", "2027", "2025"], index=0, key="sel_anio_auditoria_gerencial")
                 
                 mes_num = mes_sel.split(" - ")[0]
-                df_asist_hist["mes"] = df_asist_hist["fecha"].astype(str).str.slice(5, 7)
-                df_asist_hist["anio"] = df_asist_hist["fecha"].astype(str).str.slice(0, 4)
-                df_filtrado = df_asist_hist[(df_asist_hist["mes"] == mes_num) & (df_asist_hist["anio"] == anio_sel)]
                 
-                if not df_filtrado.empty:
-                    resumen_list = []
-                    for cod_p, grupo in df_filtrado.groupby("codigo_personal"):
-                        cod_p_clean = str(cod_p).strip()
-                        nombre_trab = dict_nombres.get(cod_p_clean, grupo.iloc[0].get("nombre_trabajador", f"Colaborador {cod_p_clean}"))
-                        dias_trab = len(grupo[grupo["estado_registro"] == "Completado"])
+                if "fecha" in df_asist_hist.columns and "codigo_personal" in df_asist_hist.columns:
+                    df_asist_hist["mes"] = df_asist_hist["fecha"].astype(str).str.slice(5, 7)
+                    df_asist_hist["anio"] = df_asist_hist["fecha"].astype(str).str.slice(0, 4)
+                    
+                    df_filtrado = df_asist_hist[(df_asist_hist["mes"] == mes_num) & (df_asist_hist["anio"] == anio_sel)]
+                    
+                    if not df_filtrado.empty:
+                        st.markdown(f"#### 📋 Consolidado Operativo - Período: {mes_sel} {anio_sel}")
                         
-                        resumen_list.append({
-                            "Código": cod_p_clean,
-                            "Colaborador": nombre_trab,
-                            "Días Registrados": dias_trab
-                        })
-                    st.dataframe(pd.DataFrame(resumen_list), use_container_width=True)
+                        resumen_list = []
+                        for cod_p, grupo in df_filtrado.groupby("codigo_personal"):
+                            cod_p_clean = str(cod_p).strip()
+                            nombre_trab = dict_nombres.get(cod_p_clean, grupo.iloc[0].get("nombre_trabajador", f"Colaborador {cod_p_clean}"))
+                            
+                            obs_serie = grupo["observacion"].astype(str)
+                            
+                            dias_trabajados = len(grupo[(grupo["estado_registro"] == "Completado") & (~obs_serie.str.contains("EXCEPCIÓN:", case=False, na=False))])
+                            
+                            horas_bolsa_acum = pd.to_numeric(grupo["horas_bolsa"], errors="coerce").sum()
+                            horas_pagadas_acum = pd.to_numeric(grupo["horas_pagadas"], errors="coerce").sum()
+                            
+                            feriados_cnt = obs_serie.str.contains("Feriado", case=False, na=False).sum()
+                            dominicales_cnt = obs_serie.str.contains("DOMINICAL", case=False, na=False).sum()
+                            descanso_medico = obs_serie.str.contains("Descanso Médico", case=False, na=False).sum()
+                            licencias_cnt = obs_serie.str.contains("Licencia", case=False, na=False).sum()
+                            inasistencias_cnt = obs_serie.str.contains("Inasistencia|Falta", case=False, na=False).sum()
+                            vacaciones = obs_serie.str.contains("Vacaciones", case=False, na=False).sum()
+                            compensacion_cnt = obs_serie.str.contains("Compensación", case=False, na=False).sum()
+                            
+                            tardanzas = obs_serie.str.contains("tardanza|tarde", case=False, na=False).sum()
+                            permisos = obs_serie.str.contains("permiso", case=False, na=False).sum()
+                            
+                            horas_inasistencia = inasistencias_cnt * 12.0
+                            horas_feriados = feriados_cnt * 12.0
+                            
+                            sald_general = 0.0
+                            sald_dominical = 0.0
+                            if not df_bolsa_hist.empty and "codigo_personal" in df_bolsa_hist.columns:
+                                match_b = df_bolsa_hist[df_bolsa_hist["codigo_personal"].astype(str).str.strip() == cod_p_clean]
+                                if not match_b.empty:
+                                    sald_general = float(match_b.iloc[0].get("saldo_actual", 0.0))
+                                    sald_dominical = float(match_b.iloc[0].get("saldo_dominical", 0.0) if "saldo_dominical" in match_b.columns else 0.0)
+
+                            resumen_list.append({
+                                "Código": cod_p_clean,
+                                "Colaborador": nombre_trab,
+                                "Días Trabajados": dias_trabajados,
+                                "Feriados": int(feriados_cnt),
+                                "Días Dominicales": int(dominicales_cnt),
+                                "Inasistencias": int(inasistencias_cnt),
+                                "Días Licencia": int(licencias_cnt),
+                                "Compensación": int(compensacion_cnt),
+                                "Vacaciones": int(vacaciones),
+                                "Tardanzas": int(tardanzas),
+                                "Permisos": int(permisos),
+                                "Descanso Médico": int(descanso_medico),
+                                "H. Inasistencias": round(horas_inasistencia, 2),
+                                "H. Feriados Trabajados": round(horas_feriados, 2),
+                                "H. Pagadas (25%)": round(horas_pagadas_acum, 2),
+                                "H. Compensación (35%)": round(horas_bolsa_acum, 2),
+                                "Saldo Bolsa General": round(sald_general, 2),
+                                "Saldo Bolsa Dominical": round(sald_dominical, 2)
+                            })
+                        
+                        df_resumen_final = pd.DataFrame(resumen_list)
+                        st.dataframe(df_resumen_final, use_container_width=True)
+                        
+                        st.download_button(
+                            label="📥 Descargar Reporte Mensual de Asistencia a CSV",
+                            data=df_resumen_final.to_csv(index=False).encode("utf-8"),
+                            file_name=f"Resumen_Asistencia_Frigosa_{mes_num}_{anio_sel}.csv",
+                            mime="text/csv",
+                            key="btn_descarga_csv_resumen_final"
+                        )
+                    else:
+                        st.info(f"No hay registros de asistencia para el período {mes_sel} {anio_sel}.")
+            else:
+                st.info("Aún no hay datos históricos suficientes en la tabla de asistencia.")
         except Exception as e:
-            st.warning(f"Error en resumen: {e}")
+            st.warning(f"Nota en resumen mensual: {e}")
+                      
