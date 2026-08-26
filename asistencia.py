@@ -4,9 +4,8 @@ from datetime import datetime, timedelta
 
 def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno, es_domingo, es_sabado):
     minutos_salida = hora_salida_dt.hour * 60 + hora_salida_dt.minute
-    
-    # Calcular horas totales trabajadas solo para referencia o turnos de producción
     minutos_entrada = hora_entrada_dt.hour * 60 + hora_entrada_dt.minute
+    
     if minutos_salida <= minutos_entrada:
         minutos_totales = (1440 - minutos_entrada) + minutos_salida
     else:
@@ -34,10 +33,9 @@ def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno, es_doming
                 horas_bolsa_general = horas_totales_trabajadas - 12.0
                 horas_extras_totales = horas_pagadas + horas_bolsa_general
         elif modo_turno == "Sin Producción":
-            # REGLA EXACTA DE PLANTA SIN PRODUCCIÓN:
-            # Lunes a Viernes: jornada normal hasta las 18:00 (18 * 60 minutos)
-            # Sábados: jornada normal hasta las 15:00 (15 * 60 minutos)
-            limite_normal_minutos = (18 * 60) if not es_sabado else (15 * 60)
+            # Lunes a Viernes: límite normal 18:00 (18 * 60)
+            # Sábados: límite normal 15:00 (15 * 60)
+            limite_normal_minutos = (15 * 60) if es_sabado else (18 * 60)
             
             if minutos_salida > limite_normal_minutos:
                 minutos_extras = minutos_salida - limite_normal_minutos
@@ -54,7 +52,6 @@ def render_module(user, get_sheet, cargar_datos):
     st.subheader("⏱️ Control de Asistencia y Bolsa de Horas")
     st.markdown(f"Usuario: **{nombre_sesion}** | Código: `{codigo_sesion}` | Rol: `{rol}`")
     
-    # Botón de refrescar / actualizar caché
     col_ref1, col_ref2 = st.columns([3, 1])
     with col_ref2:
         if st.button("🔄 Refrescar Datos", use_container_width=True):
@@ -62,7 +59,6 @@ def render_module(user, get_sheet, cargar_datos):
             st.success("¡Datos actualizados!")
             st.rerun()
 
-    # Cargar base de usuarios completa
     df_users_ref = cargar_datos("Usuarios")
     dict_nombres = {}
     lista_personal_opciones = []
@@ -75,7 +71,6 @@ def render_module(user, get_sheet, cargar_datos):
                 dict_nombres[c_p] = n_c
                 lista_personal_opciones.append(f"{c_p} - {n_c}")
 
-    # Selección del Colaborador (Admin/Tariador pueden operar para cualquiera)
     if rol in ["Administrador", "JEFE DE TURNO"] and lista_personal_opciones:
         st.markdown("#### 👤 Selección de Colaborador (Modo Operativo)")
         sel_col_op = st.selectbox("Operar asistencia para:", lista_personal_opciones, key="sel_col_operativo_general")
@@ -84,6 +79,26 @@ def render_module(user, get_sheet, cargar_datos):
     else:
         codigo_per = codigo_sesion
         nombre = nombre_sesion
+
+    # =========================================================================
+    # CALCULADORA RÁPIDA DE HORARIOS EXCEPCIONALES (NUEVO)
+    # =========================================================================
+    with st.expander("🧮 Calculadora Rápida de Salida (Turnos Especiales / Almuerzo)"):
+        st.caption("Calcula a qué hora exacta debe salir el personal si ingresó en un horario excepcional (ej. desde el mediodía).")
+        c_calc1, c_calc2, c_calc3 = st.columns(3)
+        with c_calc1:
+            hora_ing_calc = st.text_input("Hora de Ingreso (Ej: 12:00):", "12:00", key="calc_h_ing")
+        with c_calc2:
+            horas_a_cubrir = st.number_input("Horas de Jornada + Almuerzo:", min_value=4.0, max_value=14.0, step=0.5, value=9.0, key="calc_hrs_cubrir", help="Ej: 8 horas de labor + 1 hora de refrigerio = 9 horas en total.")
+        with c_calc3:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Calcular Hora de Salida", key="btn_ejecutar_calc"):
+                try:
+                    dt_ing_calc = datetime.strptime(hora_ing_calc.strip(), "%H:%M")
+                    dt_sal_calc = dt_ing_calc + timedelta(hours=float(horas_a_cubrir))
+                    st.success(f"🎯 Hora de Salida Exacta: **{dt_sal_calc.strftime('%H:%M')}**")
+                except Exception:
+                    st.error("Formato de hora inválido. Use HH:MM (Ej: 12:00).")
 
     # 1. VISUALIZADOR DE SALDOS
     try:
@@ -123,6 +138,10 @@ def render_module(user, get_sheet, cargar_datos):
         fecha_actual_str = fecha_obj.strftime("%Y-%m-%d")
         es_domingo = (fecha_obj.weekday() == 6)
         es_sabado = (fecha_obj.weekday() == 5)
+        
+        dia_semana_nombres = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+        nombre_dia_actual = dia_semana_nombres[fecha_obj.weekday()]
+        st.caption((f"📅 Día: **{nombre_dia_actual}**" + (" (Sábado: Salida normal 15:00)" if es_sabado else " (L-V: Salida normal 18:00)" if not es_domingo else " (Domingo)")))
     with col_t3:
         tipo_asistencia = st.selectbox(
             "Estado del Día:", 
@@ -130,7 +149,6 @@ def render_module(user, get_sheet, cargar_datos):
             key="asist_tipo_dia"
         )
 
-    # Validar bloqueo por Vacaciones, Licencia o Compensación
     try:
         df_val_bloqueo = cargar_datos("Asistencia_Personal")
         bloqueado_msg = ""
@@ -328,7 +346,7 @@ def render_module(user, get_sheet, cargar_datos):
         st.warning(f"Error en control diario: {e}")
 
     # =========================================================================
-    # 2. PANEL RR.HH. - GESTIÓN, VACACIONES, LICENCIAS, COMPENSACIONES Y REGULARIZACIÓN
+    # 2. PANEL RR.HH.
     # =========================================================================
     if rol in ["Administrador", "JEFE DE TURNO"]:
         st.markdown("---")
@@ -344,9 +362,8 @@ def render_module(user, get_sheet, cargar_datos):
                 st.markdown("---")
                 tab_v, tab_l, tab_c, tab_reg = st.tabs(["🌴 Vacaciones por Rango", "📜 Licencias por Rango", "⚖️ Compensación con Bolsa", "⚙️ Regularizar Bolsa"])
                 
-                # --- TAB 1: VACACIONES POR RANGO ---
                 with tab_v:
-                    st.caption("Registra vacaciones masivas por rango de fechas (incluye domingos y bloquea ingresos).")
+                    st.caption("Registra vacaciones masivas por rango de fechas.")
                     col_v1, col_v2, col_v3 = st.columns([2, 1, 1])
                     with col_v1:
                         sel_col_vac = st.selectbox("Colaborador:", lista_personal_opciones, key="s_col_vac")
@@ -394,7 +411,6 @@ def render_module(user, get_sheet, cargar_datos):
                             except Exception as e:
                                 st.error(f"Error al registrar vacaciones: {e}")
 
-                # --- TAB 2: LICENCIAS POR RANGO ---
                 with tab_l:
                     st.caption("Registra licencias por rango de fechas.")
                     col_l1, col_l2, col_l3, col_l4 = st.columns([1.5, 1, 1, 1])
@@ -447,7 +463,6 @@ def render_module(user, get_sheet, cargar_datos):
                             except Exception as e:
                                 st.error(f"Error al registrar licencia: {e}")
 
-                # --- TAB 3: COMPENSACIÓN Y DESCUENTO DE BOLSA ---
                 with tab_c:
                     st.caption("Descuenta horas de la bolsa por permisos o compensaciones.")
                     col_c1, col_c2, col_c3, col_c4, col_c5 = st.columns([1.5, 1, 1, 1, 1])
@@ -513,7 +528,6 @@ def render_module(user, get_sheet, cargar_datos):
                             except Exception as e:
                                 st.error(f"Error al procesar compensación: {e}")
 
-                # --- TAB 4: REGULARIZAR BOLSA ---
                 with tab_reg:
                     st.caption("Permite sumar o restar horas a la bolsa de un colaborador por correcciones operativas.")
                     col_r1, col_r2, col_r3, col_r4 = st.columns([1.5, 1, 1, 1.5])
