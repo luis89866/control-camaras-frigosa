@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno, es_domingo):
     horas_totales_trabajadas = 0.0
@@ -42,13 +42,36 @@ def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno, es_doming
     return round(horas_extras_totales, 2), round(horas_pagadas, 2), round(horas_bolsa_general, 2), round(horas_bolsa_dominical, 2)
 
 def render_module(user, get_sheet, cargar_datos):
-    nombre = user.get("nombre_completo", user.get("usuario"))
-    codigo_per = user.get("codigo_personal", "P000")
+    nombre_sesion = user.get("nombre_completo", user.get("usuario"))
+    codigo_sesion = user.get("codigo_personal", "P000")
     rol = user.get("rol", "Visualizador")
 
     st.subheader("⏱️ Control de Asistencia y Bolsa de Horas")
-    st.markdown(f"Colaborador: **{nombre}** | Código: `{codigo_per}` | Rol: `{rol}`")
+    st.markdown(f"Usuario: **{nombre_sesion}** | Código: `{codigo_sesion}` | Rol: `{rol}`")
     
+    # Cargar base de usuarios completa
+    df_users_ref = cargar_datos("Usuarios")
+    dict_nombres = {}
+    lista_personal_opciones = []
+    
+    if not df_users_ref.empty and "codigo_personal" in df_users_ref.columns and "nombre_completo" in df_users_ref.columns:
+        for _, u_row in df_users_ref.iterrows():
+            c_p = str(u_row.get("codigo_personal", "")).strip()
+            n_c = str(u_row.get("nombre_completo", "")).strip()
+            if c_p:
+                dict_nombres[c_p] = n_c
+                lista_personal_opciones.append(f"{c_p} - {n_c}")
+
+    # Selección del Colaborador (Punto 9: Admin/Tariador pueden operar para cualquiera)
+    if rol in ["Administrador", "JEFE DE TURNO"] and lista_personal_opciones:
+        st.markdown("#### 👤 Selección de Colaborador (Modo Operativo)")
+        sel_col_op = st.selectbox("Operar asistencia para:", lista_personal_opciones, key="sel_col_operativo_general")
+        codigo_per = sel_col_op.split(" - ")[0].strip()
+        nombre = sel_col_op.split(" - ")[1].strip()
+    else:
+        codigo_per = codigo_sesion
+        nombre = nombre_sesion
+
     # 1. VISUALIZADOR DE SALDOS
     try:
         df_bolsa_check = cargar_datos("Bolsa_Horas_Compensacion")
@@ -61,9 +84,9 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_s1, col_s2 = st.columns(2)
         with col_s1:
-            st.info(f"💼 **Bolsa de Horas Extras:** `{saldo_general} hrs` disponibles.")
+            st.info(f"💼 **Bolsa de Horas Extras ({nombre}):** `{saldo_general} hrs` disponibles.")
         with col_s2:
-            st.success(f"📅 **Bolsa Dominical (Compensación):** `{saldo_dominical} hrs` disponibles.")
+            st.success(f"📅 **Bolsa Dominical:** `{saldo_dominical} hrs` disponibles.")
     except Exception:
         pass
 
@@ -79,46 +102,90 @@ def render_module(user, get_sheet, cargar_datos):
     with col_t3:
         tipo_asistencia = st.selectbox(
             "Estado del Día:", 
-            ["Asistencia Normal (Trabajó)", "Feriado", "Licencia", "Compensación", "Vacaciones", "Descanso Médico", "Inasistencia / Falta"],
+            ["Asistencia Normal (Trabajó)", "Feriado", "Licencia", "Permiso", "Compensación", "Vacaciones", "Descanso Médico", "Inasistencia / Falta"],
             key="asist_tipo_dia"
         )
 
+    # Validar si el colaborador tiene bloqueo por Vacaciones o Licencia en esa fecha
+    try:
+        df_val_bloqueo = cargar_datos("Asistencia_Personal")
+        bloqueado_msg = ""
+        if not df_val_bloqueo.empty and "codigo_personal" in df_val_bloqueo.columns and "fecha" in df_val_bloqueo.columns:
+            match_bloq = df_val_bloqueo[
+                (df_val_bloqueo["codigo_personal"].astype(str).str.strip() == codigo_per.strip()) & 
+                (df_val_bloqueo["fecha"].astype(str).str.strip() == fecha_actual_str)
+            ]
+            if not match_bloq.empty:
+                obs_reg = str(match_bloq.iloc[0].get("observacion", ""))
+                if "EXCEPCIÓN: Vacaciones" in obs_reg or "EXCEPCIÓN: Licencia" in obs_reg:
+                    bloqueado_msg = f"⚠️ El colaborador **{nombre}** registra **{obs_reg}** en la fecha {fecha_actual_str}. No se le puede dar ingreso."
+    except Exception:
+        bloqueado_msg = ""
+
     st.markdown("---")
     
-    if tipo_asistencia != "Asistencia Normal (Trabajó)":
-        st.warning(f"⚠️ Ha seleccionado **{tipo_asistencia}** para la fecha {fecha_actual_str}.")
+    if bloqueado_msg:
+        st.error(bloqueado_msg)
+    elif tipo_asistencia != "Asistencia Normal (Trabajó)":
+        st.warning(f"⚠️ Ha seleccionado **{tipo_asistencia}** para **{nombre}** en la fecha {fecha_actual_str}.")
         motivo_excepcion = st.text_input("Detalle o motivo adicional (Opcional):", key="obs_excepcion_input")
         
+        # Punto 8: Manejo de Tardanzas opcional si se requiere
+        es_tardanza = st.checkbox("¿Registrar con tardanza?", key="chk_es_tardanza")
+        minutos_tardanza = 0
+        if es_tardanza:
+            minutos_tardanza = st.number_input("Tiempo de tardanza (en minutos):", min_value=1, step=5, value=15, key="num_min_tardanza")
+
         if st.button(f"💾 Registrar {tipo_asistencia}", use_container_width=True, key="btn_reg_excepcion"):
             try:
                 ws_asist = get_sheet("Asistencia_Personal")
                 id_reg = f"EXC-{datetime.now().strftime('%y%m%d%H%M%S')}"
-                etiqueta = f"EXCEPCIÓN: {tipo_asistencia}" + (f" - {motivo_excepcion}" if motivo_excepcion else "")
-                ws_asist.append_row([id_reg, codigo_per, fecha_actual_str, "00:00", "00:00", modo_turno, "0", "0", "0", etiqueta, "Completado"])
-                st.success(f"✅ Excepción registrada correctamente.")
+                etiqueta = f"EXCEPCIÓN: {tipo_asistencia}" + (f" - Tardanza: {minutos_tardanza} min" if es_tardanza else "") + (f" - {motivo_excepcion}" if motivo_excepcion else "")
+                
+                # Columnas: id_reg, codigo_personal, nombre_personal, fecha, hora_entrada, hora_salida, modo_turno, horas_extras_totales, horas_pagadas, horas_bolsa, observacion, estado_registro
+                ws_asist.append_row([id_reg, codigo_per, nombre, fecha_actual_str, "00:00", "00:00", modo_turno, "0", "0", "0", etiqueta, "Completado"])
+                st.success(f"✅ Excepción registrada correctamente para {nombre}.")
                 st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
     else:
         col_reg1, col_reg2 = st.columns(2)
         with col_reg1:
-            st.markdown("#### 📥 Ingreso")
+            st.markdown(f"#### 📥 Ingreso ({nombre})")
             hora_ingreso_input = st.text_input("Hora de Entrada (Ej: 20:00):", key="h_ingreso_val")
+            
+            es_tardanza_ing = st.checkbox("¿Ingreso con tardanza?", key="chk_ing_tardanza")
+            min_tard_ing = st.number_input("Minutos de tardanza:", min_value=1, step=5, value=15, key="num_tard_ing_val") if es_tardanza_ing else 0
+
             if st.button("Registrar Ingreso", use_container_width=True, key="btn_reg_ingreso"):
                 if not hora_ingreso_input.strip():
                     st.error("Ingrese hora de entrada.")
                 else:
                     try:
                         ws_asist = get_sheet("Asistencia_Personal")
-                        id_reg = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
-                        ws_asist.append_row([id_reg, codigo_per, fecha_actual_str, hora_ingreso_input, "", modo_turno, "0", "0", "0", "Ingreso Registrado", "Pendiente"])
-                        st.success("✅ Ingreso registrado exitosamente!")
-                        st.rerun()
+                        
+                        # Punto 7: Prevención de doble clic validando si ya existe ingreso pendiente para hoy
+                        registros_actuales = ws_asist.get_all_values()
+                        ya_ingresado = False
+                        if len(registros_actuales) > 1:
+                            for f_ila in registros_actuales[1:]:
+                                if len(f_ila) >= 4 and f_ila[1].strip() == codigo_per.strip() and f_ila[3].strip() == fecha_actual_str and f_ila[11].strip() == "Pendiente":
+                                    ya_ingresado = True
+                                    break
+                        
+                        if ya_ingresado:
+                            st.warning(f"⚠️ El colaborador **{nombre}** ya tiene un ingreso pendiente registrado para hoy. No es necesario volver a hacer clic.")
+                        else:
+                            id_reg = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
+                            obs_ing = "Ingreso Registrado" + (f" - Tardanza: {min_tard_ing} min" if es_tardanza_ing else "")
+                            ws_asist.append_row([id_reg, codigo_per, nombre, fecha_actual_str, hora_ingreso_input, "", modo_turno, "0", "0", "0", obs_ing, "Pendiente"])
+                            st.success(f"✅ Ingreso registrado exitosamente para {nombre}!")
+                            st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
 
         with col_reg2:
-            st.markdown("#### 📤 Salida y Cálculo")
+            st.markdown(f"#### 📤 Salida y Cálculo ({nombre})")
             hora_salida_input = st.text_input("Hora de Salida (Ej: 08:00):", key="h_salida_val")
             he_tot, h_pag, h_bg, h_bd = 0.0, 0.0, 0.0, 0.0
             if hora_ingreso_input.strip() and hora_salida_input.strip():
@@ -141,14 +208,42 @@ def render_module(user, get_sheet, cargar_datos):
                         ws_asist = get_sheet("Asistencia_Personal")
                         id_reg = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
                         val_bolsa = h_bd if h_bd > 0 else h_bg
-                        ws_asist.append_row([id_reg, codigo_per, fecha_actual_str, hora_ingreso_input, hora_salida_input, modo_turno, str(he_tot), str(h_pag), str(val_bolsa), obs_input, "Completado"])
-                        st.success("✅ Salida registrada correctamente!")
+                        
+                        # Actualizar o agregar registro completado
+                        ws_asist.append_row([id_reg, codigo_per, nombre, fecha_actual_str, hora_ingreso_input, hora_salida_input, modo_turno, str(he_tot), str(h_pag), str(val_bolsa), obs_input, "Completado"])
+                        
+                        # Actualizar bolsa de horas si hubo acumulado
+                        if val_bolsa > 0:
+                            ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
+                            try:
+                                celda_c = ws_bolsa.find(codigo_per.strip())
+                            except:
+                                celda_c = None
+                                
+                            if celda_c:
+                                f_idx = celda_c.row
+                                v_fila = ws_bolsa.row_values(f_idx)
+                                if h_bd > 0:
+                                    act_dom = float(v_fila[5]) if len(v_fila) > 5 and v_fila[5] != "" else 0.0
+                                    ws_bolsa.update_cell(f_idx, 6, str(act_dom + h_bd))
+                                else:
+                                    act_acum = float(v_fila[2]) if len(v_fila) > 2 and v_fila[2] != "" else 0.0
+                                    act_sald = float(v_fila[4]) if len(v_fila) > 4 and v_fila[4] != "" else 0.0
+                                    ws_bolsa.update_cell(f_idx, 3, str(act_acum + h_bg))
+                                    ws_bolsa.update_cell(f_idx, 5, str(act_sald + h_bg))
+                            else:
+                                if h_bd > 0:
+                                    ws_bolsa.append_row([codigo_per, nombre, "0", "0", "0", str(h_bd), "", "Activo"])
+                                else:
+                                    ws_bolsa.append_row([codigo_per, nombre, str(h_bg), "0", str(h_bg), "0", "", "Activo"])
+
+                        st.success(f"✅ Salida registrada correctamente para {nombre}!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
 
     # =========================================================================
-    # 1. ZONA: CONTROL DIARIO PARA EL TARIADOR (VISTA EN TIEMPO REAL)
+    # 1. ZONA: CONTROL DIARIO PARA EL TARIADOR (CON FILTRO POR DÍA - PUNTO 3)
     # =========================================================================
     st.markdown("---")
     st.subheader("📋 Control Diario de Asistencias (Vista de Turno)")
@@ -156,55 +251,187 @@ def render_module(user, get_sheet, cargar_datos):
     
     try:
         df_asist_full = cargar_datos("Asistencia_Personal")
-        df_users_ref = cargar_datos("Usuarios")
         
-        dict_nombres = {}
-        if not df_users_ref.empty and "codigo_personal" in df_users_ref.columns and "nombre_completo" in df_users_ref.columns:
-            for _, u_row in df_users_ref.iterrows():
-                c_p = str(u_row.get("codigo_personal", "")).strip()
-                n_c = str(u_row.get("nombre_completo", "")).strip()
-                if c_p:
-                    dict_nombres[c_p] = n_c
-
-        if not df_asist_full.empty:
-            tabla_mostrada = []
-            df_ultimos = df_asist_full.tail(25)
-            for _, r in df_ultimos.iterrows():
-                c_code = str(r.get("codigo_personal", "")).strip()
-                n_real = dict_nombres.get(c_code, r.get("nombre_trabajador", f"Colaborador {c_code}"))
-                
-                tabla_mostrada.append({
-                    "Código": c_code,
-                    "Colaborador": n_real,
-                    "Fecha": r.get("fecha"),
-                    "Hora Entrada": r.get("hora_entrada"),
-                    "Hora Salida": r.get("hora_salida"),
-                    "Modalidad": r.get("modo_turno"),
-                    "Estado": r.get("estado_registro"),
-                    "Observación": r.get("observacion")
-                })
-            st.dataframe(pd.DataFrame(tabla_mostrada), use_container_width=True)
+        if not df_asist_full.empty and "fecha" in df_asist_full.columns:
+            col_f_f1, _ = st.columns([1, 2])
+            with col_f_f1:
+                fecha_filtro_obj = st.date_input("Filtrar por Fecha de Turno:", datetime.now(), key="filtro_fecha_diaria_tariador")
+            
+            fecha_filtro_str = fecha_filtro_obj.strftime("%Y-%m-%d")
+            df_dia_actual = df_asist_full[df_asist_full["fecha"].astype(str).str.strip() == fecha_filtro_str].copy()
+            
+            if not df_dia_actual.empty:
+                tabla_mostrada = []
+                for _, r in df_dia_actual.iterrows():
+                    c_code = str(r.get("codigo_personal", "")).strip()
+                    # Punto 10: Leer directamente la columna nombre_personal de la hoja si existe
+                    n_real = r.get("nombre_personal", "")
+                    if not n_real or pd.isna(n_real):
+                        n_real = dict_nombres.get(c_code, f"Colaborador {c_code}")
+                    
+                    tabla_mostrada.append({
+                        "Código": c_code,
+                        "Colaborador": n_real,
+                        "Fecha": r.get("fecha"),
+                        "Hora Entrada": r.get("hora_entrada"),
+                        "Hora Salida": r.get("hora_salida"),
+                        "Modalidad": r.get("modo_turno"),
+                        "Estado": r.get("estado_registro"),
+                        "Observación": r.get("observacion")
+                    })
+                st.dataframe(pd.DataFrame(tabla_mostrada), use_container_width=True)
+                st.success(f"📊 Se encontraron **{len(tabla_mostrada)} registros** para el {fecha_filtro_str}.")
+            else:
+                st.info(f"ℹ️ No hay registros de asistencia para la fecha seleccionada ({fecha_filtro_str}).")
         else:
             st.info("ℹ️ Aún no hay registros de asistencia guardados.")
     except Exception as e:
         st.warning(f"Error en control diario: {e}")
 
     # =========================================================================
-    # 2. PANEL RR.HH. - GESTIÓN Y COMPENSACIONES (SOLO ADMIN / JEFE)
+    # 2. PANEL RR.HH. - GESTIÓN, VACACIONES, LICENCIAS Y DESCUENTOS POR RANGO
     # =========================================================================
     if rol in ["Administrador", "JEFE DE TURNO"]:
         st.markdown("---")
-        st.subheader("🛠️ Panel de RR.HH. - Gestión y Compensaciones")
+        st.subheader("🛠️ Panel de RR.HH. - Vacaciones, Licencias y Compensaciones")
+        
         try:
             df_bolsa_admin = cargar_datos("Bolsa_Horas_Compensacion")
             if not df_bolsa_admin.empty:
                 st.markdown("#### 💼 Estado Actual de Bolsas de Horas")
                 st.dataframe(df_bolsa_admin, use_container_width=True)
-        except Exception:
-            pass
+            
+            if lista_personal_opciones:
+                st.markdown("---")
+                tab_v, tab_l, tab_c = st.tabs(["🌴 Vacaciones por Rango (Punto 1)", "📜 Licencias por Rango (Punto 2)", "⚖️ Compensación / Permiso con Bolsa (Punto 5 & 6)"])
+                
+                # --- TAB 1: VACACIONES POR RANGO (Punto 1) ---
+                with tab_v:
+                    st.caption("Registra vacaciones masivas por rango de fechas (incluye domingos y bloquea ingresos).")
+                    col_v1, col_v2, col_v3 = st.columns([2, 1, 1])
+                    with col_v1:
+                        sel_col_vac = st.selectbox("Colaborador:", lista_personal_opciones, key="s_col_vac")
+                        cod_vac = sel_col_vac.split(" - ")[0].strip()
+                        nom_vac = sel_col_vac.split(" - ")[1].strip()
+                    with col_v2:
+                        fec_ini_v = st.date_input("Fecha Inicio:", datetime.now(), key="f_ini_vac")
+                    with col_v3:
+                        fec_fin_v = st.date_input("Fecha Fin:", datetime.now(), key="f_fin_vac")
+                    
+                    if st.button("💾 Guardar Vacaciones por Rango", key="btn_guardar_vacaciones"):
+                        if fec_fin_v < fec_ini_v:
+                            st.error("❌ La fecha fin no puede ser anterior a la fecha inicio.")
+                        else:
+                            try:
+                                ws_asist = get_sheet("Asistencia_Personal")
+                                delta_dias = (fec_fin_v - fec_ini_v).days + 1
+                                current_d = fec_ini_v
+                                
+                                count_registrados = 0
+                                for _ in range(delta_dias):
+                                    f_str = current_d.strftime("%Y-%m-%d")
+                                    id_reg = f"VAC-{datetime.now().strftime('%y%m%d%H%M%S')}-{count_registrados}"
+                                    ws_asist.append_row([
+                                        id_reg, cod_vac, nom_vac, f_str, "00:00", "00:00", "Sin Producción", "0", "0", "0", "EXCEPCIÓN: Vacaciones", "Completado"
+                                    ])
+                                    current_d += timedelta(days=1)
+                                    count_registrados += 1
+                                
+                                st.success(f"✅ Vacaciones registradas exitosamente para **{nom_vac}** desde el {fec_ini_v} al {fec_fin_v} ({count_registrados} días).")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al registrar vacaciones: {e}")
+
+                # --- TAB 2: LICENCIAS POR RANGO (Punto 2) ---
+                with tab_l:
+                    st.caption("Registra licencias por rango de fechas (ej. fallecimiento, paternidad, etc.).")
+                    col_l1, col_l2, col_l3, col_l4 = st.columns([1.5, 1, 1, 1])
+                    with col_l1:
+                        sel_col_lic = st.selectbox("Colaborador:", lista_personal_opciones, key="s_col_lic")
+                        cod_lic = sel_col_lic.split(" - ")[0].strip()
+                        nom_lic = sel_col_lic.split(" - ")[1].strip()
+                    with col_l2:
+                        fec_ini_l = st.date_input("Fecha Inicio:", datetime.now(), key="f_ini_lic")
+                    with col_l3:
+                        fec_fin_l = st.date_input("Fecha Fin:", datetime.now(), key="f_fin_lic")
+                    with col_l4:
+                        motivo_lic = st.text_input("Motivo:", placeholder="Ej: Licencia por paternidad", key="motivo_lic_txt")
+                    
+                    if st.button("💾 Guardar Licencia por Rango", key="btn_guardar_licencia"):
+                        if fec_fin_l < fec_ini_l:
+                            st.error("❌ La fecha fin no puede ser anterior a la fecha inicio.")
+                        else:
+                            try:
+                                ws_asist = get_sheet("Asistencia_Personal")
+                                delta_dias_l = (fec_fin_l - fec_ini_l).days + 1
+                                current_dl = fec_ini_l
+                                
+                                count_l = 0
+                                for _ in range(delta_dias_l):
+                                    f_str_l = current_dl.strftime("%Y-%m-%d")
+                                    id_reg_l = f"LIC-{datetime.now().strftime('%y%m%d%H%M%S')}-{count_l}"
+                                    detalle_lic = f"EXCEPCIÓN: Licencia" + (f" - {motivo_lic}" if motivo_lic else "")
+                                    ws_asist.append_row([
+                                        id_reg_l, cod_lic, nom_lic, f_str_l, "00:00", "00:00", "Sin Producción", "0", "0", "0", detalle_lic, "Completado"
+                                    ])
+                                    current_dl += timedelta(days=1)
+                                    count_l += 1
+                                
+                                st.success(f"✅ Licencia registrada exitosamente para **{nom_lic}** ({count_l} días).")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al registrar licencia: {e}")
+
+                # --- TAB 3: COMPENSACIONES Y DESCUENTO DE BOLSA POR RANGO (Puntos 5 & 6) ---
+                with tab_c:
+                    st.caption("Descuenta horas de la bolsa de horas extras por permisos, licencias o compensaciones (validando saldo máximo).")
+                    col_c1, col_c2, col_c3, col_c4, col_c5 = st.columns([1.5, 1, 1, 1, 1])
+                    with col_c1:
+                        sel_col_comp = st.selectbox("Colaborador:", lista_personal_opciones, key="s_col_comp")
+                        cod_comp = sel_col_comp.split(" - ")[0].strip()
+                        nom_comp = sel_col_comp.split(" - ")[1].strip()
+                    with col_c2:
+                        hrs_ret = st.number_input("Horas a descontar:", min_value=0.5, step=0.5, value=1.0, key="i_h_c")
+                    with col_c3:
+                        fec_ini_c = st.date_input("Fecha Inicio:", datetime.now(), key="i_f_ini_c")
+                    with col_c4:
+                        fec_fin_c = st.date_input("Fecha Fin:", datetime.now(), key="i_f_fin_c")
+                    with col_c5:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        btn_comp = st.button("⚖️ Descontar Bolsa", use_container_width=True, key="btn_desc_horas")
+
+                    if btn_comp:
+                        if fec_fin_c < fec_ini_c:
+                            st.error("❌ La fecha fin no puede ser anterior a la fecha inicio.")
+                        else:
+                            try:
+                                ws_b = get_sheet("Bolsa_Horas_Compensacion")
+                                c_lib = ws_b.find(cod_comp)
+                                if c_lib:
+                                    f_idx = c_lib.row
+                                    v_lib = ws_b.row_values(f_idx)
+                                    a_sald = float(v_lib[4]) if len(v_lib) > 4 and v_lib[4] != "" else 0.0
+                                    
+                                    # Validar que no se pase del saldo de su bolsa (Punto 6)
+                                    if hrs_ret > a_sald:
+                                        st.error(f"❌ Saldo insuficiente en la bolsa de horas de **{nom_comp}** ({a_sald} hrs disponibles). No se pueden descontar {hrs_ret} hrs.")
+                                    else:
+                                        ws_b.update_cell(f_idx, 5, str(a_sald - hrs_ret))
+                                        ws_h = get_sheet("Historial_Compensaciones")
+                                        fec_str_comp = f"{fec_ini_c} al {fec_fin_c}"
+                                        ws_h.append_row([f"COMP-{datetime.now().strftime('%y%m%d%H%M%S')}", cod_comp, nom_comp, str(hrs_ret), fec_str_comp, f"AUTORIZADO BY {nombre_sesion}"])
+                                        st.success(f"✅ Se descontaron {hrs_ret} horas correctamente del saldo de **{nom_comp}** (Período: {fec_str_comp}).")
+                                        st.rerun()
+                                else:
+                                    st.error("❌ El colaborador no registra bolsa de horas activa.")
+                            except Exception as e:
+                                st.error(f"Error al procesar compensación: {e}")
+
+        except Exception as e:
+            st.warning(f"Nota en panel RR.HH.: {e}")
 
         # =========================================================================
-        # 3. PANEL GERENCIAL / RESUMEN MENSUAL COMPLETO (RESTAURADO)
+        # 3. PANEL GERENCIAL / RESUMEN MENSUAL COMPLETO
         # =========================================================================
         st.markdown("---")
         st.subheader("📊 Resumen Mensual y Control de Asistencia (RR.HH.)")
@@ -235,7 +462,7 @@ def render_module(user, get_sheet, cargar_datos):
                         resumen_list = []
                         for cod_p, grupo in df_filtrado.groupby("codigo_personal"):
                             cod_p_clean = str(cod_p).strip()
-                            nombre_trab = dict_nombres.get(cod_p_clean, grupo.iloc[0].get("nombre_trabajador", f"Colaborador {cod_p_clean}"))
+                            nombre_trab = dict_nombres.get(cod_p_clean, grupo.iloc[0].get("nombre_personal", grupo.iloc[0].get("nombre_trabajador", f"Colaborador {cod_p_clean}")))
                             
                             obs_serie = grupo["observacion"].astype(str)
                             
@@ -253,7 +480,7 @@ def render_module(user, get_sheet, cargar_datos):
                             compensacion_cnt = obs_serie.str.contains("Compensación", case=False, na=False).sum()
                             
                             tardanzas = obs_serie.str.contains("tardanza|tarde", case=False, na=False).sum()
-                            permisos = obs_serie.str.contains("permiso", case=False, na=False).sum()
+                            permisos = obs_serie.str.contains("Permiso|permiso", case=False, na=False).sum()
                             
                             horas_inasistencia = inasistencias_cnt * 12.0
                             horas_feriados = feriados_cnt * 12.0
@@ -274,10 +501,10 @@ def render_module(user, get_sheet, cargar_datos):
                                 "Días Dominicales": int(dominicales_cnt),
                                 "Inasistencias": int(inasistencias_cnt),
                                 "Días Licencia": int(licencias_cnt),
+                                "Permisos": int(permisos),
                                 "Compensación": int(compensacion_cnt),
                                 "Vacaciones": int(vacaciones),
                                 "Tardanzas": int(tardanzas),
-                                "Permisos": int(permisos),
                                 "Descanso Médico": int(descanso_medico),
                                 "H. Inasistencias": round(horas_inasistencia, 2),
                                 "H. Feriados Trabajados": round(horas_feriados, 2),
@@ -303,4 +530,3 @@ def render_module(user, get_sheet, cargar_datos):
                 st.info("Aún no hay datos históricos suficientes en la tabla de asistencia.")
         except Exception as e:
             st.warning(f"Nota en resumen mensual: {e}")
-                      
