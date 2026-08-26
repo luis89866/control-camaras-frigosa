@@ -33,13 +33,19 @@ def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno, es_doming
                 horas_bolsa_general = horas_totales_trabajadas - 12.0
                 horas_extras_totales = horas_pagadas + horas_bolsa_general
         elif modo_turno == "Sin Producción":
-            # Lunes a Viernes: límite normal 18:00 (18 * 60)
-            # Sábados: límite normal 15:00 (15 * 60)
+            # Lunes a Viernes: límite normal 18:00
+            # Sábados: límite normal 15:00
             limite_normal_minutos = (15 * 60) if es_sabado else (18 * 60)
             
             if minutos_salida > limite_normal_minutos:
                 minutos_extras = minutos_salida - limite_normal_minutos
                 horas_bolsa_general = minutos_extras / 60.0
+                horas_extras_totales = horas_bolsa_general
+        elif modo_turno == "Sin Producción - Renganche":
+            # Jornada exigida de 9 horas (8 hrs labor + 1 hr refrigerio)
+            jornada_renganche = 9.0
+            if horas_totales_trabajadas > jornada_renganche:
+                horas_bolsa_general = horas_totales_trabajadas - jornada_renganche
                 horas_extras_totales = horas_bolsa_general
 
     return round(horas_extras_totales, 2), round(horas_pagadas, 2), round(horas_bolsa_general, 2), round(horas_bolsa_dominical, 2)
@@ -81,22 +87,22 @@ def render_module(user, get_sheet, cargar_datos):
         nombre = nombre_sesion
 
     # =========================================================================
-    # CALCULADORA RÁPIDA DE HORARIOS EXCEPCIONALES (NUEVO)
+    # CALCULADORA RÁPIDA DE SALIDA (ACTUALIZADA CON RENGANCHE DE 9 HRS)
     # =========================================================================
-    with st.expander("🧮 Calculadora Rápida de Salida (Turnos Especiales / Almuerzo)"):
-        st.caption("Calcula a qué hora exacta debe salir el personal si ingresó en un horario excepcional (ej. desde el mediodía).")
+    with st.expander("🧮 Calculadora Rápida de Salida (Turnos Especiales / Renganche)"):
+        st.caption("Calcula la hora exacta de salida sumando las horas de jornada (ej. 9 horas para reenganche de amanecida).")
         c_calc1, c_calc2, c_calc3 = st.columns(3)
         with c_calc1:
             hora_ing_calc = st.text_input("Hora de Ingreso (Ej: 12:00):", "12:00", key="calc_h_ing")
         with c_calc2:
-            horas_a_cubrir = st.number_input("Horas de Jornada + Almuerzo:", min_value=4.0, max_value=14.0, step=0.5, value=9.0, key="calc_hrs_cubrir", help="Ej: 8 horas de labor + 1 hora de refrigerio = 9 horas en total.")
+            horas_a_cubrir = st.number_input("Horas a Cubrir (Jornada + Almuerzo):", min_value=4.0, max_value=14.0, step=0.5, value=9.0, key="calc_hrs_cubrir", help="Para reenganche de amanecida son 9 horas en total.")
         with c_calc3:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("Calcular Hora de Salida", key="btn_ejecutar_calc"):
                 try:
                     dt_ing_calc = datetime.strptime(hora_ing_calc.strip(), "%H:%M")
                     dt_sal_calc = dt_ing_calc + timedelta(hours=float(horas_a_cubrir))
-                    st.success(f"🎯 Hora de Salida Exacta: **{dt_sal_calc.strftime('%H:%M')}**")
+                    st.success(f"🎯 Hora de Salida Sugerida: **{dt_sal_calc.strftime('%H:%M')}**")
                 except Exception:
                     st.error("Formato de hora inválido. Use HH:MM (Ej: 12:00).")
 
@@ -132,7 +138,7 @@ def render_module(user, get_sheet, cargar_datos):
     
     col_t1, col_t2, col_t3 = st.columns(3)
     with col_t1:
-        modo_turno = st.selectbox("Modalidad del Turno:", ["Con Producción", "Sin Producción"], key="asist_modo_turno")
+        modo_turno = st.selectbox("Modalidad del Turno:", ["Con Producción", "Sin Producción", "Sin Producción - Renganche"], key="asist_modo_turno")
     with col_t2:
         fecha_obj = st.date_input("Fecha de Registro:", datetime.now(), key="asist_fecha_reg")
         fecha_actual_str = fecha_obj.strftime("%Y-%m-%d")
@@ -141,7 +147,7 @@ def render_module(user, get_sheet, cargar_datos):
         
         dia_semana_nombres = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
         nombre_dia_actual = dia_semana_nombres[fecha_obj.weekday()]
-        st.caption((f"📅 Día: **{nombre_dia_actual}**" + (" (Sábado: Salida normal 15:00)" if es_sabado else " (L-V: Salida normal 18:00)" if not es_domingo else " (Domingo)")))
+        st.caption((f"📅 Día: **{nombre_dia_actual}**" + (" (Renganche: Exige 9 horas netas)" if modo_turno == "Sin Producción - Renganche" else "")))
     with col_t3:
         tipo_asistencia = st.selectbox(
             "Estado del Día:", 
@@ -202,7 +208,7 @@ def render_module(user, get_sheet, cargar_datos):
         col_reg1, col_reg2 = st.columns(2)
         with col_reg1:
             st.markdown(f"#### 📥 Ingreso ({nombre})")
-            hora_ingreso_input = st.text_input("Hora de Entrada (Ej: 20:00):", key="h_ingreso_val")
+            hora_ingreso_input = st.text_input("Hora de Entrada (Ej: 12:00):", key="h_ingreso_val")
             
             es_tardanza_ing = st.checkbox("¿Ingreso con tardanza?", key="chk_ing_tardanza")
             min_tard_ing = st.number_input("Minutos de tardanza:", min_value=1, step=5, value=15, key="num_tard_ing_val") if es_tardanza_ing else 0
@@ -235,7 +241,7 @@ def render_module(user, get_sheet, cargar_datos):
 
         with col_reg2:
             st.markdown(f"#### 📤 Salida y Cálculo ({nombre})")
-            hora_salida_input = st.text_input("Hora de Salida (Ej: 08:00):", key="h_salida_val")
+            hora_salida_input = st.text_input("Hora de Salida (Ej: 21:00):", key="h_salida_val")
             he_tot, h_pag, h_bg, h_bd = 0.0, 0.0, 0.0, 0.0
             if hora_ingreso_input.strip() and hora_salida_input.strip():
                 try:
