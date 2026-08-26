@@ -3,14 +3,14 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno, es_domingo, es_sabado):
-    minutos_entrada = hora_entrada_dt.hour * 60 + hora_entrada_dt.minute
     minutos_salida = hora_salida_dt.hour * 60 + hora_salida_dt.minute
     
+    # Calcular horas totales trabajadas solo para referencia o turnos de producción
+    minutos_entrada = hora_entrada_dt.hour * 60 + hora_entrada_dt.minute
     if minutos_salida <= minutos_entrada:
         minutos_totales = (1440 - minutos_entrada) + minutos_salida
     else:
         minutos_totales = minutos_salida - minutos_entrada
-        
     horas_totales_trabajadas = minutos_totales / 60.0
 
     horas_pagadas = 0.0
@@ -34,12 +34,13 @@ def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno, es_doming
                 horas_bolsa_general = horas_totales_trabajadas - 12.0
                 horas_extras_totales = horas_pagadas + horas_bolsa_general
         elif modo_turno == "Sin Producción":
-            # REGLA EXACTA DE PLANTA SIN PRODUCCIÓN
-            # Hora de salida límite normal: 18:00 (L-V) o 15:00 (Sábados)
-            limite_salida_minutos = 18 * 60 if not es_sabado else 15 * 60
+            # REGLA EXACTA DE PLANTA SIN PRODUCCIÓN:
+            # Lunes a Viernes: jornada normal hasta las 18:00 (18 * 60 minutos)
+            # Sábados: jornada normal hasta las 15:00 (15 * 60 minutos)
+            limite_normal_minutos = (18 * 60) if not es_sabado else (15 * 60)
             
-            if minutos_salida > limite_salida_minutos:
-                minutos_extras = minutos_salida - limite_salida_minutos
+            if minutos_salida > limite_normal_minutos:
+                minutos_extras = minutos_salida - limite_normal_minutos
                 horas_bolsa_general = minutos_extras / 60.0
                 horas_extras_totales = horas_bolsa_general
 
