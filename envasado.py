@@ -71,24 +71,24 @@ def render_module(user, get_sheet, cargar_datos):
     lista_calibres = ["0-50 GR", "50-100 GR", "100-300 GR", "300-500 GR", "500-1000 GR", "1000-3000 GR", "-"]
 
     # =========================================================================
-    # ITEM 1: INGRESOS DE DATOS (GESTIÓN AUTOMÁTICA DE BACHADAS)
+    # ITEM 1: INGRESOS DE DATOS (MÚLTIPLES PRESENTACIONES Y BACHADAS)
     # =========================================================================
     with st.expander("📥 1. Ingresos de Datos (Túneles y Plaqueros P1-P18)", expanded=True):
-        st.caption("Registre la carga del equipo. El sistema calculará automáticamente el número de bachada del día.")
+        st.caption("Puede registrar múltiples presentaciones o calibres para un mismo equipo y bachada en curso.")
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v19")
+            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v20")
             if tipo_equipo == "Plaquero (P1 - P18)":
-                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v19")
+                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v20")
             else:
-                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v19")
+                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v20")
                 
-            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v19")
+            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v20")
             
         with col_d2:
             st.markdown("##### Tiempo de Congelación (Ej: 2:45 o 0:02 min):")
-            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v19")
+            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v20")
             
             minutos_cong = 165
             try:
@@ -118,63 +118,57 @@ def render_module(user, get_sheet, cargar_datos):
         st.markdown("---")
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v19")
+            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v20")
         with col_p2:
-            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v19")
+            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v20")
         with col_p3:
-            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v19")
+            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v20")
 
-        if st.button("🚀 Registrar Carga / Bachada", use_container_width=True, key="btn_enviar_produccion_v19"):
+        if st.button("🚀 Registrar / Agregar Presentación", use_container_width=True, key="btn_enviar_produccion_v20"):
             try:
                 ws_env = get_env_sheet("ingreso_plaqueros")
                 existing_data = ws_env.get_all_values()
                 fecha_hoy = obtener_hora_peru().strftime("%Y-%m-%d")
                 
-                # Calcular número de bachada para hoy en este equipo
+                # Determinar número de bachada actual para este equipo en el día
                 num_bachada = 1
-                equipo_en_proceso = False
-                
                 if len(existing_data) > 1:
-                    bachadas_equipo = 0
+                    bachadas_registradas_hoy = set()
+                    en_proceso_activo = False
                     for fila in existing_data[1:]:
                         if len(fila) >= 11:
                             f_reg = str(fila[1]).strip()
                             eq_reg = str(fila[2]).strip().upper()
                             estado_reg = str(fila[10]).strip()
+                            bachada_val = str(fila[11]).strip() if len(fila) > 11 else "Bachada 1"
                             
                             if f_reg == fecha_hoy and eq_reg == plaquero_sel.strip().upper():
-                                bachadas_equipo += 1
+                                if bachada_val:
+                                    bachadas_registradas_hoy.add(bachada_val)
                                 if estado_reg == "En Proceso":
-                                    h_sal_reg = str(fila[5]).strip()
-                                    try:
-                                        h_sal_t = datetime.strptime(h_sal_reg, "%H:%M").time()
-                                        if obtener_hora_peru().time() < h_sal_t:
-                                            equipo_en_proceso = True
-                                    except:
-                                        equipo_en_proceso = True
-                                        
-                    num_bachada = bachadas_equipo + 1
+                                    en_proceso_activo = True
+                                    # Mantener la bachada activa actual
+                                    num_bachada = int(bachada_val.replace("Bachada", "").strip()) if "Bachada" in bachada_val else len(bachadas_registradas_hoy)
 
-                if equipo_en_proceso:
-                    st.error(f"❌ **El equipo {plaquero_sel} está ocupado.** Debe liberarlo en el panel inferior antes de iniciar una nueva carga.")
-                else:
-                    id_prod = f"PROD-{datetime.now().strftime('%y%m%d%H%M%S')}"
-                    total_kg = bandejas_cant * 10.0
-                    bachada_str = f"Bachada {num_bachada}"
+                    if not en_proceso_activo and len(bachadas_registradas_hoy) > 0:
+                        num_bachada = len(bachadas_registradas_hoy) + 1
 
-                    # Guardando los 12 campos incluyendo la bachada en la columna L
-                    ws_env.append_row([
-                        id_prod, fecha_hoy, plaquero_sel, hora_inicio_str, tiempo_formato_str, 
-                        hora_salida_estimada, presentacion_sel, calibre_sel, str(bandejas_cant), 
-                        str(total_kg), "En Proceso", bachada_str
-                    ])
-                    st.success(f"✅ Registrada **{bachada_str}** en **{plaquero_sel}** con {presentacion_sel} ({bandejas_cant} bandejas).")
-                    st.rerun()
+                id_prod = f"PROD-{datetime.now().strftime('%y%m%d%H%M%S')}"
+                total_kg = bandejas_cant * 10.0
+                bachada_str = f"Bachada {num_bachada}"
+
+                ws_env.append_row([
+                    id_prod, fecha_hoy, plaquero_sel, hora_inicio_str, tiempo_formato_str, 
+                    hora_salida_estimada, presentacion_sel, calibre_sel, str(bandejas_cant), 
+                    str(total_kg), "En Proceso", bachada_str
+                ])
+                st.success(f"✅ Se registró **{presentacion_sel}** ({bandejas_cant} ban.) en **{plaquero_sel}** bajo `[{bachada_str}]`!")
+                st.rerun()
             except Exception as e:
                 st.error(f"Error al guardar: {e}")
 
     # =========================================================================
-    # ITEM 2: PLAQUEROS ENCENDIDOS (CONTROL POR BACHADAS Y LIBERACIÓN)
+    # ITEM 2: PLAQUEROS ENCENDIDOS (MÚLTIPLES PRESENTACIONES POR EQUIPO)
     # =========================================================================
     with st.expander("⚡ 2. Plaqueros Encendidos (Control por Bachadas y Alertas)", expanded=True):
         col_c1, col_c2 = st.columns([3, 1])
@@ -182,7 +176,7 @@ def render_module(user, get_sheet, cargar_datos):
             tiempo_peru = obtener_hora_peru()
             st.caption(f"🕒 Hora oficial de planta (Perú UTC-5): **{tiempo_peru.strftime('%H:%M:%S')}**")
         with col_c2:
-            if st.button("🔄 Actualizar Cronograma de Ciclos", key="btn_actualizar_cronograma_v7", use_container_width=True):
+            if st.button("🔄 Actualizar Cronograma de Ciclos", key="btn_actualizar_cronograma_v8", use_container_width=True):
                 st.rerun()
 
         try:
@@ -194,12 +188,11 @@ def render_module(user, get_sheet, cargar_datos):
                 df_activos = df_prod[df_prod["estado"].astype(str).str.contains("En Proceso", case=False, na=True)]
                 for _, r in df_activos.iterrows():
                     eq_key = str(r.get("equipo", "")).strip().upper()
-                    # Leer bachada de la columna correspondiente (índice 11 o columna 'bachadas')
                     bachada_val = r.get("bachadas", "Bachada 1") if "bachadas" in r else "Bachada 1"
                     if not bachada_val or bachada_val.strip() == "":
                         bachada_val = "Bachada 1"
                         
-                    prod_desc = f"[{bachada_val}] {r.get('presentacion', '')} ({r.get('calibre', '')}) - {r.get('bandejas', '')} ban."
+                    prod_desc = f"**{bachada_val}**: {r.get('presentacion', '')} ({r.get('calibre', '')}) - {r.get('bandejas', '')} ban."
                     
                     if eq_key not in activos_agrupados:
                         activos_agrupados[eq_key] = {
@@ -219,7 +212,7 @@ def render_module(user, get_sheet, cargar_datos):
                     r_dat = activos_agrupados[eq_clean]
                     h_ini = r_dat["h_ini"]
                     h_sal = r_dat["h_sal"]
-                    lista_prods = " | ".join(r_dat["productos"])
+                    lista_prods = "<br>".join(r_dat["productos"])
                     
                     situacion_txt = "🟢 En Proceso Normal"
                     try:
@@ -253,7 +246,7 @@ def render_module(user, get_sheet, cargar_datos):
             df_mostrar_tabla = pd.DataFrame(tabla_consolidada)
             
             for idx, row in df_mostrar_tabla.iterrows():
-                col_t1, col_t2, col_t3, col_t4, col_t5, col_t6 = st.columns([1, 1.2, 1.2, 2, 2.2, 1.2])
+                col_t1, col_t2, col_t3, col_t4, col_t5, col_t6 = st.columns([1, 1.2, 1.2, 2.2, 2, 1.2])
                 with col_t1:
                     st.markdown(f"**{row['PLAQUERO']}**")
                 with col_t2:
@@ -261,7 +254,7 @@ def render_module(user, get_sheet, cargar_datos):
                 with col_t3:
                     st.markdown(f"`{row['HORA SALIDA']}`")
                 with col_t4:
-                    st.markdown(f"<small>{row['PRODUCTO']}</small>", unsafe_allow_html=True)
+                    st.markdown(row['PRODUCTO'], unsafe_allow_html=True)
                 with col_t5:
                     if "CICLO CUMPLIDO" in row['SITUACION']:
                         st.markdown(f"<span style='color: red; font-weight: bold;'>{row['SITUACION']}</span>", unsafe_allow_html=True)
@@ -269,7 +262,7 @@ def render_module(user, get_sheet, cargar_datos):
                         st.markdown(f"**{row['SITUACION']}**")
                 with col_t6:
                     if len(row['ids']) > 0:
-                        if st.button("🔓 Liberar", key=f"lib_bachada_v2_{row['PLAQUERO']}_{idx}"):
+                        if st.button("🔓 Liberar", key=f"lib_mult_pres_{row['PLAQUERO']}_{idx}"):
                             try:
                                 ws_env = get_env_sheet("ingreso_plaqueros")
                                 all_vals = ws_env.get_all_values()
@@ -279,55 +272,74 @@ def render_module(user, get_sheet, cargar_datos):
                                     if len(f_vals) > 0 and f_vals[0].strip() in ids_a_liberar:
                                         ws_env.update_cell(f_idx + 1, 11, "Finalizado")
                                         
-                                st.success(f"✅ ¡Equipo **{row['PLAQUERO']}** liberado! Listo para la siguiente bachada.")
+                                st.success(f"✅ ¡Equipo **{row['PLAQUERO']}** liberado por completo!")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error al liberar: {e}")
                     else:
                         st.markdown("<span style='color: gray;'>Libre</span>", unsafe_allow_html=True)
-                st.markdown("<hr style='margin: 4px 0px; border-color: #eee;'>", unsafe_allow_html=True)
+                st.markdown("<hr style='margin: 6px 0px; border-color: #eee;'>", unsafe_allow_html=True)
 
         except Exception as e:
             st.warning(f"Error cargando tabla: {e}")
 
     # =========================================================================
-    # ITEM 3: CORRECCIÓN O ANULACIÓN DE INGRESOS ERRÓNEOS
+    # ITEM 3: MODIFICACIÓN O EDICIÓN DE REGISTROS ERRÓNEOS
     # =========================================================================
-    with st.expander("✏️ 3. Corrección o Anulación de Registros Erróneos", expanded=False):
-        st.caption("Si se ingresó una placa mal en cantidad, calibre o presentación, selecciónela y anúlela para corregirla.")
+    with st.expander("✏️ 3. Modificación de Registros Erróneos", expanded=False):
+        st.caption("Si se ingresó mal una cantidad, calibre o presentación, seleccione el registro y edítelo directamente.")
         
         try:
-            df_all_corr = cargar_datos_env("ingreso_plaqueros")
-            if not df_all_corr.empty:
+            df_all_mod = cargar_datos_env("ingreso_plaqueros")
+            if not df_all_mod.empty:
                 fecha_hoy_str = obtener_hora_peru().strftime("%Y-%m-%d")
-                df_hoy = df_all_corr[df_all_corr["fecha"].astype(str).str.strip() == fecha_hoy_str]
+                df_hoy = df_all_mod[df_all_mod["fecha"].astype(str).str.strip() == fecha_hoy_str]
                 
                 if not df_hoy.empty:
-                    st.dataframe(df_hoy[["id_produccion", "equipo", "hora_inicio", "presentacion", "calibre", "bandejas", "estado"]], use_container_width=True)
+                    st.dataframe(df_hoy[["id_produccion", "equipo", "hora_inicio", "presentacion", "calibre", "bandejas", "estado", "bachadas"]], use_container_width=True)
                     
-                    id_a_corregir = st.selectbox("Seleccione el ID del registro a anular/eliminar:", df_hoy["id_produccion"].tolist(), key="sel_id_anular_v2")
+                    id_a_editar = st.selectbox("Seleccione el ID del registro a modificar:", df_hoy["id_produccion"].tolist(), key="sel_id_modificar")
                     
-                    if st.button("🗑️ Anular Registro Seleccionado", type="primary", key="btn_anular_reg_v2"):
+                    # Buscar datos actuales del registro seleccionado
+                    fila_act = df_hoy[df_hoy["id_produccion"] == id_a_editar].iloc[0]
+                    
+                    st.markdown(f"**Editando registro:** `{id_a_editar}` ({fila_act['equipo']} - {fila_act.get('bachadas', '')})")
+                    
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    with col_m1:
+                        nueva_pres = st.selectbox("Nueva Presentación:", lista_presentaciones, index=lista_presentaciones.index(fila_act['presentacion']) if fila_act['presentacion'] in lista_presentaciones else 0, key="mod_pres")
+                    with col_m2:
+                        nuevo_cal = st.selectbox("Nuevo Calibre:", lista_calibres, index=lista_calibres.index(fila_act['calibre']) if fila_act['calibre'] in lista_calibres else 0, key="mod_cal")
+                    with col_m3:
+                        nuevas_band = st.number_input("Nueva Cantidad de Bandejas:", min_value=1, step=1, value=int(fila_act['bandejas']) if str(fila_act['bandejas']).isdigit() else 50, key="mod_band")
+
+                    if st.button("💾 Guardar Cambios y Actualizar", type="primary", key="btn_guardar_mod"):
                         ws_env = get_env_sheet("ingreso_plaqueros")
                         all_vals = ws_env.get_all_values()
-                        fila_borrar = -1
+                        fila_tabla = -1
                         for f_idx, f_vals in enumerate(all_vals):
-                            if len(f_vals) > 0 and f_vals[0].strip() == id_a_corregir.strip():
-                                fila_borrar = f_idx + 1
+                            if len(f_vals) > 0 and f_vals[0].strip() == id_a_editar.strip():
+                                fila_tabla = f_idx + 1
                                 break
                         
-                        if fila_borrar != -1:
-                            ws_env.delete_rows(fila_borrar)
-                            st.success(f"✅ Registro **{id_a_corregir}** anulado correctamente. Ya puede ingresar el dato correcto en el Ítem 1.")
+                        if fila_tabla != -1:
+                            nuevo_total_kg = nuevas_band * 10.0
+                            # Actualizar celdas en Google Sheets: Columna G (presentacion=7), H (calibre=8), I (bandejas=9), J (total_kg=10)
+                            ws_env.update_cell(fila_tabla, 7, nueva_pres)
+                            ws_env.update_cell(fila_tabla, 8, nuevo_cal)
+                            ws_env.update_cell(fila_tabla, 9, str(nuevas_band))
+                            ws_env.update_cell(fila_tabla, 10, str(nuevo_total_kg))
+                            
+                            st.success(f"✅ ¡Registro **{id_a_editar}** actualizado correctamente!")
                             st.rerun()
                         else:
-                            st.error("No se encontró el registro en la hoja.")
+                            st.error("No se encontró la fila en Google Sheets.")
                 else:
-                    st.info("No hay registros para hoy para corregir.")
+                    st.info("No hay registros para hoy para modificar.")
             else:
                 st.info("No hay datos en la base de envasado.")
         except Exception as e:
-            st.warning(f"Error en panel de corrección: {e}")
+            st.warning(f"Error en panel de modificación: {e}")
 
     # =========================================================================
     # ITEM 4: RESUMEN DE PRODUCCION Y RENDIMIENTOS
@@ -335,7 +347,7 @@ def render_module(user, get_sheet, cargar_datos):
     with st.expander("📊 4. Resumen de Producción (Filtrado por Fecha)", expanded=False):
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_prod_v19")
+            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_prod_v20")
         
         fecha_filtro_str = fecha_filtro_prod.strftime("%Y-%m-%d")
         st.markdown(f"**Fecha seleccionada:** {fecha_filtro_str}")
