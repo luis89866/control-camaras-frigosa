@@ -31,8 +31,37 @@ def cargar_datos_env(sheet_name):
             return pd.DataFrame(columns=[str(h).strip() for h in rows[0]])
         return pd.DataFrame()
     except Exception as e:
-        st.warning(f"No se pudo cargar datos de envasado: {e}")
+        st.warning(f"No se pudo cargar datos de envasado ({sheet_name}): {e}")
         return pd.DataFrame()
+
+def obtener_listas_dinamicas():
+    """Carga las listas de presentaciones y calibres directamente desde las pestañas de Google Sheets"""
+    # Valores por defecto por si falla la conexión
+    lista_pres_def = ["ALETA FRESCA", "TENTACULO SU SV", "CONOS", "BOTON", "TUBO"]
+    lista_cal_def = ["0-50 GR/PZA", "50-100 GR/PZA", "100-300 GR/PZA", "-"]
+    
+    try:
+        df_pres = cargar_datos_env("PRESENTACION")
+        if not df_pres.empty:
+            # Buscar la columna que contenga la presentación (puede llamarse PRESENTACION)
+            col_pres = [c for c in df_pres.columns if "PRESENTACION" in c.upper()]
+            if col_pres:
+                lista_pres_def = df_pres[col_pres[0]].dropna().astype(str).str.strip().tolist()
+                lista_pres_def = [p for p in lista_pres_def if p != ""]
+    except Exception:
+        pass
+
+    try:
+        df_cal = cargar_datos_env("CALIBRE")
+        if not df_cal.empty:
+            col_cal = [c for c in df_cal.columns if "CALIBRE" in c.upper()]
+            if col_cal:
+                lista_cal_def = df_cal[col_cal[0]].dropna().astype(str).str.strip().tolist()
+                lista_cal_def = [c for c in lista_cal_def if c != ""]
+    except Exception:
+        pass
+
+    return lista_pres_def, lista_cal_def
 
 def obtener_hora_peru():
     return datetime.utcnow() - timedelta(hours=5)
@@ -54,21 +83,9 @@ def render_module(user, get_sheet, cargar_datos):
     st.markdown("---")
 
     lista_plaqueros = [f"P{i}" for i in range(1, 19)] + ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"]
-    lista_presentaciones = [
-        "ALETA FRESCA 300-500 GR", "ALETA FRESCA 500-1000 GR", "ALETA FRESCA CV GR", "ALETA FRESCA 1000 - UP",
-        "FILETE FRESCO CONG. C/M, C/T, SP DE 1 A 2 KG", "FILETE FRESCO CONG. C/M, C/T, SP DE 2 A 4",
-        "MANTO CONG. C/M, C/T, SP DE 2-4", "FILETE FRESCO SM ST 2-4 KG / PZ",
-        "NUCAS DE POTA CONGELADA 0 - 100 GR", "NUCAS DE POTA CONGELADA 100 - 300 GR",
-        "NUCAS DE POTA CONGELADA 300- 500 GR", "NUCAS DE POTA CONGELADA 500 GR UP",
-        "BOTONES DE POTA CONGELADA S/M ST BLOCK", "BOTONES DE POTA CONGELADA SM ST BLANCO IQF", "BOTON BLOCK CORTE",
-        "TENTACULOS DE POTA TB C/U C/V 100-300 GR", "TENTACULOS DE POTA TB C/U C/V 300-500 GR",
-        "TENTACULOS DE POTA TB C/U C/V 500-1000 GR", "TENTACULOS DE POTA TB S/U S/V 1000 GR UP",
-        "TENTACULOS DE POTA TB S/U S/V 1000-2000 GR", "TENTACULOS DE POTA TB S/U S/V 2000-3000 GR",
-        "REPRODUCTOR DE POTA MAYOR A 50 CM S/ PUNTA", "REPRODUCTOR DE POTA MENOR A 50 CM S/ PUNTA",
-        "TROZOS DE POTA", "FPC 8-14 MM PANZA", "FPC 8-14MM MEMBRANA", "FPC 7-10 MM", "FPC 7-10 MM MEMBRANA",
-        "FPC 10-14 MM", "RECORTE PRECOCIDO", "CONOS", "TENTACULO SU SV", "BOTON", "TUBO"
-    ]
-    lista_calibres = ["0-50 GR", "50-100 GR", "100-300 GR", "300-500 GR", "500-1000 GR", "1000-3000 GR", "-"]
+    
+    # Cargar presentaciones y calibres dinámicamente desde Sheets
+    lista_presentaciones, lista_calibres = obtener_listas_dinamicas()
 
     # =========================================================================
     # ITEM 1: INGRESOS DE DATOS
@@ -78,17 +95,17 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v21")
+            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v22")
             if tipo_equipo == "Plaquero (P1 - P18)":
-                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v21")
+                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v22")
             else:
-                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v21")
+                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v22")
                 
-            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v21")
+            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v22")
             
         with col_d2:
             st.markdown("##### Tiempo de Congelación (Ej: 2:45 o 0:02 min):")
-            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v21")
+            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v22")
             
             minutos_cong = 165
             try:
@@ -118,13 +135,13 @@ def render_module(user, get_sheet, cargar_datos):
         st.markdown("---")
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v21")
+            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v22")
         with col_p2:
-            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v21")
+            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v22")
         with col_p3:
-            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v21")
+            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v22")
 
-        if st.button("🚀 Registrar / Agregar Presentación", use_container_width=True, key="btn_enviar_produccion_v21"):
+        if st.button("🚀 Registrar / Agregar Presentación", use_container_width=True, key="btn_enviar_produccion_v22"):
             try:
                 ws_env = get_env_sheet("ingreso_plaqueros")
                 existing_data = ws_env.get_all_values()
@@ -166,7 +183,7 @@ def render_module(user, get_sheet, cargar_datos):
                 st.error(f"Error al guardar: {e}")
 
     # =========================================================================
-    # ITEM 2: PLAQUEROS ENCENDIDOS (ESTADOS AMARILLO, VERDE Y ROJO CON RETASO)
+    # ITEM 2: PLAQUEROS ENCENDIDOS (ESTADOS VERDE, AMARILLO, ROJO Y RETRASO)
     # =========================================================================
     with st.expander("⚡ 2. Plaqueros Encendidos (Control de Ciclos y Retrasos)", expanded=True):
         tiempo_peru = obtener_hora_peru()
@@ -174,7 +191,7 @@ def render_module(user, get_sheet, cargar_datos):
         with col_c1:
             st.caption(f"🕒 Hora oficial de planta (Perú UTC-5): **{tiempo_peru.strftime('%H:%M:%S')}**")
         with col_c2:
-            if st.button("🔄 Actualizar Cronograma", key="btn_actualizar_cronograma_v9", use_container_width=True):
+            if st.button("🔄 Actualizar Cronograma", key="btn_actualizar_cronograma_v10", use_container_width=True):
                 st.rerun()
 
         try:
@@ -267,7 +284,7 @@ def render_module(user, get_sheet, cargar_datos):
                         st.markdown(f"<span style='color: #f0ad4e; font-weight: bold;'>{row['SITUACION']}</span>", unsafe_allow_html=True)
                 with col_t6:
                     if len(row['ids']) > 0:
-                        if st.button("🔓 Liberar", key=f"lib_colores_{row['PLAQUERO']}_{idx}"):
+                        if st.button("🔓 Liberar", key=f"lib_dinamico_{row['PLAQUERO']}_{idx}"):
                             try:
                                 ws_env = get_env_sheet("ingreso_plaqueros")
                                 all_vals = ws_env.get_all_values()
@@ -303,20 +320,20 @@ def render_module(user, get_sheet, cargar_datos):
                 if not df_hoy.empty:
                     st.dataframe(df_hoy[["id_produccion", "equipo", "hora_inicio", "presentacion", "calibre", "bandejas", "estado", "bachadas"]], use_container_width=True)
                     
-                    id_a_editar = st.selectbox("Seleccione el ID del registro a modificar:", df_hoy["id_produccion"].tolist(), key="sel_id_mod_v2")
+                    id_a_editar = st.selectbox("Seleccione el ID del registro a modificar:", df_hoy["id_produccion"].tolist(), key="sel_id_mod_v3")
                     fila_act = df_hoy[df_hoy["id_produccion"] == id_a_editar].iloc[0]
                     
                     st.markdown(f"**Editando registro:** `{id_a_editar}` ({fila_act['equipo']} - {fila_act.get('bachadas', '')})")
                     
                     col_m1, col_m2, col_m3 = st.columns(3)
                     with col_m1:
-                        nueva_pres = st.selectbox("Nueva Presentación:", lista_presentaciones, index=lista_presentaciones.index(fila_act['presentacion']) if fila_act['presentacion'] in lista_presentaciones else 0, key="mod_pres_v2")
+                        nueva_pres = st.selectbox("Nueva Presentación:", lista_presentaciones, index=lista_presentaciones.index(fila_act['presentacion']) if fila_act['presentacion'] in lista_presentaciones else 0, key="mod_pres_v3")
                     with col_m2:
-                        nuevo_cal = st.selectbox("Nuevo Calibre:", lista_calibres, index=lista_calibres.index(fila_act['calibre']) if fila_act['calibre'] in lista_calibres else 0, key="mod_cal_v2")
+                        nuevo_cal = st.selectbox("Nuevo Calibre:", lista_calibres, index=lista_calibres.index(fila_act['calibre']) if fila_act['calibre'] in lista_calibres else 0, key="mod_cal_v3")
                     with col_m3:
-                        nuevas_band = st.number_input("Nueva Cantidad de Bandejas:", min_value=1, step=1, value=int(fila_act['bandejas']) if str(fila_act['bandejas']).isdigit() else 50, key="mod_band_v2")
+                        nuevas_band = st.number_input("Nueva Cantidad de Bandejas:", min_value=1, step=1, value=int(fila_act['bandejas']) if str(fila_act['bandejas']).isdigit() else 50, key="mod_band_v3")
 
-                    if st.button("💾 Guardar Cambios y Actualizar", type="primary", key="btn_guardar_mod_v2"):
+                    if st.button("💾 Guardar Cambios y Actualizar", type="primary", key="btn_guardar_mod_v3"):
                         ws_env = get_env_sheet("ingreso_plaqueros")
                         all_vals = ws_env.get_all_values()
                         fila_tabla = -1
@@ -349,7 +366,7 @@ def render_module(user, get_sheet, cargar_datos):
     with st.expander("📊 4. Resumen de Producción (Filtrado por Fecha)", expanded=False):
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_prod_v21")
+            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_prod_v22")
         
         fecha_filtro_str = fecha_filtro_prod.strftime("%Y-%m-%d")
         st.markdown(f"**Fecha seleccionada:** {fecha_filtro_str}")
