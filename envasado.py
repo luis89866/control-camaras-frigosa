@@ -68,35 +68,31 @@ def render_module(user, get_sheet, cargar_datos):
     lista_calibres = ["0-50 GR", "50-100 GR", "100-300 GR", "300-500 GR", "500-1000 GR", "1000-3000 GR", "-"]
 
     # =========================================================================
-    # ITEM 1: INGRESOS DE DATOS (CON DIGITACIÓN LIBRE Y VALIDACIÓN DE OCUPACIÓN)
+    # ITEM 1: INGRESOS DE DATOS
     # =========================================================================
     with st.expander("📥 1. Ingresos de Datos (Túneles y Plaqueros P1-P18)", expanded=True):
-        st.caption("Digite o ajuste el tiempo de congelación en formato horas:minutos (ej. 2:30, 2:45). El sistema validará que el equipo esté libre.")
+        st.caption("Seleccione el equipo, hora de inicio, tiempo de congelación (formato HH:MM), presentación y bandejas.")
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v8")
+            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v9")
             if tipo_equipo == "Plaquero (P1 - P18)":
-                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v8")
+                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v9")
             else:
-                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v8")
+                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v9")
                 
-            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", datetime.now().strftime("%H:%M"), key="h_inicio_prod_v8")
+            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", datetime.now().strftime("%H:%M"), key="h_inicio_prod_v9")
             
         with col_d2:
-            st.markdown("##### Tiempo de Congelación (Formato HH:MM o Minutos):")
-            # Campo libre para digitar el tiempo (con valor por defecto 2:45)
-            tiempo_input_str = st.text_input("Tiempo (Ej: 2:45 o 165 min):", "2:45", key="t_cong_libre_v8", help="Puede digitar directamente 2:30, 2:45, 3:00, etc.")
+            st.markdown("##### Tiempo de Congelación (Ej: 2:30, 2:45):")
+            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v9")
             
-            # Convertir el texto ingresado a minutos totales para el cálculo matemático
-            minutos_cong = 165 # por defecto 2h 45m
+            minutos_cong = 165
             try:
                 t_clean = tiempo_input_str.strip().lower()
                 if ":" in t_clean:
                     partes = t_clean.split(":")
                     minutos_cong = int(partes[0]) * 60 + int(partes[1])
-                elif "min" in t_clean:
-                    minutos_cong = int(t_clean.replace("min", "").strip())
                 else:
                     minutos_cong = int(float(t_clean) * 60)
             except:
@@ -119,47 +115,39 @@ def render_module(user, get_sheet, cargar_datos):
         st.markdown("---")
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v8")
+            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v9")
         with col_p2:
-            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v8")
+            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v9")
         with col_p3:
-            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=70, key="num_bandejas_v8")
+            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=70, key="num_bandejas_v9")
 
-        if st.button("🚀 Ingresar Producción en Línea", use_container_width=True, key="btn_enviar_produccion_v8"):
+        if st.button("🚀 Ingresar Producción en Línea", use_container_width=True, key="btn_enviar_produccion_v9"):
             try:
                 ws_env = get_env_sheet("ingreso_plaqueros")
                 existing_data = ws_env.get_all_values()
                 fecha_hoy = datetime.now().strftime("%Y-%m-%d")
                 
-                # VALIDACIÓN DE DISPONIBILIDAD DEL EQUIPO (Evitar doble ingreso si está ocupado)
                 equipo_ocupado = False
-                equipo_ocupado_msg = ""
-                ahora_dt = datetime.now()
-
                 if len(existing_data) > 1:
                     for fila in existing_data[1:]:
                         if len(fila) >= 11:
                             f_reg = str(fila[1]).strip()
                             eq_reg = str(fila[2]).strip().upper()
                             h_sal_reg = str(fila[5]).strip()
-                            estado_reg = str(fila[10]).strip() # Columna 'estado'
+                            estado_reg = str(fila[10]).strip()
                             
-                            # Si es el mismo equipo en la fecha de hoy y está marcado "En Proceso"
                             if f_reg == fecha_hoy and eq_reg == plaquero_sel.strip().upper() and estado_reg == "En Proceso":
-                                # Comprobar si su ciclo ya venció en el tiempo real
                                 try:
                                     h_sal_t = datetime.strptime(h_sal_reg, "%H:%M").time()
-                                    if ahora_dt.time() < h_sal_t:
+                                    if datetime.now().time() < h_sal_t:
                                         equipo_ocupado = True
-                                        equipo_ocupado_msg = f"El equipo {plaquero_sel} se encuentra ocupado con el ciclo en curso hasta las {h_sal_reg}."
                                         break
                                 except:
                                     equipo_ocupado = True
-                                    equipo_ocupado_msg = f"El equipo {plaquero_sel} registra un proceso activo."
                                     break
 
                 if equipo_ocupado:
-                    st.error(f"❌ **No se puede registrar.** {equipo_ocupado_msg} Debe esperar a que cumpla su tiempo o finalizar su turno para volver a usarlo.")
+                    st.error(f"❌ **No se puede registrar.** El equipo **{plaquero_sel}** ya se encuentra ocupado con un ciclo en curso.")
                 else:
                     id_prod = f"PROD-{datetime.now().strftime('%y%m%d%H%M%S')}"
                     total_kg = bandejas_cant * 10.0
@@ -169,77 +157,106 @@ def render_module(user, get_sheet, cargar_datos):
                         hora_salida_estimada, presentacion_sel, calibre_sel, str(bandejas_cant), 
                         str(total_kg), "En Proceso"
                     ])
-                    st.success(f"✅ Producción registrada exitosamente en **{plaquero_sel}**! (Salida prevista: {hora_salida_estimada})")
+                    st.success(f"✅ Producción registrada en **{plaquero_sel}**! (Salida: {hora_salida_estimada})")
                     st.rerun()
             except Exception as e:
                 st.error(f"Error al guardar: {e}")
 
     # =========================================================================
-    # ITEM 2: PLAQUEROS ENCENDIDOS (CON BOTÓN DE LIBERAR / FINALIZAR CICLO)
+    # ITEM 2: PLAQUEROS ENCENDIDOS (FORMATO DE TABLA CON COLUMNA DE LIBERAR)
     # =========================================================================
     with st.expander("⚡ 2. Plaqueros Encendidos (En Proceso y Alertas de Ciclo)", expanded=True):
-        st.caption("Equipos activos. Si la placa ya fue bajada, puedes hacer clic en 'Liberar Equipo' para habilitarlo nuevamente.")
+        st.caption("Equipos activos con su hora de inicio, salida y opción directa para liberar la posición al bajarse la placa.")
         try:
             df_prod = cargar_datos_env("ingreso_plaqueros")
-            if not df_prod.empty:
-                ahora_dt = datetime.now()
-                
-                # Filtrar solo los que están "En Proceso"
-                df_activos = df_prod[df_prod["estado"].astype(str).str.contains("En Proceso", case=False, na=True)].copy()
-                
-                if not df_activos.empty:
-                    for idx, row in df_activos.iterrows():
-                        eq = row.get("equipo", "")
-                        h_ini = row.get("hora_inicio", "")
-                        h_sal = row.get("hora_salida", "")
-                        prod = row.get("presentacion", "")
-                        cal = row.get("calibre", "")
-                        band = row.get("bandejas", "")
-                        id_p = row.get("id_produccion", "")
-                        
-                        alerta_ciclo = "🟢 En Proceso Normal"
-                        try:
-                            if h_sal:
-                                h_sal_t = datetime.strptime(h_sal.strip(), "%H:%M").time()
-                                if ahora_dt.time() >= h_sal_t:
-                                    alerta_ciclo = "🚨 ¡CICLO CUMPLIDO - PLACA LISTA PARA BAJAR!"
-                        except:
-                            pass
+            ahora_dt = datetime.now()
+            
+            # Crear un diccionario para mapear los equipos activos actuales
+            activos_dict = {}
+            if not df_prod.empty and "estado" in df_prod.columns:
+                df_activos = df_prod[df_prod["estado"].astype(str).str.contains("En Proceso", case=False, na=True)]
+                for _, r in df_activos.iterrows():
+                    eq_key = str(r.get("equipo", "")).strip().upper()
+                    activos_dict[eq_key] = r
 
-                        col_info1, col_info2, col_info3 = st.columns([2, 2, 1])
-                        with col_info1:
-                            st.markdown(f"**📌 Equipo:** `{eq}` | **Inicio:** `{h_ini}` | **Salida:** `{h_sal}`")
-                            st.caption(f"Prod: {prod} ({cal}) - {band} bandejas")
-                        with col_info2:
-                            st.markdown(f"**Estado:** {alerta_ciclo}")
-                        with col_info3:
-                            if st.button(f"🔓 Liberar {eq}", key=f"lib_{id_p}_{idx}"):
-                                try:
-                                    ws_env = get_env_sheet("ingreso_plaqueros")
-                                    # Encontrar la fila correspondiente en Google Sheets
-                                    all_vals = ws_env.get_all_values()
-                                    fila_encontrada = -1
-                                    for f_idx, f_vals in enumerate(all_vals):
-                                        if len(f_vals) > 0 and f_vals[0].strip() == id_p.strip():
-                                            fila_encontrada = f_idx + 1 # gspread es 1-indexado
-                                            break
-                                    
-                                    if fila_encontrada != -1:
-                                        # Cambiar estado a "Finalizado" en la columna K (11)
-                                        ws_env.update_cell(fila_encontrada, 11, "Finalizado")
-                                        st.success(f"✅ ¡El equipo **{eq}** ha sido liberado y ya está disponible!")
-                                        st.rerun()
-                                    else:
-                                        st.error("No se encontró el registro para liberar.")
-                                except Exception as e:
-                                    st.error(f"Error al liberar equipo: {e}")
-                        st.markdown("---")
+            # Construir la tabla completa para todos los plaqueros y túneles (P1-P18 y Túneles)
+            tabla_consolidada = []
+            for eq in lista_plaqueros:
+                eq_clean = eq.strip().upper()
+                if eq_clean in activos_dict:
+                    r_dat = activos_dict[eq_clean]
+                    h_ini = r_dat.get("hora_inicio", "")
+                    h_sal = r_dat.get("hora_salida", "")
+                    prod = r_dat.get("presentacion", "")
+                    
+                    situacion_txt = "🟢 En Proceso Normal"
+                    try:
+                        if h_sal:
+                            h_sal_t = datetime.strptime(h_sal.strip(), "%H:%M").time()
+                            if ahora_dt.time() >= h_sal_t:
+                                situacion_txt = "🚨 ¡CICLO CUMPLIDO - LISTO PARA BAJAR!"
+                    except:
+                        pass
+                    
+                    tabla_consolidada.append({
+                        "PLAQUERO": eq,
+                        "HORA INICIO": h_ini,
+                        "HORA SALIDA": h_sal,
+                        "PRODUCTO": prod,
+                        "SITUACION": situacion_txt,
+                        "id_prod": r_dat.get("id_produccion", "")
+                    })
                 else:
-                    st.info("ℹ️ No hay equipos en proceso actualmente. Todos están libres.")
-            else:
-                st.info("ℹ️ Aún no hay registros de producción.")
+                    tabla_consolidada.append({
+                        "PLAQUERO": eq,
+                        "HORA INICIO": "-",
+                        "HORA SALIDA": "-",
+                        "PRODUCTO": "-",
+                        "SITUACION": "Libre 🟢",
+                        "id_prod": ""
+                    })
+
+            df_mostrar_tabla = pd.DataFrame(tabla_consolidada)
+            
+            # Renderizar en formato de tabla limpia con opción interactiva por fila
+            for idx, row in df_mostrar_tabla.iterrows():
+                col_t1, col_t2, col_t3, col_t4, col_t5, col_t6 = st.columns([1, 1.2, 1.2, 2, 2.2, 1.2])
+                with col_t1:
+                    st.markdown(f"**{row['PLAQUERO']}**")
+                with col_t2:
+                    st.markdown(f"`{row['HORA INICIO']}`")
+                with col_t3:
+                    st.markdown(f"`{row['HORA SALIDA']}`")
+                with col_t4:
+                    st.markdown(f"<small>{row['PRODUCTO']}</small>", unsafe_allow_html=True)
+                with col_t5:
+                    st.markdown(f"**{row['SITUACION']}**")
+                with col_t6:
+                    if row['id_prod'] != "":
+                        if st.button("🔓 Liberar", key=f"lib_pos_{row['id_prod']}_{idx}"):
+                            try:
+                                ws_env = get_env_sheet("ingreso_plaqueros")
+                                all_vals = ws_env.get_all_values()
+                                fila_encontrada = -1
+                                for f_idx, f_vals in enumerate(all_vals):
+                                    if len(f_vals) > 0 and f_vals[0].strip() == row['id_prod'].strip():
+                                        fila_encontrada = f_idx + 1
+                                        break
+                                
+                                if fila_encontrada != -1:
+                                    ws_env.update_cell(fila_encontrada, 11, "Finalizado")
+                                    st.success(f"✅ ¡{row['PLAQUERO']} liberado!")
+                                    st.rerun()
+                                else:
+                                    st.error("No se encontró el registro.")
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+                    else:
+                        st.markdown("<span style='color: gray;'>Libre</span>", unsafe_allow_html=True)
+                st.markdown("<hr style='margin: 4px 0px; border-color: #eee;'>", unsafe_allow_html=True)
+
         except Exception as e:
-            st.warning(f"Error cargando encendidos: {e}")
+            st.warning(f"Error cargando tabla de plaqueros: {e}")
 
     # =========================================================================
     # ITEM 3: PLAQUEROS APAGADOS (TIEMPO MUERTO)
@@ -259,7 +276,7 @@ def render_module(user, get_sheet, cargar_datos):
     with st.expander("📊 4. Resumen de Producción (Filtrado por Fecha)", expanded=False):
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", datetime.now(), key="filtro_fecha_prod_v8")
+            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", datetime.now(), key="filtro_fecha_prod_v9")
         
         fecha_filtro_str = fecha_filtro_prod.strftime("%Y-%m-%d")
         st.markdown(f"**Fecha seleccionada:** {fecha_filtro_str}")
