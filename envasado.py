@@ -42,7 +42,6 @@ def render_module(user, get_sheet, cargar_datos):
     st.subheader("📦 Módulo de Envasado y Control de Plaqueros / Túneles")
     st.markdown(f"Operador / Supervisor: **{nombre_sesion}** | Rol: `{rol}`")
     
-    # Botón de actualización rápida
     col_r1, col_r2 = st.columns([3, 1])
     with col_r2:
         if st.button("🔄 Refrescar Envasado", use_container_width=True):
@@ -52,7 +51,6 @@ def render_module(user, get_sheet, cargar_datos):
 
     st.markdown("---")
 
-    # Listas de referencia para la planta de Frigosa
     lista_plaqueros = [f"P{i}" for i in range(1, 19)] + ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"]
     lista_presentaciones = [
         "ALETA FRESCA 300-500 GR", "ALETA FRESCA 500-1000 GR", "ALETA FRESCA CV GR", "ALETA FRESCA 1000 - UP",
@@ -71,45 +69,49 @@ def render_module(user, get_sheet, cargar_datos):
     lista_calibres = ["0-50 GR", "50-100 GR", "100-300 GR", "300-500 GR", "500-1000 GR", "1000-3000 GR", "-"]
 
     # =========================================================================
-    # ITEM 1: INGRESOS DE DATOS (CONECTADO A ingreso_plaqueros)
+    # ITEM 1: INGRESOS DE DATOS (CON MINUTOS DE 10 EN 10)
     # =========================================================================
     with st.expander("📥 1. Ingresos de Datos (Túneles y Plaqueros P1-P18)", expanded=True):
-        st.caption("Seleccione el equipo, hora de inicio, tiempo de congelación, presentación y bandejas.")
+        st.caption("Seleccione el equipo, hora de inicio, ajuste el tiempo de congelación de 10 en 10 minutos, presentación y bandejas.")
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v5")
+            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v6")
             if tipo_equipo == "Plaquero (P1 - P18)":
-                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v5")
+                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v6")
             else:
-                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v5")
+                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v6")
                 
-            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", datetime.now().strftime("%H:%M"), key="h_inicio_prod_v5")
+            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", datetime.now().strftime("%H:%M"), key="h_inicio_prod_v6")
             
         with col_d2:
-            st.markdown("##### Tiempo de Congelación (Horas):")
-            tiempo_cong = st.number_input("Ajustar Horas (+ / -):", min_value=0.5, max_value=24.0, step=0.5, value=2.5, key="t_cong_num_v5")
+            st.markdown("##### Tiempo de Congelación (Ajuste de 10 en 10 min):")
+            # Minutos de congelación con pasos de 10 en 10 min (ej. por defecto 150 min = 2.5 horas)
+            minutos_cong = st.number_input("Minutos de Congelación (+ / -):", min_value=10, max_value=1440, step=10, value=150, key="t_cong_min_v6")
+            
+            # Convertir minutos a formato legible horas y minutos para mostrar
+            horas_calc_str = f"{minutos_cong // 60}h {minutos_cong % 60}m" if minutos_cong >= 60 else f"{minutos_cong} min"
             
             hora_salida_estimada = "00:00"
             try:
                 dt_ini = datetime.strptime(hora_inicio_str.strip(), "%H:%M")
-                dt_sal = dt_ini + timedelta(hours=float(tiempo_cong))
+                dt_sal = dt_ini + timedelta(minutes=int(minutos_cong))
                 hora_salida_estimada = dt_sal.strftime("%H:%M")
             except:
                 pass
             
-            st.info(f"⏰ **Hora de Salida Automática:** `{hora_salida_estimada}`")
+            st.info(f"⏱️ Duración: `{horas_calc_str}` | ⏰ **Salida Automática:** `{hora_salida_estimada}`")
 
         st.markdown("---")
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v5")
+            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v6")
         with col_p2:
-            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v5")
+            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v6")
         with col_p3:
-            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=70, key="num_bandejas_v5")
+            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=70, key="num_bandejas_v6")
 
-        if st.button("🚀 Ingresar Producción en Línea", use_container_width=True, key="btn_enviar_produccion_v5"):
+        if st.button("🚀 Ingresar Producción en Línea", use_container_width=True, key="btn_enviar_produccion_v6"):
             try:
                 ws_env = get_env_sheet("ingreso_plaqueros")
                 existing_data = ws_env.get_all_values()
@@ -132,16 +134,17 @@ def render_module(user, get_sheet, cargar_datos):
                 else:
                     id_prod = f"PROD-{datetime.now().strftime('%y%m%d%H%M%S')}"
                     total_kg = bandejas_cant * 10.0
+                    tiempo_cong_str = f"{horas_calc_str} ({minutos_cong} min)"
 
                     ws_env.append_row([
-                        id_prod, fecha_hoy, plaquero_sel, hora_inicio_str, str(tiempo_cong), 
+                        id_prod, fecha_hoy, plaquero_sel, hora_inicio_str, tiempo_cong_str, 
                         hora_salida_estimada, presentacion_sel, calibre_sel, str(bandejas_cant), 
                         str(total_kg), "En Proceso"
                     ])
                     st.success(f"✅ Producción registrada exitosamente en **{plaquero_sel}**! (Total Kilos estimados: {total_kg} kg)")
                     st.rerun()
             except Exception as e:
-                st.error(f"Error al guardar: {e}")
+                st.error(f"Error al guardar: Verifique que la cuenta de servicio tenga permisos de Editor en el Google Sheets y que la pestaña 'ingreso_plaqueros' exista. Detalle: {e}")
 
     # =========================================================================
     # ITEM 2: PLAQUEROS ENCENDIDOS
@@ -200,7 +203,7 @@ def render_module(user, get_sheet, cargar_datos):
     with st.expander("📊 4. Resumen de Producción (Filtrado por Fecha)", expanded=False):
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", datetime.now(), key="filtro_fecha_prod_v5")
+            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", datetime.now(), key="filtro_fecha_prod_v6")
         
         fecha_filtro_str = fecha_filtro_prod.strftime("%Y-%m-%d")
         st.markdown(f"**Fecha seleccionada:** {fecha_filtro_str}")
