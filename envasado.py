@@ -71,23 +71,23 @@ def render_module(user, get_sheet, cargar_datos):
     # ITEM 1: INGRESOS DE DATOS
     # =========================================================================
     with st.expander("📥 1. Ingresos de Datos (Túneles y Plaqueros P1-P18)", expanded=True):
-        st.caption("Seleccione el equipo, hora de inicio, tiempo de congelación (ej. 2:30, 2:45 o 0:01 para pruebas), presentación y bandejas.")
+        st.caption("Seleccione el equipo, hora de inicio, tiempo de congelación (ej. 0:02 para prueba de 2 minutos), presentación y bandejas.")
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v10")
+            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v11")
             if tipo_equipo == "Plaquero (P1 - P18)":
-                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v10")
+                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v11")
             else:
-                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v10")
+                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v11")
                 
-            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", datetime.now().strftime("%H:%M"), key="h_inicio_prod_v10")
+            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", datetime.now().strftime("%H:%M"), key="h_inicio_prod_v11")
             
         with col_d2:
-            st.markdown("##### Tiempo de Congelación (Ej: 2:45 o 0:01):")
-            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v10")
+            st.markdown("##### Tiempo de Congelación (Ej: 2:45 o 0:02 min):")
+            tiempo_input_str = st.text_input("Tiempo de Congelación:", "0:02", key="t_cong_libre_v11")
             
-            minutos_cong = 165
+            minutos_cong = 2
             try:
                 t_clean = tiempo_input_str.strip().lower()
                 if ":" in t_clean:
@@ -96,7 +96,7 @@ def render_module(user, get_sheet, cargar_datos):
                 else:
                     minutos_cong = int(float(t_clean) * 60)
             except:
-                minutos_cong = 165
+                minutos_cong = 2
 
             horas_h = minutos_cong // 60
             min_m = minutos_cong % 60
@@ -115,13 +115,13 @@ def render_module(user, get_sheet, cargar_datos):
         st.markdown("---")
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v10")
+            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v11")
         with col_p2:
-            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v10")
+            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v11")
         with col_p3:
-            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=70, key="num_bandejas_v10")
+            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=70, key="num_bandejas_v11")
 
-        if st.button("🚀 Ingresar Producción en Línea", use_container_width=True, key="btn_enviar_produccion_v10"):
+        if st.button("🚀 Ingresar Producción en Línea", use_container_width=True, key="btn_enviar_produccion_v11"):
             try:
                 ws_env = get_env_sheet("ingreso_plaqueros")
                 existing_data = ws_env.get_all_values()
@@ -163,14 +163,20 @@ def render_module(user, get_sheet, cargar_datos):
                 st.error(f"Error al guardar: {e}")
 
     # =========================================================================
-    # ITEM 2: PLAQUEROS ENCENDIDOS (CON DETECCIÓN EXACTA DE VENCIMIENTO)
+    # ITEM 2: PLAQUEROS ENCENDIDOS (CON COMPARACIÓN DE HORA EXACTA Y BOTÓN DE REFRESCO)
     # =========================================================================
     with st.expander("⚡ 2. Plaqueros Encendidos (En Proceso y Alertas de Ciclo)", expanded=True):
-        st.caption("Equipos activos. El sistema evalúa segundo a segundo si la hora actual supera la hora de salida para emitir alerta.")
+        st.col1, st.col2 = st.columns([3, 1])
+        with st.col1:
+            st.caption("Equipos activos. Haz clic en el botón de la derecha para actualizar el estado del reloj en tiempo real.")
+        with st.col2:
+            if st.button("⏱️ Comprobar Vencimiento", key="btn_comprobar_reloj", use_container_width=True):
+                st.rerun()
+
         try:
             df_prod = cargar_datos_env("ingreso_plaqueros")
             
-            # Obtener hora actual ajustada para comparación directa en formato HH:MM (comparando minutos totales del día)
+            # Obtener hora actual exacta del sistema en minutos totales del día
             ahora_dt = datetime.now()
             minutos_actuales_dia = ahora_dt.hour * 60 + ahora_dt.minute
 
@@ -282,7 +288,7 @@ def render_module(user, get_sheet, cargar_datos):
     with st.expander("📊 4. Resumen de Producción (Filtrado por Fecha)", expanded=False):
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", datetime.now(), key="filtro_fecha_prod_v10")
+            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", datetime.now(), key="filtro_fecha_prod_v11")
         
         fecha_filtro_str = fecha_filtro_prod.strftime("%Y-%m-%d")
         st.markdown(f"**Fecha seleccionada:** {fecha_filtro_str}")
