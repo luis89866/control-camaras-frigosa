@@ -7,6 +7,7 @@ from datetime import datetime
 # Importamos nuestros módulos independientes
 import asistencia
 import pptt
+import envasado
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -156,16 +157,16 @@ if st.session_state.modulo_activo == "Home":
 
         st.markdown(
             """
-            <div style="background-color: #f8f9fa; border: 2px solid #28a745; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
-                <h3 style="color: #28a745; margin-top: 0;">📤 Módulo 3</h3>
-                <h4 style="color: #333;">Despachos y Embarques</h4>
-                <p style="font-size: 13px; color: #666;">Salidas de palets, control de embarques y trazabilidad de productos terminados hacia clientes.</p>
+            <div style="background-color: #f8f9fa; border: 2px solid #ff8800; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
+                <h3 style="color: #e67e22; margin-top: 0;">📦 Módulo 3</h3>
+                <h4 style="color: #333;">Envasado y Control de Plaqueros</h4>
+                <p style="font-size: 13px; color: #666;">Registro de túneles, plaqueros P1-P18, tiempos de congelación, rendimientos e histograma.</p>
             </div>
             """,
             unsafe_allow_html=True
         )
-        if st.button("🚀 Ingresar a Despachos", use_container_width=True, key="btn_m3"):
-            st.session_state.modulo_activo = "Despachos"
+        if st.button("🚀 Ingresar a Envasado", use_container_width=True, key="btn_m_env"):
+            st.session_state.modulo_activo = "Envasado"
             st.rerun()
 
     with col_card2:
@@ -187,16 +188,16 @@ if st.session_state.modulo_activo == "Home":
 
         st.markdown(
             """
-            <div style="background-color: #f8f9fa; border: 2px solid #ffc107; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
-                <h3 style="color: #d39e00; margin-top: 0;">🗺️ Módulo 4</h3>
-                <h4 style="color: #333;">Layout y Stock de Cámaras</h4>
-                <p style="font-size: 13px; color: #666;">Visualización gráfica en tiempo real de ocupación de cámaras, ubicaciones libres y reportes.</p>
+            <div style="background-color: #f8f9fa; border: 2px solid #28a745; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
+                <h3 style="color: #28a745; margin-top: 0;">📤 Módulo 4</h3>
+                <h4 style="color: #333;">Despachos y Embarques</h4>
+                <p style="font-size: 13px; color: #666;">Salidas de palets, control de embarques y trazabilidad de productos terminados hacia clientes.</p>
             </div>
             """,
             unsafe_allow_html=True
         )
-        if st.button("🚀 Ingresar a Layout", use_container_width=True, key="btn_m4"):
-            st.session_state.modulo_activo = "Layout"
+        if st.button("🚀 Ingresar a Despachos", use_container_width=True, key="btn_m3"):
+            st.session_state.modulo_activo = "Despachos"
             st.rerun()
 
 # --- VISTA 2: CARGA DEL MÓDULO SELECCIONADO ---
@@ -211,7 +212,8 @@ else:
         asistencia.render_module(user, get_sheet, cargar_datos)
     elif st.session_state.modulo_activo == "PPTT":
         pptt.render_module(user, get_sheet, cargar_datos, registrar_log)
+    elif st.session_state.modulo_activo == "Envasado":
+        envasado.render_module(user, get_sheet, cargar_datos)
     elif st.session_state.modulo_activo == "Despachos":
-        st.info("🚧 Módulo 3 (Despachos y Embarques) en proceso de integración modular.")
-    elif st.session_state.modulo_activo == "Layout":
-        st.info("🚧 Módulo 4 (Layout de Cámaras) en proceso de integración modular.")
+        st.info("🚧 Módulo de Despachos y Embarques en proceso de integración modular.")
+       
