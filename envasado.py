@@ -19,33 +19,43 @@ def render_module(user, get_sheet, cargar_datos):
 
     st.markdown("---")
 
-    # Listas de referencia para la planta
+    # Listas de referencia para la planta de Frigosa
     lista_plaqueros = [f"P{i}" for i in range(1, 19)] + ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"]
     lista_presentaciones = [
-        "ALETA FRESCA", "CONOS", "TENTACULO SU SV", "BOTON", 
-        "FILETE FRESCO", "FILETE PRECOCIDO", "NUCAS", "REPRODUCTOR", 
-        "ALETA PRECOCIDA", "TUBO"
+        "ALETA FRESCA 300-500 GR", "ALETA FRESCA 500-1000 GR", "ALETA FRESCA CV GR", "ALETA FRESCA 1000 - UP",
+        "FILETE FRESCO CONG. C/M, C/T, SP DE 1 A 2 KG", "FILETE FRESCO CONG. C/M, C/T, SP DE 2 A 4",
+        "MANTO CONG. C/M, C/T, SP DE 2-4", "FILETE FRESCO SM ST 2-4 KG / PZ",
+        "NUCAS DE POTA CONGELADA 0 - 100 GR", "NUCAS DE POTA CONGELADA 100 - 300 GR",
+        "NUCAS DE POTA CONGELADA 300- 500 GR", "NUCAS DE POTA CONGELADA 500 GR UP",
+        "BOTONES DE POTA CONGELADA S/M ST BLOCK", "BOTONES DE POTA CONGELADA SM ST BLANCO IQF", "BOTON BLOCK CORTE",
+        "TENTACULOS DE POTA TB C/U C/V 100-300 GR", "TENTACULOS DE POTA TB C/U C/V 300-500 GR",
+        "TENTACULOS DE POTA TB C/U C/V 500-1000 GR", "TENTACULOS DE POTA TB S/U S/V 1000 GR UP",
+        "TENTACULOS DE POTA TB S/U S/V 1000-2000 GR", "TENTACULOS DE POTA TB S/U S/V 2000-3000 GR",
+        "REPRODUCTOR DE POTA MAYOR A 50 CM S/ PUNTA", "REPRODUCTOR DE POTA MENOR A 50 CM S/ PUNTA",
+        "TROZOS DE POTA", "FPC 8-14 MM PANZA", "FPC 8-14MM MEMBRANA", "FPC 7-10 MM", "FPC 7-10 MM MEMBRANA",
+        "FPC 10-14 MM", "RECORTE PRECOCIDO", "CONOS", "TENTACULO SU SV", "BOTON", "TUBO"
     ]
     lista_calibres = ["0-50 GR", "50-100 GR", "100-300 GR", "300-500 GR", "500-1000 GR", "1000-3000 GR", "-"]
 
     # =========================================================================
-    # ITEM 1: INGRESOS DE DATOS
+    # ITEM 1: INGRESOS DE DATOS (CON BLOQUEO ANTI-DUPLICIDAD / DOBLE CLIC)
     # =========================================================================
     with st.expander("📥 1. Ingresos de Datos (Túneles y Plaqueros P1-P18)", expanded=True):
-        st.caption("Seleccione el equipo, hora de inicio, tiempo de congelación, presentación, calibre y bandejas.")
+        st.caption("Seleccione el equipo, hora de inicio, tiempo de congelación, presentación y bandejas.")
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_exp")
+            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v3")
             if tipo_equipo == "Plaquero (P1 - P18)":
-                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_exp")
+                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v3")
             else:
-                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_exp")
+                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v3")
                 
-            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", datetime.now().strftime("%H:%M"), key="h_inicio_prod_exp")
+            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", datetime.now().strftime("%H:%M"), key="h_inicio_prod_v3")
             
         with col_d2:
-            tiempo_cong = st.selectbox("Tiempo de Congelación (Horas):", [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 6.0, 8.0, 12.0], index=2, key="t_cong_exp")
+            st.markdown("##### Tiempo de Congelación (Horas):")
+            tiempo_cong = st.number_input("Ajustar Horas (+ / -):", min_value=0.5, max_value=24.0, step=0.5, value=2.5, key="t_cong_num_v3")
             
             hora_salida_estimada = "00:00"
             try:
@@ -60,35 +70,47 @@ def render_module(user, get_sheet, cargar_datos):
         st.markdown("---")
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            presentacion_sel = st.selectbox("Presentación:", lista_presentaciones, key="sel_presentacion_env_exp")
+            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v3")
         with col_p2:
-            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_env_exp")
+            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v3")
         with col_p3:
-            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_env_exp")
+            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=70, key="num_bandejas_v3")
 
-        lote_ingreso = st.text_input("Materia Prima / Nº de Lote:", placeholder="Ej: LOTE-2026-0829", key="lote_prod_env_exp")
-        materia_prima_kg = st.number_input("Materia Prima Total (Kg):", min_value=1.0, step=10.0, value=1000.0, key="mp_kg_env_exp")
+        if st.button("🚀 Ingresar Producción en Línea", use_container_width=True, key="btn_enviar_produccion_v3"):
+            try:
+                ws_env = get_sheet("Produccion_Envasado")
+                existing_data = ws_env.get_all_values()
+                fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+                
+                # Validación estricta anti-duplicidad por doble clic o mismo equipo a la misma hora
+                ya_registrado = False
+                if len(existing_data) > 1:
+                    for fila in existing_data[1:]:
+                        # Columnas esperadas: id, fecha, equipo, hora_inicio, etc.
+                        if len(fila) >= 4:
+                            f_reg = str(fila[1]).strip()
+                            eq_reg = str(fila[2]).strip().upper()
+                            h_reg = str(fila[3]).strip()
+                            
+                            if f_reg == fecha_hoy and eq_reg == plaquero_sel.strip().upper() and h_reg == hora_inicio_str.strip():
+                                ya_registrado = True
+                                break
 
-        if st.button("🚀 Ingresar Producción", use_container_width=True, key="btn_enviar_produccion_exp"):
-            if not lote_ingreso.strip():
-                st.error("❌ Debe ingresar el número de lote.")
-            else:
-                try:
-                    ws_env = get_sheet("Produccion_Envasado")
+                if ya_registrado:
+                    st.warning(f"⚠️ El equipo **{plaquero_sel}** ya tiene un registro activo ingresado a las **{hora_inicio_str}** para hoy. Evite hacer doble clic o duplicar datos.")
+                else:
                     id_prod = f"PROD-{datetime.now().strftime('%y%m%d%H%M%S')}"
-                    fecha_hoy = datetime.now().strftime("%Y-%m-%d")
-                    
                     total_kg = bandejas_cant * 10.0
-                    rendimiento_val = round((total_kg / materia_prima_kg) * 100, 2) if materia_prima_kg > 0 else 0.0
 
                     ws_env.append_row([
                         id_prod, fecha_hoy, plaquero_sel, hora_inicio_str, str(tiempo_cong), 
                         hora_salida_estimada, presentacion_sel, calibre_sel, str(bandejas_cant), 
-                        str(total_kg), lote_ingreso, str(materia_prima_kg), str(rendimiento_val), "En Proceso"
+                        str(total_kg), "En Proceso"
                     ])
-                    st.success(f"✅ Producción registrada en **{plaquero_sel}**! (Total Kilos: {total_kg} kg | Rendimiento: {rendimiento_val}%)")
-                except Exception as e:
-                    st.error(f"Error al guardar: {e}")
+                    st.success(f"✅ Producción registrada exitosamente en **{plaquero_sel}**! (Total Kilos estimados: {total_kg} kg)")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Error al guardar: {e}")
 
     # =========================================================================
     # ITEM 2: PLAQUEROS ENCENDIDOS
@@ -135,7 +157,6 @@ def render_module(user, get_sheet, cargar_datos):
     with st.expander("⏳ 3. Plaqueros Apagados (Tiempo Muerto y Desperdicio de Horas)", expanded=False):
         st.caption("Mide el tiempo inactivo de los equipos desde su última salida para controlar la eficiencia.")
         
-        # Simulación de equipos inactivos
         df_apagados = pd.DataFrame([
             {"Equipo": eq, "Última Salida": "12:30", "Tiempo Muerto Transcurrido": "3 hrs 15 min", "Impacto": "Moderado"} 
             for eq in lista_plaqueros[:5]
@@ -148,7 +169,7 @@ def render_module(user, get_sheet, cargar_datos):
     with st.expander("📊 4. Resumen de Producción (Filtrado por Fecha)", expanded=False):
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", datetime.now(), key="filtro_fecha_prod_exp")
+            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", datetime.now(), key="filtro_fecha_prod_v3")
         
         fecha_filtro_str = fecha_filtro_prod.strftime("%Y-%m-%d")
         st.markdown(f"**Fecha seleccionada:** {fecha_filtro_str}")
@@ -161,7 +182,6 @@ def render_module(user, get_sheet, cargar_datos):
                 if not df_p_filtrado.empty:
                     st.dataframe(df_p_filtrado, use_container_width=True)
                     
-                    # Totales automáticos
                     total_bandejas_dia = pd.to_numeric(df_p_filtrado["bandejas"], errors="coerce").sum()
                     total_kg_dia = pd.to_numeric(df_p_filtrado["total_kg"], errors="coerce").sum()
                     st.success(f"📦 **Total del Día:** `{int(total_bandejas_dia)} bandejas` | ⚖️ **Total Kilos:** `{total_kg_dia} kg`")
