@@ -34,26 +34,6 @@ def cargar_datos_env(sheet_name):
         st.warning(f"No se pudo cargar datos de envasado: {e}")
         return pd.DataFrame()
 
-def obtener_hora_desde_sheets():
-    """Lee la celda A1 de la pestaña hora_fecha directamente de Google Sheets (sin caché)"""
-    try:
-        ws_hf = get_env_sheet("hora_fecha")
-        val_celda = ws_hf.acell("A1").value
-        if val_celda:
-            val_limpio = str(val_celda).strip()
-            for fmt in ("%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%d-%m-%Y %H:%M:%S", "%H:%M:%S"):
-                try:
-                    dt_parseada = datetime.strptime(val_limpio, fmt)
-                    return dt_parseada
-                except ValueError:
-                    continue
-            dt_gen = pd.to_datetime(val_limpio, errors="coerce")
-            if not pd.isna(dt_gen):
-                return dt_gen.to_pydatetime()
-    except Exception:
-        pass
-    return datetime.now()
-
 def render_module(user, get_sheet, cargar_datos):
     nombre_sesion = user.get("nombre_completo", user.get("usuario"))
     rol = user.get("rol", "Visualizador")
@@ -95,19 +75,19 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v14")
+            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v15")
             if tipo_equipo == "Plaquero (P1 - P18)":
-                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v14")
+                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v15")
             else:
-                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v14")
+                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v15")
                 
-            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", datetime.now().strftime("%H:%M"), key="h_inicio_prod_v14")
+            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", datetime.now().strftime("%H:%M"), key="h_inicio_prod_v15")
             
         with col_d2:
             st.markdown("##### Tiempo de Congelación (Ej: 2:45 o 0:02 min):")
-            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v14")
+            tiempo_input_str = st.text_input("Tiempo de Congelación:", "0:02", key="t_cong_libre_v15")
             
-            minutos_cong = 165
+            minutos_cong = 2
             try:
                 t_clean = tiempo_input_str.strip().lower()
                 if ":" in t_clean:
@@ -116,7 +96,7 @@ def render_module(user, get_sheet, cargar_datos):
                 else:
                     minutos_cong = int(float(t_clean) * 60)
             except:
-                minutos_cong = 165
+                minutos_cong = 2
 
             horas_h = minutos_cong // 60
             min_m = minutos_cong % 60
@@ -135,13 +115,13 @@ def render_module(user, get_sheet, cargar_datos):
         st.markdown("---")
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v14")
+            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v15")
         with col_p2:
-            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v14")
+            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v15")
         with col_p3:
-            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=70, key="num_bandejas_v14")
+            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=70, key="num_bandejas_v15")
 
-        if st.button("🚀 Ingresar Producción en Línea", use_container_width=True, key="btn_enviar_produccion_v14"):
+        if st.button("🚀 Ingresar Producción en Línea", use_container_width=True, key="btn_enviar_produccion_v15"):
             try:
                 ws_env = get_env_sheet("ingreso_plaqueros")
                 existing_data = ws_env.get_all_values()
@@ -183,22 +163,21 @@ def render_module(user, get_sheet, cargar_datos):
                 st.error(f"Error al guardar: {e}")
 
     # =========================================================================
-    # ITEM 2: PLAQUEROS ENCENDIDOS (LECTURA DIRECTA DE HORA_FECHA AL CLIC)
+    # ITEM 2: PLAQUEROS ENCENDIDOS (CON HORA DEL DISPOSITIVO Y BOTÓN DE CRONOGRAMA)
     # =========================================================================
     with st.expander("⚡ 2. Plaqueros Encendidos (En Proceso y Alertas de Ciclo)", expanded=True):
         col_c1, col_c2 = st.columns([3, 1])
         with col_c1:
-            # Forzar lectura fresca de la celda A1 cada vez que se renderiza o actualiza
-            dt_sincronizada = obtener_hora_desde_sheets()
-            st.caption(f"Equipos activos sincronizados con la celda A1 ('hora_fecha'): **{dt_sincronizada.strftime('%H:%M:%S')}**")
+            # Tomar la hora exacta del dispositivo local al momento de hacer clic o refrescar
+            tiempo_actual_sistema = datetime.now()
+            st.caption(f"🕒 Hora del sistema sincronizada: **{tiempo_actual_sistema.strftime('%H:%M:%S')}**")
         with col_c2:
-            if st.button("🔄 Actualizar Cronograma de Ciclos", key="btn_actualizar_cronograma_v2", use_container_width=True):
-                st.cache_data.clear()
+            if st.button("🔄 Actualizar Cronograma de Ciclos", key="btn_actualizar_cronograma_v3", use_container_width=True):
                 st.rerun()
 
         try:
             df_prod = cargar_datos_env("ingreso_plaqueros")
-            minutos_actuales_dia = dt_sincronizada.hour * 60 + dt_sincronizada.minute
+            minutos_actuales_dia = tiempo_actual_sistema.hour * 60 + tiempo_actual_sistema.minute
 
             activos_dict = {}
             if not df_prod.empty and "estado" in df_prod.columns:
@@ -264,7 +243,7 @@ def render_module(user, get_sheet, cargar_datos):
                         st.markdown(f"**{row['SITUACION']}**")
                 with col_t6:
                     if row['id_prod'] != "":
-                        if st.button("🔓 Liberar", key=f"lib_pos_hf_v2_{row['id_prod']}_{idx}"):
+                        if st.button("🔓 Liberar", key=f"lib_pos_sys_{row['id_prod']}_{idx}"):
                             try:
                                 ws_env = get_env_sheet("ingreso_plaqueros")
                                 all_vals = ws_env.get_all_values()
@@ -307,7 +286,7 @@ def render_module(user, get_sheet, cargar_datos):
     with st.expander("📊 4. Resumen de Producción (Filtrado por Fecha)", expanded=False):
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", datetime.now(), key="filtro_fecha_prod_v14")
+            fecha_filtro_prod = st.date_input("Filtrar por Fecha:", datetime.now(), key="filtro_fecha_prod_v15")
         
         fecha_filtro_str = fecha_filtro_prod.strftime("%Y-%m-%d")
         st.markdown(f"**Fecha seleccionada:** {fecha_filtro_str}")
