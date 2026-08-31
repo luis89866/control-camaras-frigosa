@@ -455,7 +455,7 @@ def render_module(user, get_sheet, cargar_datos):
         try:
             df_all_mod = cargar_datos_env("ingreso_plaqueros")
             if not df_all_mod.empty and "fecha" in df_all_mod.columns:
-                filtro_fecha_mod_obj = st.date_input("📅 Seleccionar Día a Gestionar:", obtener_hora_peru(), key="filtro_fecha_mod_input_v11")
+                filtro_fecha_mod_obj = st.date_input("📅 Seleccionar Día a Gestionar:", obtener_hora_peru(), key="filtro_fecha_mod_input_v8")
                 filtro_fecha_mod_str = filtro_fecha_mod_obj.strftime("%Y-%m-%d")
                 
                 df_mod_filtrado = df_all_mod[df_all_mod["fecha"].astype(str).str.strip() == filtro_fecha_mod_str]
@@ -463,7 +463,7 @@ def render_module(user, get_sheet, cargar_datos):
                 if not df_mod_filtrado.empty:
                     st.dataframe(df_mod_filtrado[["id_produccion", "equipo", "hora_inicio", "presentacion", "calibre", "bandejas", "estado", "bachadas"]], use_container_width=True)
                     
-                    id_a_editar = st.selectbox("Seleccione el ID del registro a editar/eliminar:", df_mod_filtrado["id_produccion"].tolist(), key="sel_id_mod_v27")
+                    id_a_editar = st.selectbox("Seleccione el ID del registro a editar/eliminar:", df_mod_filtrado["id_produccion"].tolist(), key="sel_id_mod_v24")
                     
                     fila_act = df_mod_filtrado[df_mod_filtrado["id_produccion"] == id_a_editar].iloc[0]
                     
@@ -486,7 +486,7 @@ def render_module(user, get_sheet, cargar_datos):
 
                     col_btn1, col_btn2 = st.columns(2)
                     with col_btn1:
-                        if st.button("💾 Guardar Cambios (Modificar)", type="primary", key="btn_guardar_mod_v27", use_container_width=True):
+                        if st.button("💾 Guardar Cambios (Modificar)", type="primary", key="btn_guardar_mod_v24", use_container_width=True):
                             ws_env = get_env_sheet("ingreso_plaqueros")
                             all_vals = ws_env.get_all_values()
                             fila_tabla = -1
@@ -517,7 +517,7 @@ def render_module(user, get_sheet, cargar_datos):
                                 st.error("No se encontró la fila en Google Sheets.")
                     
                     with col_btn2:
-                        if st.button("🗑️ Eliminar Registro", type="secondary", key="btn_eliminar_reg_v27", use_container_width=True):
+                        if st.button("🗑️ Eliminar Registro", type="secondary", key="btn_eliminar_reg_v24", use_container_width=True):
                             ws_env = get_env_sheet("ingreso_plaqueros")
                             all_vals = ws_env.get_all_values()
                             fila_tabla = -1
@@ -548,7 +548,7 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_mp1, col_mp2, col_mp3 = st.columns(3)
         with col_mp1:
-            fecha_mp_obj = st.date_input("Fecha MP:", obtener_hora_peru(), key="fecha_mp_input_v5")
+            fecha_mp_obj = st.date_input("Fecha MP:", obtener_hora_peru(), key="fecha_mp_input_v3")
             fecha_mp_str = fecha_mp_obj.strftime("%Y-%m-%d")
             
             mp_actual_guardada = obtener_mp_por_fecha(fecha_mp_str)
@@ -597,7 +597,7 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            filtro_fecha_obj = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_hist_v46")
+            filtro_fecha_obj = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_hist_v44")
         with col_f2:
             try:
                 df_all_lotes = cargar_datos_env("ingreso_plaqueros")
@@ -608,7 +608,7 @@ def render_module(user, get_sheet, cargar_datos):
             except:
                 lotes_disponibles = ["TODOS"]
                 
-            filtro_lote_sel = st.selectbox("Filtrar por Lote:", lotes_disponibles, key="filtro_lote_sel_v46")
+            filtro_lote_sel = st.selectbox("Filtrar por Lote:", lotes_disponibles, key="filtro_lote_sel_v44")
 
         filtro_fecha_str = filtro_fecha_obj.strftime("%Y-%m-%d")
 
@@ -709,3 +709,56 @@ def render_module(user, get_sheet, cargar_datos):
                 st.info("ℹ️ Aún no hay datos guardados en la base de envasado.")
         except Exception as e:
             st.warning(f"Error generando reporte por presentación: {e}")
+
+    # =========================================================================
+    # ITEM 7: RESUMEN POR SUBFAMILIA (PRESENTACIÓN)
+    # =========================================================================
+    with st.expander("📊 7. Resumen por Subfamilia (Presentación)", expanded=False):
+        st.markdown("##### Resumen General por Producto (Sin desglosar Calibre)")
+        
+        col_r7_1, col_r7_2 = st.columns(2)
+        with col_r7_1:
+            fecha_r7_obj = st.date_input("📅 Seleccionar Fecha:", obtener_hora_peru(), key="fecha_r7_input")
+        fecha_r7_str = fecha_r7_obj.strftime("%Y-%m-%d")
+        
+        try:
+            df_env_r7 = cargar_datos_env("ingreso_plaqueros")
+            mp_r7 = obtener_mp_por_fecha(fecha_r7_str)
+            
+            if not df_env_r7.empty and "fecha" in df_env_r7.columns:
+                df_r7_dia = df_env_r7[df_env_r7["fecha"].astype(str).str.strip() == fecha_r7_str].copy()
+                
+                if not df_r7_dia.empty:
+                    df_r7_dia["total_kg_num"] = pd.to_numeric(df_r7_dia["total_kg"], errors="coerce").fillna(0.0)
+                    df_r7_dia["bandejas_num"] = pd.to_numeric(df_r7_dia["bandejas"], errors="coerce").fillna(0)
+                    
+                    # Agrupar únicamente por Presentación (Subfamilia)
+                    df_agrupado_r7 = df_r7_dia.groupby("presentacion").agg(
+                        total_bandejas=("bandejas_num", "sum"),
+                        total_kilos=("total_kg_num", "sum")
+                    ).reset_index()
+                    
+                    if mp_r7 > 0:
+                        df_agrupado_r7["rendimiento_pct"] = (df_agrupado_r7["total_kilos"] / mp_r7) * 100
+                    else:
+                        df_agrupado_r7["rendimiento_pct"] = 0.0
+                        
+                    df_tabla_r7 = pd.DataFrame({
+                        "PRODUCTO / PRESENTACIÓN": df_agrupado_r7["presentacion"],
+                        "TOTAL BANDEJAS": df_agrupado_r7["total_bandejas"].astype(int),
+                        "TOTAL KILOS": df_agrupado_r7["total_kilos"].apply(lambda x: f"{x:,.2f} kg"),
+                        "RENDIMIENTO (%)": df_agrupado_r7["rendimiento_pct"].apply(lambda x: f"{x:.2f}%")
+                    })
+                    
+                    st.info(f"🐟 **Materia Prima Total del Día ({fecha_r7_str}):** `{mp_r7:,.2f} kg`")
+                    st.dataframe(df_tabla_r7, use_container_width=True, hide_index=True)
+                    
+                    suma_kilos_r7 = df_agrupado_r7["total_kilos"].sum()
+                    suma_rend_r7 = df_agrupado_r7["rendimiento_pct"].sum()
+                    st.success(f"📌 **Suma Total del Día:** `{suma_kilos_r7:,.2f} kg` (Rendimiento Total: `{suma_rend_r7:.2f}%`)")
+                else:
+                    st.info(f"ℹ️ No hay registros de envasado para la fecha {fecha_r7_str}.")
+            else:
+                st.info("ℹ️ Aún no hay datos guardados en la base de envasado.")
+        except Exception as e:
+            st.warning(f"Error generando resumen por subfamilia: {e}")
