@@ -180,33 +180,44 @@ def render_module(user, get_sheet, cargar_datos):
     lista_presentaciones = list(dic_presentaciones.keys())
     lista_calibres = obtener_calibres_dinamicos()
 
+    # Control de estado para que solo un expander esté abierto a la vez
+    if "active_expander" not in st.session_state:
+        st.session_state["active_expander"] = 1
+
+    def set_expander(num):
+        st.session_state["active_expander"] = num
+
     # =========================================================================
     # ITEM 1: INGRESOS DE DATOS
     # =========================================================================
-    with st.expander("📥 1. Ingresos de Datos (Plaqueros, Túneles e IQF)", expanded=True):
+    with st.expander("📥 1. Ingresos de Datos (Plaqueros, Túneles e IQF)", expanded=(st.session_state["active_expander"] == 1)):
+        if st.session_state["active_expander"] != 1:
+            st.session_state["active_expander"] = 1
+            st.rerun()
+            
         st.caption("Registre la carga del equipo. El lote se busca y asigna automáticamente desde la pestaña LOTE.")
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)", "Equipo IQF (1 y 2)"], key="tipo_eq_sel_v48")
+            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)", "Equipo IQF (1 y 2)"], key="tipo_eq_sel_v49")
             if tipo_equipo == "Plaquero (P1 - P18)":
-                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v48")
+                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v49")
             elif tipo_equipo == "Túnel (1, 2 y 3)":
-                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v48")
+                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v49")
             else:
-                plaquero_sel = st.selectbox("Nº de IQF:", ["IQF 1", "IQF 2"], key="sel_iqf_reg_v48")
+                plaquero_sel = st.selectbox("Nº de IQF:", ["IQF 1", "IQF 2"], key="sel_iqf_reg_v49")
                 
-            fecha_ingreso_obj = st.date_input("Fecha de Producción:", obtener_hora_peru(), key="f_prod_reg_v48")
+            fecha_ingreso_obj = st.date_input("Fecha de Producción:", obtener_hora_peru(), key="f_prod_reg_v49")
             fecha_ingreso_str = fecha_ingreso_obj.strftime("%Y-%m-%d")
             
             lote_automatico = obtener_lote_por_fecha(fecha_ingreso_obj)
             st.info(f"📦 **Lote asignado automáticamente:** `{lote_automatico}`")
 
-            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v48")
+            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v49")
             
         with col_d2:
             st.markdown("##### Tiempo de Congelación (Ej: 2:45 o 0:02 min):")
-            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v48")
+            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v49")
             
             minutos_cong = 165
             try:
@@ -236,13 +247,13 @@ def render_module(user, get_sheet, cargar_datos):
         st.markdown("---")
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v48")
+            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v49")
         with col_p2:
-            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v48")
+            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v49")
         with col_p3:
-            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v48")
+            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v49")
 
-        if st.button("🚀 Registrar / Agregar Presentación", use_container_width=True, key="btn_enviar_produccion_v48"):
+        if st.button("🚀 Registrar / Agregar Presentación", use_container_width=True, key="btn_enviar_produccion_v49"):
             try:
                 ws_env = get_env_sheet("ingreso_plaqueros")
                 existing_data = ws_env.get_all_values()
@@ -308,13 +319,17 @@ def render_module(user, get_sheet, cargar_datos):
     # =========================================================================
     # ITEM 2: EQUIPOS ENCENDIDOS
     # =========================================================================
-    with st.expander("⚡ 2. Equipos Encendidos (Plaqueros, Túneles e IQF)", expanded=True):
+    with st.expander("⚡ 2. Equipos Encendidos (Plaqueros, Túneles e IQF)", expanded=(st.session_state["active_expander"] == 2)):
+        if st.session_state["active_expander"] != 2:
+            st.session_state["active_expander"] = 2
+            st.rerun()
+
         tiempo_peru = obtener_hora_peru()
         col_c1, col_c2 = st.columns([3, 1])
         with col_c1:
             st.caption(f"🕒 Hora oficial de planta (Perú UTC-5): **{tiempo_peru.strftime('%H:%M:%S')}**")
         with col_c2:
-            if st.button("🔄 Actualizar Cronograma", key="btn_actualizar_cronograma_v34", use_container_width=True):
+            if st.button("🔄 Actualizar Cronograma", key="btn_actualizar_cronograma_v35", use_container_width=True):
                 st.rerun()
 
         try:
@@ -421,7 +436,7 @@ def render_module(user, get_sheet, cargar_datos):
                         st.markdown(f"<span style='color: #f0ad4e; font-weight: bold;'>{row['SITUACION']}</span>", unsafe_allow_html=True)
                 with col_t6:
                     if len(row['ids']) > 0:
-                        if st.button("🔓 Liberar", key=f"lib_fix_sel_v17_{row['EQUIPO']}_{idx}"):
+                        if st.button("🔓 Liberar", key=f"lib_fix_sel_v18_{row['EQUIPO']}_{idx}"):
                             try:
                                 ws_env = get_env_sheet("ingreso_plaqueros")
                                 all_vals = ws_env.get_all_values()
@@ -449,7 +464,11 @@ def render_module(user, get_sheet, cargar_datos):
     # =========================================================================
     # ITEM 3: MODIFICACIÓN O ELIMINACIÓN DE REGISTROS
     # =========================================================================
-    with st.expander("✏️ 3. Modificación o Eliminación de Registros", expanded=False):
+    with st.expander("✏️ 3. Modificación o Eliminación de Registros", expanded=(st.session_state["active_expander"] == 3)):
+        if st.session_state["active_expander"] != 3:
+            st.session_state["active_expander"] = 3
+            st.rerun()
+
         st.caption("Seleccione una fecha para filtrar los registros y editar o eliminar el que necesite.")
         
         try:
@@ -543,7 +562,11 @@ def render_module(user, get_sheet, cargar_datos):
     # =========================================================================
     # ITEM 4: RESUMEN DE PRODUCCION Y GESTIÓN DE MATERIA PRIMA (MP)
     # =========================================================================
-    with st.expander("📊 4. Resumen de Producción y Materia Prima (MP)", expanded=False):
+    with st.expander("📊 4. Resumen de Producción y Materia Prima (MP)", expanded=(st.session_state["active_expander"] == 4)):
+        if st.session_state["active_expander"] != 4:
+            st.session_state["active_expander"] = 4
+            st.rerun()
+
         st.markdown("##### 🐟 Gestión de Materia Prima (Kilos por Fecha)")
         
         col_mp1, col_mp2, col_mp3 = st.columns(3)
@@ -646,7 +669,11 @@ def render_module(user, get_sheet, cargar_datos):
     # =========================================================================
     # ITEM 5: HISTOGRAMA DE PLAQUEROS DEL DÍA
     # =========================================================================
-    with st.expander("🕒 5. Histograma de Plaqueros del Día", expanded=False):
+    with st.expander("🕒 5. Histograma de Plaqueros del Día", expanded=(st.session_state["active_expander"] == 5)):
+        if st.session_state["active_expander"] != 5:
+            st.session_state["active_expander"] = 5
+            st.rerun()
+
         st.caption("Matriz horaria de ocupación de los equipos (P1 al P18 y Túneles).")
         
         horas_matriz = [f"{h:02d}:00" for h in range(24)]
@@ -660,7 +687,11 @@ def render_module(user, get_sheet, cargar_datos):
     # =========================================================================
     # ITEM 6: RENDIMIENTO POR PRESENTACIÓN Y CALIBRE
     # =========================================================================
-    with st.expander("📊 6. Rendimiento por Presentación y Calibre", expanded=False):
+    with st.expander("📊 6. Rendimiento por Presentación y Calibre", expanded=(st.session_state["active_expander"] == 6)):
+        if st.session_state["active_expander"] != 6:
+            st.session_state["active_expander"] = 6
+            st.rerun()
+
         st.markdown("##### Resumen de Producción por Producto y Calibre")
         
         col_r6_1, col_r6_2 = st.columns(2)
@@ -713,7 +744,11 @@ def render_module(user, get_sheet, cargar_datos):
     # =========================================================================
     # ITEM 7: RESUMEN POR SUBFAMILIA (PRESENTACIÓN)
     # =========================================================================
-    with st.expander("📊 7. Resumen por Subfamilia (Presentación)", expanded=False):
+    with st.expander("📊 7. Resumen por Subfamilia (Presentación)", expanded=(st.session_state["active_expander"] == 7)):
+        if st.session_state["active_expander"] != 7:
+            st.session_state["active_expander"] = 7
+            st.rerun()
+
         st.markdown("##### Resumen General por Producto (Sin desglosar Calibre)")
         
         col_r7_1, col_r7_2 = st.columns(2)
@@ -732,7 +767,6 @@ def render_module(user, get_sheet, cargar_datos):
                     df_r7_dia["total_kg_num"] = pd.to_numeric(df_r7_dia["total_kg"], errors="coerce").fillna(0.0)
                     df_r7_dia["bandejas_num"] = pd.to_numeric(df_r7_dia["bandejas"], errors="coerce").fillna(0)
                     
-                    # Agrupar únicamente por Presentación (Subfamilia)
                     df_agrupado_r7 = df_r7_dia.groupby("presentacion").agg(
                         total_bandejas=("bandejas_num", "sum"),
                         total_kilos=("total_kg_num", "sum")
