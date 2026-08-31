@@ -50,7 +50,7 @@ def obtener_calibres_dinamicos():
     return lista_cal_def
 
 def obtener_lote_por_fecha(fecha_dt):
-    """Busca en la pestaña LOTE comparando estrictamente el día, mes y año"""
+    """Busca en la pestaña LOTE cruzando estrictamente el día, mes y año"""
     fecha_iso = fecha_dt.strftime("%Y-%m-%d")
     fecha_latina = fecha_dt.strftime("%d/%m/%Y")
     lote_encontrado = f"LT-{fecha_iso.replace('-', '')}"
@@ -66,12 +66,10 @@ def obtener_lote_por_fecha(fecha_dt):
                     if f_Hoja == "" or f_Hoja.upper() == "FECHA":
                         continue
                     
-                    # Comparación directa por texto (DD/MM/YYYY o YYYY-MM-DD)
                     if f_Hoja == fecha_latina or f_Hoja == fecha_iso:
                         lote_encontrado = l_Hoja
                         break
                     
-                    # Comparación mediante conversión robusta de fechas
                     try:
                         dt_hoja = pd.to_datetime(f_Hoja, dayfirst=True).strftime("%Y-%m-%d")
                         if dt_hoja == fecha_iso:
@@ -135,24 +133,23 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v35")
+            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)"], key="tipo_eq_sel_v36")
             if tipo_equipo == "Plaquero (P1 - P18)":
-                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v35")
+                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v36")
             else:
-                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v35")
+                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v36")
                 
-            fecha_ingreso_obj = st.date_input("Fecha de Producción:", obtener_hora_peru(), key="f_prod_reg_v35")
+            fecha_ingreso_obj = st.date_input("Fecha de Producción:", obtener_hora_peru(), key="f_prod_reg_v36")
             fecha_ingreso_str = fecha_ingreso_obj.strftime("%Y-%m-%d")
             
-            # Búsqueda precisa de Lote cruzando con la pestaña LOTE
             lote_automatico = obtener_lote_por_fecha(fecha_ingreso_obj)
             st.info(f"📦 **Lote asignado automáticamente:** `{lote_automatico}`")
 
-            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v35")
+            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v36")
             
         with col_d2:
             st.markdown("##### Tiempo de Congelación (Ej: 2:45 o 0:02 min):")
-            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v35")
+            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v36")
             
             minutos_cong = 165
             try:
@@ -182,13 +179,13 @@ def render_module(user, get_sheet, cargar_datos):
         st.markdown("---")
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v35")
+            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v36")
         with col_p2:
-            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v35")
+            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v36")
         with col_p3:
-            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v35")
+            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v36")
 
-        if st.button("🚀 Registrar / Agregar Presentación", use_container_width=True, key="btn_enviar_produccion_v35"):
+        if st.button("🚀 Registrar / Agregar Presentación", use_container_width=True, key="btn_enviar_produccion_v36"):
             try:
                 ws_env = get_env_sheet("ingreso_plaqueros")
                 existing_data = ws_env.get_all_values()
@@ -229,7 +226,6 @@ def render_module(user, get_sheet, cargar_datos):
                     bachada_str = f"Bachada {num_bachada}"
                     codigo_pres = dic_presentaciones.get(presentacion_sel, "")
 
-                    # Columnas: [id, fecha, equipo, h_ini, t_cong, h_sal, pres, cal, band, kg, estado, bachada, codigo, lote]
                     ws_env.append_row([
                         id_prod, fecha_ingreso_str, plaquero_sel, hora_inicio_str, tiempo_formato_str, 
                         hora_salida_estimada, presentacion_sel, calibre_sel, str(bandejas_cant), 
@@ -249,7 +245,7 @@ def render_module(user, get_sheet, cargar_datos):
         with col_c1:
             st.caption(f"🕒 Hora oficial de planta (Perú UTC-5): **{tiempo_peru.strftime('%H:%M:%S')}**")
         with col_c2:
-            if st.button("🔄 Actualizar Cronograma", key="btn_actualizar_cronograma_v23", use_container_width=True):
+            if st.button("🔄 Actualizar Cronograma", key="btn_actualizar_cronograma_v24", use_container_width=True):
                 st.rerun()
 
         try:
@@ -347,7 +343,7 @@ def render_module(user, get_sheet, cargar_datos):
                         st.markdown(f"<span style='color: #f0ad4e; font-weight: bold;'>{row['SITUACION']}</span>", unsafe_allow_html=True)
                 with col_t6:
                     if len(row['ids']) > 0:
-                        if st.button("🔓 Liberar", key=f"lib_fix_sel_v5_{row['PLAQUERO']}_{idx}"):
+                        if st.button("🔓 Liberar", key=f"lib_fix_sel_v6_{row['PLAQUERO']}_{idx}"):
                             try:
                                 ws_env = get_env_sheet("ingreso_plaqueros")
                                 all_vals = ws_env.get_all_values()
@@ -355,7 +351,7 @@ def render_module(user, get_sheet, cargar_datos):
                                 ids_a_liberar = set(row['ids'])
                                 for f_idx, f_vals in enumerate(all_vals):
                                     if len(f_vals) > 0 and f_vals[0].strip() in ids_a_liberar:
-                                        ws_env.update_cell(f_idx + 1, 11, "Finalizado")
+                                       ws_env.update_cell(f_idx + 1, 11, "Finalizado")
                                         
                                 st.success(f"✅ ¡Equipo **{row['PLAQUERO']}** liberado!")
                                 st.rerun()
@@ -369,85 +365,80 @@ def render_module(user, get_sheet, cargar_datos):
             st.warning(f"Error cargando tabla: {e}")
 
     # =========================================================================
-    # ITEM 3: MODIFICACIÓN O ELIMINACIÓN DE REGISTROS (CORREGIDO PARA BAJAR DATOS)
+    # ITEM 3: MODIFICACIÓN O ELIMINACIÓN DE REGISTROS (PERMITE VER Y EDITAR CUALQUIER FECHA)
     # =========================================================================
     with st.expander("✏️ 3. Modificación o Eliminación de Registros", expanded=False):
-        st.caption("Seleccione un registro para cargar su información actual en los selectores y editarla o eliminarla.")
+        st.caption("Seleccione un registro (incluso de días anteriores) para editarlo o eliminarlo.")
         
         try:
             df_all_mod = cargar_datos_env("ingreso_plaqueros")
-            if not df_all_mod.empty:
-                fecha_hoy_str = obtener_hora_peru().strftime("%Y-%m-%d")
-                df_hoy = df_all_mod[df_all_mod["fecha"].astype(str).str.strip() == fecha_hoy_str]
+            if not df_all_mod.empty and "id_produccion" in df_all_mod.columns:
+                # Mostramos todos los registros disponibles sin limitar solo a hoy
+                st.dataframe(df_all_mod[["id_produccion", "fecha", "equipo", "presentacion", "calibre", "bandejas", "estado", "bachadas"]], use_container_width=True)
                 
-                if not df_hoy.empty:
-                    st.dataframe(df_hoy[["id_produccion", "equipo", "hora_inicio", "presentacion", "calibre", "bandejas", "estado", "bachadas"]], use_container_width=True)
-                    
-                    id_a_editar = st.selectbox("Seleccione el ID del registro a editar/eliminar:", df_hoy["id_produccion"].tolist(), key="sel_id_mod_v16")
-                    
-                    fila_act = df_hoy[df_hoy["id_produccion"] == id_a_editar].iloc[0]
-                    
-                    pres_actual = str(fila_act.get('presentacion', '')).strip()
-                    cal_actual = str(fila_act.get('calibre', '')).strip()
-                    band_actual = int(fila_act['bandejas']) if str(fila_act.get('bandejas', '50')).isdigit() else 50
-                    
-                    idx_pres = lista_presentaciones.index(pres_actual) if pres_actual in lista_presentaciones else 0
-                    idx_cal = lista_calibres.index(cal_actual) if cal_actual in lista_calibres else 0
-                    
-                    st.markdown(f"**Registro seleccionado:** `{id_a_editar}` ({fila_act.get('equipo', '')} - {fila_act.get('bachadas', '')})")
-                    
-                    col_m1, col_m2, col_m3 = st.columns(3)
-                    with col_m1:
-                        nueva_pres = st.selectbox("Presentación:", lista_presentaciones, index=idx_pres, key=f"mod_pres_{id_a_editar}")
-                    with col_m2:
-                        nuevo_cal = st.selectbox("Calibre:", lista_calibres, index=idx_cal, key=f"mod_cal_{id_a_editar}")
-                    with col_m3:
-                        nuevas_band = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=band_actual, key=f"mod_band_{id_a_editar}")
+                id_a_editar = st.selectbox("Seleccione el ID del registro a editar/eliminar:", df_all_mod["id_produccion"].tolist(), key="sel_id_mod_v17")
+                
+                fila_act = df_all_mod[df_all_mod["id_produccion"] == id_a_editar].iloc[0]
+                
+                pres_actual = str(fila_act.get('presentacion', '')).strip()
+                cal_actual = str(fila_act.get('calibre', '')).strip()
+                band_actual = int(fila_act['bandejas']) if str(fila_act.get('bandejas', '50')).isdigit() else 50
+                
+                idx_pres = lista_presentaciones.index(pres_actual) if pres_actual in lista_presentaciones else 0
+                idx_cal = lista_calibres.index(cal_actual) if cal_actual in lista_calibres else 0
+                
+                st.markdown(f"**Registro seleccionado:** `{id_a_editar}` (Fecha: {fila_act.get('fecha', '')} | Equipo: {fila_act.get('equipo', '')} - {fila_act.get('bachadas', '')})")
+                
+                col_m1, col_m2, col_m3 = st.columns(3)
+                with col_m1:
+                    nueva_pres = st.selectbox("Presentación:", lista_presentaciones, index=idx_pres, key=f"mod_pres_{id_a_editar}")
+                with col_m2:
+                    nuevo_cal = st.selectbox("Calibre:", lista_calibres, index=idx_cal, key=f"mod_cal_{id_a_editar}")
+                with col_m3:
+                    nuevas_band = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=band_actual, key=f"mod_band_{id_a_editar}")
 
-                    col_btn1, col_btn2 = st.columns(2)
-                    with col_btn1:
-                        if st.button("💾 Guardar Cambios (Modificar)", type="primary", key="btn_guardar_mod_v16", use_container_width=True):
-                            ws_env = get_env_sheet("ingreso_plaqueros")
-                            all_vals = ws_env.get_all_values()
-                            fila_tabla = -1
-                            for f_idx, f_vals in enumerate(all_vals):
-                                if len(f_vals) > 0 and f_vals[0].strip() == id_a_editar.strip():
-                                    fila_tabla = f_idx + 1
-                                    break
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("💾 Guardar Cambios (Modificar)", type="primary", key="btn_guardar_mod_v17", use_container_width=True):
+                        ws_env = get_env_sheet("ingreso_plaqueros")
+                        all_vals = ws_env.get_all_values()
+                        fila_tabla = -1
+                        for f_idx, f_vals in enumerate(all_vals):
+                            if len(f_vals) > 0 and f_vals[0].strip() == id_a_editar.strip():
+                                fila_tabla = f_idx + 1
+                                break
+                        
+                        if fila_tabla != -1:
+                            nuevo_total_kg = nuevas_band * 10.0
+                            nuevo_codigo = dic_presentaciones.get(nueva_pres, "")
                             
-                            if fila_tabla != -1:
-                                nuevo_total_kg = nuevas_band * 10.0
-                                nuevo_codigo = dic_presentaciones.get(nueva_pres, "")
-                                
-                                ws_env.update_cell(fila_tabla, 7, nueva_pres)
-                                ws_env.update_cell(fila_tabla, 8, nuevo_cal)
-                                ws_env.update_cell(fila_tabla, 9, str(nuevas_band))
-                                ws_env.update_cell(fila_tabla, 10, str(nuevo_total_kg))
-                                ws_env.update_cell(fila_tabla, 13, nuevo_codigo)
-                                
-                                st.success(f"✅ ¡Registro **{id_a_editar}** actualizado correctamente!")
-                                st.rerun()
-                            else:
-                                st.error("No se encontró la fila en Google Sheets.")
-                    
-                    with col_btn2:
-                        if st.button("🗑️ Eliminar Registro", type="secondary", key="btn_eliminar_reg_v16", use_container_width=True):
-                            ws_env = get_env_sheet("ingreso_plaqueros")
-                            all_vals = ws_env.get_all_values()
-                            fila_tabla = -1
-                            for f_idx, f_vals in enumerate(all_vals):
-                                if len(f_vals) > 0 and f_vals[0].strip() == id_a_editar.strip():
-                                    fila_tabla = f_idx + 1
-                                    break
+                            ws_env.update_cell(fila_tabla, 7, nueva_pres)
+                            ws_env.update_cell(fila_tabla, 8, nuevo_cal)
+                            ws_env.update_cell(fila_tabla, 9, str(nuevas_band))
+                            ws_env.update_cell(fila_tabla, 10, str(nuevo_total_kg))
+                            ws_env.update_cell(fila_tabla, 13, nuevo_codigo)
                             
-                            if fila_tabla != -1:
-                                ws_env.delete_rows(fila_tabla)
-                                st.success(f"🗑️ ¡Registro **{id_a_editar}** eliminado exitosamente!")
-                                st.rerun()
-                            else:
-                                st.error("No se encontró la fila para eliminar.")
-                else:
-                    st.info("No hay registros para hoy para modificar o eliminar.")
+                            st.success(f"✅ ¡Registro **{id_a_editar}** actualizado correctamente!")
+                            st.rerun()
+                        else:
+                            st.error("No se encontró la fila en Google Sheets.")
+                
+                with col_btn2:
+                    if st.button("🗑️ Eliminar Registro", type="secondary", key="btn_eliminar_reg_v17", use_container_width=True):
+                        ws_env = get_env_sheet("ingreso_plaqueros")
+                        all_vals = ws_env.get_all_values()
+                        fila_tabla = -1
+                        for f_idx, f_vals in enumerate(all_vals):
+                            if len(f_vals) > 0 and f_vals[0].strip() == id_a_editar.strip():
+                                fila_tabla = f_idx + 1
+                                break
+                        
+                        if fila_tabla != -1:
+                            ws_env.delete_rows(fila_tabla)
+                            st.success(f"🗑️ ¡Registro **{id_a_editar}** eliminado exitosamente!")
+                            st.rerun()
+                        else:
+                            st.error("No se encontró la fila para eliminar.")
             else:
                 st.info("No hay datos en la base de envasado.")
         except Exception as e:
@@ -460,7 +451,7 @@ def render_module(user, get_sheet, cargar_datos):
         st.markdown("##### Filtrar Historial de Producción:")
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            filtro_fecha_obj = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_hist_v35")
+            filtro_fecha_obj = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_hist_v36")
         with col_f2:
             try:
                 df_all_lotes = cargar_datos_env("ingreso_plaqueros")
@@ -471,7 +462,7 @@ def render_module(user, get_sheet, cargar_datos):
             except:
                 lotes_disponibles = ["TODOS"]
                 
-            filtro_lote_sel = st.selectbox("Filtrar por Lote:", lotes_disponibles, key="filtro_lote_sel_v35")
+            filtro_lote_sel = st.selectbox("Filtrar por Lote:", lotes_disponibles, key="filtro_lote_sel_v36")
 
         filtro_fecha_str = filtro_fecha_obj.strftime("%Y-%m-%d")
 
