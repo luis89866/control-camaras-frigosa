@@ -1,4 +1,4 @@
-import streamlit as st 
+import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 
@@ -102,7 +102,6 @@ def render_module(user, get_sheet, cargar_datos):
 
     st.markdown("---")
 
-    # Lista completa de equipos incluyendo Plaqueros, Túneles e IQF
     lista_plaqueros = [f"P{i}" for i in range(1, 19)] + ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3", "IQF 1", "IQF 2"]
     
     dic_presentaciones = {
@@ -127,32 +126,32 @@ def render_module(user, get_sheet, cargar_datos):
     lista_calibres = obtener_calibres_dinamicos()
 
     # =========================================================================
-    # ITEM 1: INGRESOS DE DATOS (CON SOPORTE PARA IQF Y TÚNELES)
+    # ITEM 1: INGRESOS DE DATOS
     # =========================================================================
     with st.expander("📥 1. Ingresos de Datos (Plaqueros, Túneles e IQF)", expanded=True):
         st.caption("Registre la carga del equipo. El lote se busca y asigna automáticamente desde la pestaña LOTE.")
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)", "Equipo IQF (1 y 2)"], key="tipo_eq_sel_v38")
+            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)", "Equipo IQF (1 y 2)"], key="tipo_eq_sel_v39")
             if tipo_equipo == "Plaquero (P1 - P18)":
-                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v38")
+                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v39")
             elif tipo_equipo == "Túnel (1, 2 y 3)":
-                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v38")
+                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v39")
             else:
-                plaquero_sel = st.selectbox("Nº de IQF:", ["IQF 1", "IQF 2"], key="sel_iqf_reg_v38")
+                plaquero_sel = st.selectbox("Nº de IQF:", ["IQF 1", "IQF 2"], key="sel_iqf_reg_v39")
                 
-            fecha_ingreso_obj = st.date_input("Fecha de Producción:", obtener_hora_peru(), key="f_prod_reg_v38")
+            fecha_ingreso_obj = st.date_input("Fecha de Producción:", obtener_hora_peru(), key="f_prod_reg_v39")
             fecha_ingreso_str = fecha_ingreso_obj.strftime("%Y-%m-%d")
             
             lote_automatico = obtener_lote_por_fecha(fecha_ingreso_obj)
             st.info(f"📦 **Lote asignado automáticamente:** `{lote_automatico}`")
 
-            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v38")
+            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v39")
             
         with col_d2:
             st.markdown("##### Tiempo de Congelación (Ej: 2:45 o 0:02 min):")
-            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v38")
+            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v39")
             
             minutos_cong = 165
             try:
@@ -182,13 +181,13 @@ def render_module(user, get_sheet, cargar_datos):
         st.markdown("---")
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v38")
+            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v39")
         with col_p2:
-            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v38")
+            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v39")
         with col_p3:
-            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v38")
+            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v39")
 
-        if st.button("🚀 Registrar / Agregar Presentación", use_container_width=True, key="btn_enviar_produccion_v38"):
+        if st.button("🚀 Registrar / Agregar Presentación", use_container_width=True, key="btn_enviar_produccion_v39"):
             try:
                 ws_env = get_env_sheet("ingreso_plaqueros")
                 existing_data = ws_env.get_all_values()
@@ -240,7 +239,7 @@ def render_module(user, get_sheet, cargar_datos):
                 st.error(f"Error al guardar: {e}")
 
     # =========================================================================
-    # ITEM 2: EQUIPOS ENCENDIDOS (INCLUYENDO IQF 1 E IQF 2)
+    # ITEM 2: EQUIPOS ENCENDIDOS
     # =========================================================================
     with st.expander("⚡ 2. Equipos Encendidos (Plaqueros, Túneles e IQF)", expanded=True):
         tiempo_peru = obtener_hora_peru()
@@ -248,7 +247,7 @@ def render_module(user, get_sheet, cargar_datos):
         with col_c1:
             st.caption(f"🕒 Hora oficial de planta (Perú UTC-5): **{tiempo_peru.strftime('%H:%M:%S')}**")
         with col_c2:
-            if st.button("🔄 Actualizar Cronograma", key="btn_actualizar_cronograma_v26", use_container_width=True):
+            if st.button("🔄 Actualizar Cronograma", key="btn_actualizar_cronograma_v27", use_container_width=True):
                 st.rerun()
 
         try:
@@ -346,7 +345,7 @@ def render_module(user, get_sheet, cargar_datos):
                         st.markdown(f"<span style='color: #f0ad4e; font-weight: bold;'>{row['SITUACION']}</span>", unsafe_allow_html=True)
                 with col_t6:
                     if len(row['ids']) > 0:
-                        if st.button("🔓 Liberar", key=f"lib_fix_sel_v8_{row['EQUIPO']}_{idx}"):
+                        if st.button("🔓 Liberar", key=f"lib_fix_sel_v9_{row['EQUIPO']}_{idx}"):
                             try:
                                 ws_env = get_env_sheet("ingreso_plaqueros")
                                 all_vals = ws_env.get_all_values()
@@ -368,7 +367,7 @@ def render_module(user, get_sheet, cargar_datos):
             st.warning(f"Error cargando tabla: {e}")
 
     # =========================================================================
-    # ITEM 3: MODIFICACIÓN O ELIMINACIÓN DE REGISTROS (CON FILTRO POR DÍA)
+    # ITEM 3: MODIFICACIÓN O ELIMINACIÓN DE REGISTROS
     # =========================================================================
     with st.expander("✏️ 3. Modificación o Eliminación de Registros", expanded=False):
         st.caption("Seleccione una fecha para filtrar los registros y editar o eliminar el que necesite.")
@@ -376,7 +375,7 @@ def render_module(user, get_sheet, cargar_datos):
         try:
             df_all_mod = cargar_datos_env("ingreso_plaqueros")
             if not df_all_mod.empty and "fecha" in df_all_mod.columns:
-                filtro_fecha_mod_obj = st.date_input("📅 Seleccionar Día a Gestionar:", obtener_hora_peru(), key="filtro_fecha_mod_input_v2")
+                filtro_fecha_mod_obj = st.date_input("📅 Seleccionar Día a Gestionar:", obtener_hora_peru(), key="filtro_fecha_mod_input_v3")
                 filtro_fecha_mod_str = filtro_fecha_mod_obj.strftime("%Y-%m-%d")
                 
                 df_mod_filtrado = df_all_mod[df_all_mod["fecha"].astype(str).str.strip() == filtro_fecha_mod_str]
@@ -384,7 +383,7 @@ def render_module(user, get_sheet, cargar_datos):
                 if not df_mod_filtrado.empty:
                     st.dataframe(df_mod_filtrado[["id_produccion", "equipo", "hora_inicio", "presentacion", "calibre", "bandejas", "estado", "bachadas"]], use_container_width=True)
                     
-                    id_a_editar = st.selectbox("Seleccione el ID del registro a editar/eliminar:", df_mod_filtrado["id_produccion"].tolist(), key="sel_id_mod_v18")
+                    id_a_editar = st.selectbox("Seleccione el ID del registro a editar/eliminar:", df_mod_filtrado["id_produccion"].tolist(), key="sel_id_mod_v19")
                     
                     fila_act = df_mod_filtrado[df_mod_filtrado["id_produccion"] == id_a_editar].iloc[0]
                     
@@ -407,7 +406,7 @@ def render_module(user, get_sheet, cargar_datos):
 
                     col_btn1, col_btn2 = st.columns(2)
                     with col_btn1:
-                        if st.button("💾 Guardar Cambios (Modificar)", type="primary", key="btn_guardar_mod_v18", use_container_width=True):
+                        if st.button("💾 Guardar Cambios (Modificar)", type="primary", key="btn_guardar_mod_v19", use_container_width=True):
                             ws_env = get_env_sheet("ingreso_plaqueros")
                             all_vals = ws_env.get_all_values()
                             fila_tabla = -1
@@ -432,7 +431,7 @@ def render_module(user, get_sheet, cargar_datos):
                                 st.error("No se encontró la fila en Google Sheets.")
                     
                     with col_btn2:
-                        if st.button("🗑️ Eliminar Registro", type="secondary", key="btn_eliminar_reg_v18", use_container_width=True):
+                        if st.button("🗑️ Eliminar Registro", type="secondary", key="btn_eliminar_reg_v19", use_container_width=True):
                             ws_env = get_env_sheet("ingreso_plaqueros")
                             all_vals = ws_env.get_all_values()
                             fila_tabla = -1
@@ -455,13 +454,61 @@ def render_module(user, get_sheet, cargar_datos):
             st.warning(f"Error en panel de gestión: {e}")
 
     # =========================================================================
-    # ITEM 4: RESUMEN DE PRODUCCION Y RENDIMIENTOS (CON FILTROS DE FECHA Y LOTE)
+    # ITEM 4: RESUMEN DE PRODUCCION Y GESTIÓN DE MATERIA PRIMA (MP)
     # =========================================================================
-    with st.expander("📊 4. Resumen de Producción (Filtrado por Fecha y Lote)", expanded=False):
-        st.markdown("##### Filtrar Historial de Producción:")
+    with st.expander("📊 4. Resumen de Producción y Materia Prima (MP)", expanded=False):
+        st.markdown("##### 🐟 Gestión de Materia Prima (Kilos por Fecha)")
+        
+        col_mp1, col_mp2, col_mp3 = st.columns(3)
+        with col_mp1:
+            fecha_mp_obj = st.date_input("Fecha MP:", obtener_hora_peru(), key="fecha_mp_input")
+            fecha_mp_str = fecha_mp_obj.strftime("%Y-%m-%d")
+        with col_mp2:
+            kilos_mp_input = st.number_input("Kilos de Materia Prima (MP):", min_value=0.0, step=100.0, value=0.0, key="kilos_mp_input")
+        with col_mp3:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("💾 Guardar / Actualizar MP", type="primary", use_container_width=True):
+                try:
+                    ws_mp = get_env_sheet("MP")
+                    mp_rows = ws_mp.get_all_values()
+                    
+                    encontrado = False
+                    fila_mp_idx = -1
+                    
+                    # Buscar si ya existe la fecha en la pestaña MP
+                    for idx, fila in enumerate(mp_rows):
+                        if len(fila) > 0:
+                            f_Hoja = str(fila[0]).strip()
+                            try:
+                                dt_h = pd.to_datetime(f_Hoja).strftime("%Y-%m-%d")
+                                if dt_h == fecha_mp_str:
+                                    encontrado = True
+                                    fila_mp_idx = idx + 1
+                                    break
+                            except:
+                                if f_Hoja == fecha_mp_str:
+                                    encontrado = True
+                                    fila_mp_idx = idx + 1
+                                    break
+                    
+                    if encontrado and fila_mp_idx != -1:
+                        # Actualizar celda de kilos (Columna B / Columna 2)
+                        ws_mp.update_cell(fila_mp_idx, 2, str(kilos_mp_input))
+                        st.success(f"✅ Materia Prima actualizada para el {fecha_mp_str}: `{kilos_mp_input} kg`")
+                    else:
+                        # Agregar nueva fila
+                        ws_mp.append_row([fecha_mp_str, str(kilos_mp_input)])
+                        st.success(f"✅ Materia Prima registrada para el {fecha_mp_str}: `{kilos_mp_input} kg`")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al guardar MP: {e}")
+
+        st.markdown("---")
+        st.markdown("##### 📈 Filtrar Historial de Producción y Rendimiento:")
+        
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            filtro_fecha_obj = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_hist_v37")
+            filtro_fecha_obj = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_hist_v38")
         with col_f2:
             try:
                 df_all_lotes = cargar_datos_env("ingreso_plaqueros")
@@ -472,11 +519,30 @@ def render_module(user, get_sheet, cargar_datos):
             except:
                 lotes_disponibles = ["TODOS"]
                 
-            filtro_lote_sel = st.selectbox("Filtrar por Lote:", lotes_disponibles, key="filtro_lote_sel_v37")
+            filtro_lote_sel = st.selectbox("Filtrar por Lote:", lotes_disponibles, key="filtro_lote_sel_v38")
 
         filtro_fecha_str = filtro_fecha_obj.strftime("%Y-%m-%d")
 
         try:
+            # Obtener Materia Prima registrada para esta fecha
+            kilos_mp_dia = 0.0
+            try:
+                df_mp_all = cargar_datos_env("MP")
+                if not df_mp_all.empty and len(df_mp_all.columns) >= 2:
+                    for _, row in df_mp_all.iterrows():
+                        f_mp = str(row.iloc[0]).strip()
+                        k_mp = str(row.iloc[1]).strip()
+                        try:
+                            if pd.to_datetime(f_mp).strftime("%Y-%m-%d") == filtro_fecha_str:
+                                kilos_mp_dia = float(k_mp)
+                                break
+                        except:
+                            if f_mp == filtro_fecha_str:
+                                kilos_mp_dia = float(k_mp)
+                                break
+            except:
+                pass
+
             df_p_all = cargar_datos_env("ingreso_plaqueros")
             if not df_p_all.empty and "fecha" in df_p_all.columns:
                 df_p_filtrado = df_p_all[df_p_all["fecha"].astype(str).str.strip() == filtro_fecha_str]
@@ -489,13 +555,22 @@ def render_module(user, get_sheet, cargar_datos):
                     
                     total_bandejas_dia = pd.to_numeric(df_p_filtrado["bandejas"], errors="coerce").sum()
                     total_kg_dia = pd.to_numeric(df_p_filtrado["total_kg"], errors="coerce").sum()
-                    st.success(f"📦 **Total Filtrado:** `{int(total_bandejas_dia)} bandejas` | ⚖️ **Total Kilos:** `{total_kg_dia} kg`")
+                    
+                    # Calcular rendimiento si hay Materia Prima registrada
+                    rendimiento_pct = (total_kg_dia / kilos_mp_dia * 100) if kilos_mp_dia > 0 else 0.0
+                    
+                    st.markdown(f"""
+                    * 📦 **Total Bandejas:** `{int(total_bandejas_dia)}`
+                    * ⚖️ **Total Kilos Envasados:** `{total_kg_dia:,.2f} kg`
+                    * 🐟 **Materia Prima (MP) Registrada:** `{kilos_mp_dia:,.2f} kg`
+                    * 📊 **Rendimiento Global:** `{rendimiento_pct:.2f}%`
+                    """)
                 else:
-                    st.info(f"ℹ️ No hay registros para la fecha {filtro_fecha_str} con el lote '{filtro_lote_sel}'.")
+                    st.info(f"ℹ️ No hay registros de envasado para la fecha {filtro_fecha_str} con el lote '{filtro_lote_sel}'. (MP registrada: {kilos_mp_dia:,.2f} kg)")
             else:
                 st.info("ℹ️ Aún no hay datos guardados.")
         except Exception as e:
-            st.warning(f"Error en resumen: {e}")
+            st.warning(f"Error en resumen y rendimientos: {e}")
 
     # =========================================================================
     # ITEM 5: HISTOGRAMA DE PLAQUEROS DEL DÍA
