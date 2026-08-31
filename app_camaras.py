@@ -64,7 +64,7 @@ if "modulo_activo" not in st.session_state:
     st.session_state.modulo_activo = "Home"
 
 def login_form():
-    st.markdown("<h2 style='text-align: center; color: #1E3D59;'>❄️ ECAPRO / WMS Frigosa - ERP Acceso</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: #1E3D59;'>❄️ OPERACIONES / WMS Frigosa - ERP Acceso</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         with st.form("login_form"):
@@ -124,7 +124,7 @@ with st.sidebar:
 st.markdown(
     """
     <div style="background: linear-gradient(135deg, #1E3D59 0%, #172B3A 100%); padding: 20px; border-radius: 10px; color: white; margin-bottom: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-        <h1 style="margin: 0; font-size: 26px;">❄️ ECAPRO - Enterprise Resource Planning (Frigosa)</h1>
+        <h1 style="margin: 0; font-size: 26px;">❄️ OPERACIONES - Enterprise Resource Planning (Frigosa)</h1>
         <p style="margin: 5px 0 0 0; font-size: 15px; opacity: 0.85;">Sistema Integrado de Control Logístico, Producción y Personal</p>
     </div>
     """,
