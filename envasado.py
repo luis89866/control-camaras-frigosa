@@ -314,7 +314,7 @@ def render_module(user, get_sheet, cargar_datos):
         with col_c1:
             st.caption(f"🕒 Hora oficial de planta (Perú UTC-5): **{tiempo_peru.strftime('%H:%M:%S')}**")
         with col_c2:
-            if st.button("🔄 Actualizar Cronograma", key="btn_actualizar_cronograma_v37", use_container_width=True):
+            if st.button("🔄 Actualizar Cronograma", key="btn_actualizar_cronograma_v36", use_container_width=True):
                 st.rerun()
 
         try:
@@ -421,7 +421,7 @@ def render_module(user, get_sheet, cargar_datos):
                         st.markdown(f"<span style='color: #f0ad4e; font-weight: bold;'>{row['SITUACION']}</span>", unsafe_allow_html=True)
                 with col_t6:
                     if len(row['ids']) > 0:
-                        if st.button("🔓 Liberar", key=f"lib_fix_sel_v20_{row['EQUIPO']}_{idx}"):
+                        if st.button("🔓 Liberar", key=f"lib_fix_sel_v19_{row['EQUIPO']}_{idx}"):
                             try:
                                 ws_env = get_env_sheet("ingreso_plaqueros")
                                 all_vals = ws_env.get_all_values()
@@ -455,7 +455,7 @@ def render_module(user, get_sheet, cargar_datos):
         try:
             df_all_mod = cargar_datos_env("ingreso_plaqueros")
             if not df_all_mod.empty and "fecha" in df_all_mod.columns:
-                filtro_fecha_mod_obj = st.date_input("📅 Seleccionar Día a Gestionar:", obtener_hora_peru(), key="filtro_fecha_mod_input_v12")
+                filtro_fecha_mod_obj = st.date_input("📅 Seleccionar Día a Gestionar:", obtener_hora_peru(), key="filtro_fecha_mod_input_v9")
                 filtro_fecha_mod_str = filtro_fecha_mod_obj.strftime("%Y-%m-%d")
                 
                 df_mod_filtrado = df_all_mod[df_all_mod["fecha"].astype(str).str.strip() == filtro_fecha_mod_str]
@@ -644,18 +644,54 @@ def render_module(user, get_sheet, cargar_datos):
             st.warning(f"Error en resumen y rendimientos: {e}")
 
     # =========================================================================
-    # ITEM 5: HISTOGRAMA DE PLAQUEROS DEL DÍA
+    # ITEM 5: HISTOGRAMA DE PLAQUEROS DEL DÍA (HISTORIAL POR HORA Y BACHADA)
     # =========================================================================
     with st.expander("🕒 5. Histograma de Plaqueros del Día", expanded=False):
-        st.caption("Matriz horaria de ocupación de los equipos (P1 al P18 y Túneles).")
+        st.caption("Matriz horaria de ocupación de los equipos (Bachadas y Tiempos Muertos).")
         
-        horas_matriz = [f"{h:02d}:00" for h in range(24)]
-        df_histo = pd.DataFrame(index=horas_matriz, columns=[f"P{i}" for i in range(1, 10)])
-        df_histo = df_histo.fillna("Libre 🟢")
-        df_histo.iloc[1:5, 0] = "En Proceso 🔵"
-        df_histo.iloc[8:12, 3] = "En Proceso 🔵"
-        
-        st.dataframe(df_histo, use_container_width=True)
+        col_h1, col_h2 = st.columns(2)
+        with col_h1:
+            fecha_histo_obj = st.date_input("📅 Seleccionar Día de Histograma:", obtener_hora_peru(), key="fecha_histo_input")
+        fecha_histo_str = fecha_histo_obj.strftime("%Y-%m-%d")
+
+        try:
+            df_histo_all = cargar_datos_env("ingreso_plaqueros")
+            
+            # Definir horas del día (00:00 a 23:00)
+            horas_matriz = [f"{h:02d}:00" for h in range(24)]
+            equipos_columnas = [f"P{i}" for i in range(1, 19)] + ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3", "IQF 1", "IQF 2"]
+            
+            # Crear matriz vacía con "⏰ Tiempo Muerto"
+            matriz_datos = {eq: ["⏰ Tiempo Muerto" for _ in range(24)] for eq in equipos_columnas}
+            df_matriz = pd.DataFrame(matriz_datos, index=horas_matriz)
+
+            if not df_histo_all.empty and "fecha" in df_histo_all.columns:
+                df_h_dia = df_histo_all[df_histo_all["fecha"].astype(str).str.strip() == fecha_histo_str]
+                
+                for _, r in df_h_dia.iterrows():
+                    eq = str(r.get("equipo", "")).strip().upper()
+                    h_ini = str(r.get("hora_inicio", "")).strip()
+                    bachada = str(r.get("bachadas", "B1")).strip()
+                    pres = str(r.get("presentacion", "")).strip()
+                    
+                    if eq in df_matriz.columns and h_ini:
+                        try:
+                            # Extraer la hora exacta (ej. "23:13" -> "23:00")
+                            h_key = f"{int(h_ini.split(':')[0]):02d}:00"
+                            if h_key in df_matriz.index:
+                                val_actual = df_matriz.loc[h_key, eq]
+                                texto_bachada = f"{bachada}: {pres}"
+                                if "Tiempo Muerto" in val_actual:
+                                    df_matriz.loc[h_key, eq] = f"🟢 {texto_bachada}"
+                                else:
+                                    df_matriz.loc[h_key, eq] += f"<br>🟢 {texto_bachada}"
+                        except:
+                            pass
+
+            st.markdown(f"##### Historial de Operación para el {fecha_histo_str}")
+            st.dataframe(df_matriz, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Error cargando histograma: {e}")
 
     # =========================================================================
     # ITEM 6: RENDIMIENTO POR PRESENTACIÓN Y CALIBRE
