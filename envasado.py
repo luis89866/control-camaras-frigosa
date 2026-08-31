@@ -181,32 +181,32 @@ def render_module(user, get_sheet, cargar_datos):
     lista_calibres = obtener_calibres_dinamicos()
 
     # =========================================================================
-    # ITEM 1: INGRESOS DE DATOS (CON VALIDACIÓN ESTRICTA DE HORA DE INICIO)
+    # ITEM 1: INGRESOS DE DATOS
     # =========================================================================
     with st.expander("📥 1. Ingresos de Datos (Plaqueros, Túneles e IQF)", expanded=True):
-        st.caption("Registre la carga del equipo. El sistema validará la hora de inicio y evitará duplicados.")
+        st.caption("Registre la carga del equipo. El lote se busca y asigna automáticamente desde la pestaña LOTE.")
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)", "Equipo IQF (1 y 2)"], key="tipo_eq_sel_v46")
+            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)", "Equipo IQF (1 y 2)"], key="tipo_eq_sel_v48")
             if tipo_equipo == "Plaquero (P1 - P18)":
-                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v46")
+                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v48")
             elif tipo_equipo == "Túnel (1, 2 y 3)":
-                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v46")
+                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v48")
             else:
-                plaquero_sel = st.selectbox("Nº de IQF:", ["IQF 1", "IQF 2"], key="sel_iqf_reg_v46")
+                plaquero_sel = st.selectbox("Nº de IQF:", ["IQF 1", "IQF 2"], key="sel_iqf_reg_v48")
                 
-            fecha_ingreso_obj = st.date_input("Fecha de Producción:", obtener_hora_peru(), key="f_prod_reg_v46")
+            fecha_ingreso_obj = st.date_input("Fecha de Producción:", obtener_hora_peru(), key="f_prod_reg_v48")
             fecha_ingreso_str = fecha_ingreso_obj.strftime("%Y-%m-%d")
             
             lote_automatico = obtener_lote_por_fecha(fecha_ingreso_obj)
             st.info(f"📦 **Lote asignado automáticamente:** `{lote_automatico}`")
 
-            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v46")
+            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v48")
             
         with col_d2:
             st.markdown("##### Tiempo de Congelación (Ej: 2:45 o 0:02 min):")
-            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v46")
+            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v48")
             
             minutos_cong = 165
             try:
@@ -236,13 +236,13 @@ def render_module(user, get_sheet, cargar_datos):
         st.markdown("---")
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v46")
+            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v48")
         with col_p2:
-            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v46")
+            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v48")
         with col_p3:
-            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v46")
+            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v48")
 
-        if st.button("🚀 Registrar / Agregar Presentación", use_container_width=True, key="btn_enviar_produccion_v46"):
+        if st.button("🚀 Registrar / Agregar Presentación", use_container_width=True, key="btn_enviar_produccion_v48"):
             try:
                 ws_env = get_env_sheet("ingreso_plaqueros")
                 existing_data = ws_env.get_all_values()
@@ -273,11 +273,9 @@ def render_module(user, get_sheet, cargar_datos):
                                     hora_activa_encontrada = h_ini_reg
                                     num_bachada = int(bachada_val.replace("Bachada", "").strip()) if "Bachada" in bachada_val else len(bachadas_registradas_hoy)
                                     
-                                    # Validar si la hora de inicio es diferente a la que ya está activa en el equipo
                                     if h_ini_reg != hora_inicio_str.strip():
                                         conflicto_hora = True
 
-                                    # Validar duplicados de presentación y calibre en el mismo ciclo
                                     if pres_reg == presentacion_sel.strip().upper() and cal_reg == calibre_sel.strip().upper():
                                         producto_duplicado = True
 
@@ -287,7 +285,7 @@ def render_module(user, get_sheet, cargar_datos):
                 if conflicto_hora:
                     st.error(f"❌ **Acción rechazada:** El equipo **{plaquero_sel}** ya se encuentra **En Proceso** con hora de inicio **{hora_activa_encontrada}**. Para agregar más presentaciones a este ciclo, debes usar la misma hora de inicio (`{hora_activa_encontrada}`). Si es un nuevo ciclo, debes liberar primero el equipo.")
                 elif producto_duplicado:
-                    st.error(f"❌ **Acción rechazada:** El producto **{presentacion_sel}** con calibre **{calibre_sel}** ya se encuentra registrado y activo en el equipo **{plaquero_sel}**.")
+                    st.error(f"❌ **Acción rechazada:** El producto **{presentacion_sel}** con calibre **{calibre_sel}** ya se encuentra activo en **{plaquero_sel}**.")
                 else:
                     id_prod = f"PROD-{datetime.now().strftime('%y%m%d%H%M%S')}"
                     total_kg = bandejas_cant * 10.0
@@ -308,7 +306,7 @@ def render_module(user, get_sheet, cargar_datos):
                 st.error(f"Error al guardar: {e}")
 
     # =========================================================================
-    # ITEM 2: EQUIPOS ENCENDIDOS (CON CÁLCULO DE RETRASO CRUZANDO MEDIANOCHE)
+    # ITEM 2: EQUIPOS ENCENDIDOS
     # =========================================================================
     with st.expander("⚡ 2. Equipos Encendidos (Plaqueros, Túneles e IQF)", expanded=True):
         tiempo_peru = obtener_hora_peru()
@@ -316,7 +314,7 @@ def render_module(user, get_sheet, cargar_datos):
         with col_c1:
             st.caption(f"🕒 Hora oficial de planta (Perú UTC-5): **{tiempo_peru.strftime('%H:%M:%S')}**")
         with col_c2:
-            if st.button("🔄 Actualizar Cronograma", key="btn_actualizar_cronograma_v32", use_container_width=True):
+            if st.button("🔄 Actualizar Cronograma", key="btn_actualizar_cronograma_v34", use_container_width=True):
                 st.rerun()
 
         try:
@@ -423,7 +421,7 @@ def render_module(user, get_sheet, cargar_datos):
                         st.markdown(f"<span style='color: #f0ad4e; font-weight: bold;'>{row['SITUACION']}</span>", unsafe_allow_html=True)
                 with col_t6:
                     if len(row['ids']) > 0:
-                        if st.button("🔓 Liberar", key=f"lib_fix_sel_v15_{row['EQUIPO']}_{idx}"):
+                        if st.button("🔓 Liberar", key=f"lib_fix_sel_v17_{row['EQUIPO']}_{idx}"):
                             try:
                                 ws_env = get_env_sheet("ingreso_plaqueros")
                                 all_vals = ws_env.get_all_values()
@@ -457,7 +455,7 @@ def render_module(user, get_sheet, cargar_datos):
         try:
             df_all_mod = cargar_datos_env("ingreso_plaqueros")
             if not df_all_mod.empty and "fecha" in df_all_mod.columns:
-                filtro_fecha_mod_obj = st.date_input("📅 Seleccionar Día a Gestionar:", obtener_hora_peru(), key="filtro_fecha_mod_input_v8")
+                filtro_fecha_mod_obj = st.date_input("📅 Seleccionar Día a Gestionar:", obtener_hora_peru(), key="filtro_fecha_mod_input_v11")
                 filtro_fecha_mod_str = filtro_fecha_mod_obj.strftime("%Y-%m-%d")
                 
                 df_mod_filtrado = df_all_mod[df_all_mod["fecha"].astype(str).str.strip() == filtro_fecha_mod_str]
@@ -465,7 +463,7 @@ def render_module(user, get_sheet, cargar_datos):
                 if not df_mod_filtrado.empty:
                     st.dataframe(df_mod_filtrado[["id_produccion", "equipo", "hora_inicio", "presentacion", "calibre", "bandejas", "estado", "bachadas"]], use_container_width=True)
                     
-                    id_a_editar = st.selectbox("Seleccione el ID del registro a editar/eliminar:", df_mod_filtrado["id_produccion"].tolist(), key="sel_id_mod_v24")
+                    id_a_editar = st.selectbox("Seleccione el ID del registro a editar/eliminar:", df_mod_filtrado["id_produccion"].tolist(), key="sel_id_mod_v27")
                     
                     fila_act = df_mod_filtrado[df_mod_filtrado["id_produccion"] == id_a_editar].iloc[0]
                     
@@ -488,7 +486,7 @@ def render_module(user, get_sheet, cargar_datos):
 
                     col_btn1, col_btn2 = st.columns(2)
                     with col_btn1:
-                        if st.button("💾 Guardar Cambios (Modificar)", type="primary", key="btn_guardar_mod_v24", use_container_width=True):
+                        if st.button("💾 Guardar Cambios (Modificar)", type="primary", key="btn_guardar_mod_v27", use_container_width=True):
                             ws_env = get_env_sheet("ingreso_plaqueros")
                             all_vals = ws_env.get_all_values()
                             fila_tabla = -1
@@ -519,7 +517,7 @@ def render_module(user, get_sheet, cargar_datos):
                                 st.error("No se encontró la fila en Google Sheets.")
                     
                     with col_btn2:
-                        if st.button("🗑️ Eliminar Registro", type="secondary", key="btn_eliminar_reg_v24", use_container_width=True):
+                        if st.button("🗑️ Eliminar Registro", type="secondary", key="btn_eliminar_reg_v27", use_container_width=True):
                             ws_env = get_env_sheet("ingreso_plaqueros")
                             all_vals = ws_env.get_all_values()
                             fila_tabla = -1
@@ -550,7 +548,7 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_mp1, col_mp2, col_mp3 = st.columns(3)
         with col_mp1:
-            fecha_mp_obj = st.date_input("Fecha MP:", obtener_hora_peru(), key="fecha_mp_input_v3")
+            fecha_mp_obj = st.date_input("Fecha MP:", obtener_hora_peru(), key="fecha_mp_input_v5")
             fecha_mp_str = fecha_mp_obj.strftime("%Y-%m-%d")
             
             mp_actual_guardada = obtener_mp_por_fecha(fecha_mp_str)
@@ -599,7 +597,7 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            filtro_fecha_obj = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_hist_v45")
+            filtro_fecha_obj = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_hist_v46")
         with col_f2:
             try:
                 df_all_lotes = cargar_datos_env("ingreso_plaqueros")
@@ -610,7 +608,7 @@ def render_module(user, get_sheet, cargar_datos):
             except:
                 lotes_disponibles = ["TODOS"]
                 
-            filtro_lote_sel = st.selectbox("Filtrar por Lote:", lotes_disponibles, key="filtro_lote_sel_v45")
+            filtro_lote_sel = st.selectbox("Filtrar por Lote:", lotes_disponibles, key="filtro_lote_sel_v46")
 
         filtro_fecha_str = filtro_fecha_obj.strftime("%Y-%m-%d")
 
@@ -658,3 +656,56 @@ def render_module(user, get_sheet, cargar_datos):
         df_histo.iloc[8:12, 3] = "En Proceso 🔵"
         
         st.dataframe(df_histo, use_container_width=True)
+
+    # =========================================================================
+    # ITEM 6: RENDIMIENTO POR PRESENTACIÓN Y CALIBRE
+    # =========================================================================
+    with st.expander("📊 6. Rendimiento por Presentación y Calibre", expanded=False):
+        st.markdown("##### Resumen de Producción por Producto y Calibre")
+        
+        col_r6_1, col_r6_2 = st.columns(2)
+        with col_r6_1:
+            fecha_r6_obj = st.date_input("📅 Seleccionar Fecha:", obtener_hora_peru(), key="fecha_r6_input_v2")
+        fecha_r6_str = fecha_r6_obj.strftime("%Y-%m-%d")
+        
+        try:
+            df_env_r6 = cargar_datos_env("ingreso_plaqueros")
+            mp_r6 = obtener_mp_por_fecha(fecha_r6_str)
+            
+            if not df_env_r6.empty and "fecha" in df_env_r6.columns:
+                df_r6_dia = df_env_r6[df_env_r6["fecha"].astype(str).str.strip() == fecha_r6_str].copy()
+                
+                if not df_r6_dia.empty:
+                    df_r6_dia["total_kg_num"] = pd.to_numeric(df_r6_dia["total_kg"], errors="coerce").fillna(0.0)
+                    df_r6_dia["bandejas_num"] = pd.to_numeric(df_r6_dia["bandejas"], errors="coerce").fillna(0)
+                    
+                    df_agrupado = df_r6_dia.groupby(["presentacion", "calibre"]).agg(
+                        total_bandejas=("bandejas_num", "sum"),
+                        total_kilos=("total_kg_num", "sum")
+                    ).reset_index()
+                    
+                    if mp_r6 > 0:
+                        df_agrupado["rendimiento_pct"] = (df_agrupado["total_kilos"] / mp_r6) * 100
+                    else:
+                        df_agrupado["rendimiento_pct"] = 0.0
+                        
+                    df_tabla_final = pd.DataFrame({
+                        "PRODUCTO / PRESENTACIÓN": df_agrupado["presentacion"],
+                        "CALIBRE": df_agrupado["calibre"],
+                        "TOTAL BANDEJAS": df_agrupado["total_bandejas"].astype(int),
+                        "TOTAL KILOS": df_agrupado["total_kilos"].apply(lambda x: f"{x:,.2f} kg"),
+                        "RENDIMIENTO (%)": df_agrupado["rendimiento_pct"].apply(lambda x: f"{x:.2f}%")
+                    })
+                    
+                    st.info(f"🐟 **Materia Prima Total del Día ({fecha_r6_str}):** `{mp_r6:,.2f} kg`")
+                    st.dataframe(df_tabla_final, use_container_width=True, hide_index=True)
+                    
+                    suma_kilos_totales = df_agrupado["total_kilos"].sum()
+                    suma_rend_totales = df_agrupado["rendimiento_pct"].sum()
+                    st.success(f"📌 **Suma del Día:** `{suma_kilos_totales:,.2f} kg` (Rendimiento Acumulado: `{suma_rend_totales:.2f}%`)")
+                else:
+                    st.info(f"ℹ️ No hay registros de envasado para la fecha {fecha_r6_str}.")
+            else:
+                st.info("ℹ️ Aún no hay datos guardados en la base de envasado.")
+        except Exception as e:
+            st.warning(f"Error generando reporte por presentación: {e}")
