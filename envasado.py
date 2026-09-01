@@ -161,8 +161,8 @@ def render_module(user, get_sheet, cargar_datos):
         "7-10 MM MEMBRANA",
         "8-14 MM PANZA",
         "8-14 MM MEMBRANA",
-        "10-14 MM"
-        "MAYOR"
+        "10-14 MM",
+        "MAYOR",
         "MENOR"
     ]
 
