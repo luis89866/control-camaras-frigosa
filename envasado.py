@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
+import time
 
 # ID DE TU GOOGLE SHEETS DE PRODUCCIÓN Y ENVASADO
 SPREADSHEET_ID_ENVASADO = "1cru0w9kxN4gj5UzuOpxuLOF4FmvR3H_Sg7-qEu8chFc"
@@ -19,7 +20,9 @@ def get_env_sheet(sheet_name):
     sh = client.open_by_key(SPREADSHEET_ID_ENVASADO)
     return sh.worksheet(sheet_name)
 
+@st.cache_data(ttl=15, show_spinner=False)
 def cargar_datos_env(sheet_name):
+    """Carga datos de Google Sheets con caché de 15 segundos para evitar el Error 429"""
     try:
         ws = get_env_sheet(sheet_name)
         rows = ws.get_all_values()
@@ -117,6 +120,7 @@ def actualizar_rendimientos_para_fecha(fecha_objetivo_str):
                         
                         try:
                             ws_env.update_cell(f_idx + 1, col_rend_idx, rend_val)
+                            time.sleep(0.5) # Pausa corta para cuidar cuota de API
                         except:
                             pass
     except:
@@ -163,7 +167,7 @@ def render_module(user, get_sheet, cargar_datos):
     
     lista_presentaciones = list(dic_presentaciones.keys())
     
-    # Lista de calibres fija en código para máxima velocidad y sin errores
+    # Lista de calibres fija en código para máxima velocidad
     lista_calibres = [
         "-",
         "0-50 GR/PZA",
@@ -193,25 +197,25 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)", "Equipo IQF (1 y 2)"], key="tipo_eq_sel_v61")
+            tipo_equipo = st.selectbox("Seleccione Tipo de Equipo:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)", "Equipo IQF (1 y 2)"], key="tipo_eq_sel_v62")
             if tipo_equipo == "Plaquero (P1 - P18)":
-                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v61")
+                plaquero_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="sel_plaquero_reg_v62")
             elif tipo_equipo == "Túnel (1, 2 y 3)":
-                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v61")
+                plaquero_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="sel_tunel_reg_v62")
             else:
-                plaquero_sel = st.selectbox("Nº de IQF:", ["IQF 1", "IQF 2"], key="sel_iqf_reg_v61")
+                plaquero_sel = st.selectbox("Nº de IQF:", ["IQF 1", "IQF 2"], key="sel_iqf_reg_v62")
                 
-            fecha_ingreso_obj = st.date_input("Fecha de Producción:", obtener_hora_peru(), key="f_prod_reg_v61")
+            fecha_ingreso_obj = st.date_input("Fecha de Producción:", obtener_hora_peru(), key="f_prod_reg_v62")
             fecha_ingreso_str = fecha_ingreso_obj.strftime("%Y-%m-%d")
             
             lote_automatico = obtener_lote_por_fecha(fecha_ingreso_obj)
             st.info(f"📦 **Lote asignado automáticamente:** `{lote_automatico}`")
 
-            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v61")
+            hora_inicio_str = st.text_input("Hora de Inicio (Ej: 08:00):", obtener_hora_peru().strftime("%H:%M"), key="h_inicio_prod_v62")
             
         with col_d2:
             st.markdown("##### Tiempo de Congelación (Ej: 2:45 o 0:02 min):")
-            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v61")
+            tiempo_input_str = st.text_input("Tiempo de Congelación:", "2:45", key="t_cong_libre_v62")
             
             minutos_cong = 165
             try:
@@ -241,13 +245,13 @@ def render_module(user, get_sheet, cargar_datos):
         st.markdown("---")
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v61")
+            presentacion_sel = st.selectbox("Presentación / Producto:", lista_presentaciones, key="sel_presentacion_v62")
         with col_p2:
-            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v61")
+            calibre_sel = st.selectbox("Calibre:", lista_calibres, key="sel_calibre_v62")
         with col_p3:
-            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v61")
+            bandejas_cant = st.number_input("Cantidad de Bandejas:", min_value=1, step=1, value=50, key="num_bandejas_v62")
 
-        if st.button("🚀 Registrar / Agregar Presentación", use_container_width=True, key="btn_enviar_produccion_v61"):
+        if st.button("🚀 Registrar / Agregar Presentación", use_container_width=True, key="btn_enviar_produccion_v62"):
             try:
                 ws_env = get_env_sheet("ingreso_plaqueros")
                 existing_data = ws_env.get_all_values()
@@ -305,6 +309,7 @@ def render_module(user, get_sheet, cargar_datos):
                         hora_salida_estimada, presentacion_sel, calibre_sel, str(bandejas_cant), 
                         str(total_kg), "En Proceso", bachada_str, codigo_pres, lote_automatico, rend_val
                     ])
+                    st.cache_data.clear()
                     st.success(f"✅ Se registró **{presentacion_sel}** ({bandejas_cant} ban.) en **{plaquero_sel}** bajo `[{bachada_str}]` (Lote: {lote_automatico})!")
                     st.rerun()
             except Exception as e:
@@ -320,6 +325,7 @@ def render_module(user, get_sheet, cargar_datos):
             st.caption(f"🕒 Hora oficial de planta (Perú UTC-5): **{tiempo_peru.strftime('%H:%M:%S')}**")
         with col_c2:
             if st.button("🔄 Actualizar Cronograma", key="btn_actualizar_cronograma_v47", use_container_width=True):
+                st.cache_data.clear()
                 st.rerun()
 
         try:
@@ -435,11 +441,13 @@ def render_module(user, get_sheet, cargar_datos):
                                 for f_idx, f_vals in enumerate(all_vals):
                                     if len(f_vals) > 0 and f_vals[0].strip() in ids_a_liberar:
                                         ws_env.update_cell(f_idx + 1, 11, "Finalizado")
+                                        time.sleep(0.5)
                                         
                                 fecha_reg_prod = all_vals[f_idx][1] if len(all_vals[f_idx]) > 1 else ""
                                 if fecha_reg_prod:
                                     actualizar_rendimientos_para_fecha(fecha_reg_prod)
                                 
+                                st.cache_data.clear()
                                 st.success(f"✅ ¡Equipo **{row['EQUIPO']}** liberado!")
                                 st.rerun()
                             except Exception as e:
@@ -515,7 +523,7 @@ def render_module(user, get_sheet, cargar_datos):
                                 ws_env.update_cell(fila_tabla, 15, nuevo_rend)
                                 
                                 actualizar_rendimientos_para_fecha(filtro_fecha_mod_str)
-                                
+                                st.cache_data.clear()
                                 st.success(f"✅ ¡Registro **{id_a_editar}** actualizado correctamente!")
                                 st.rerun()
                             else:
@@ -534,6 +542,7 @@ def render_module(user, get_sheet, cargar_datos):
                             if fila_tabla != -1:
                                 ws_env.delete_rows(fila_tabla)
                                 actualizar_rendimientos_para_fecha(filtro_fecha_mod_str)
+                                st.cache_data.clear()
                                 st.success(f"🗑️ ¡Registro **{id_a_editar}** eliminado exitosamente!")
                                 st.rerun()
                             else:
@@ -553,7 +562,7 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_mp1, col_mp2, col_mp3 = st.columns(3)
         with col_mp1:
-            fecha_mp_obj = st.date_input("Fecha MP:", obtener_hora_peru(), key="fecha_mp_input_v15")
+            fecha_mp_obj = st.date_input("Fecha MP:", obtener_hora_peru(), key="fecha_mp_input_v13")
             fecha_mp_str = fecha_mp_obj.strftime("%Y-%m-%d")
             
             mp_actual_guardada = obtener_mp_por_fecha(fecha_mp_str)
@@ -593,6 +602,7 @@ def render_module(user, get_sheet, cargar_datos):
                         st.success(f"✅ Materia Prima registrada para el {fecha_mp_str}: `{kilos_mp_input} kg`")
                     
                     actualizar_rendimientos_para_fecha(fecha_mp_str)
+                    st.cache_data.clear()
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error al guardar MP: {e}")
@@ -602,7 +612,7 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            filtro_fecha_obj = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_hist_v56")
+            filtro_fecha_obj = st.date_input("Filtrar por Fecha:", obtener_hora_peru(), key="filtro_fecha_hist_v54")
         with col_f2:
             try:
                 df_all_lotes = cargar_datos_env("ingreso_plaqueros")
@@ -613,7 +623,7 @@ def render_module(user, get_sheet, cargar_datos):
             except:
                 lotes_disponibles = ["TODOS"]
                 
-            filtro_lote_sel = st.selectbox("Filtrar por Lote:", lotes_disponibles, key="filtro_lote_sel_v56")
+            filtro_lote_sel = st.selectbox("Filtrar por Lote:", lotes_disponibles, key="filtro_lote_sel_v54")
 
         filtro_fecha_str = filtro_fecha_obj.strftime("%Y-%m-%d")
 
@@ -656,7 +666,7 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_h1, col_h2 = st.columns(2)
         with col_h1:
-            fecha_histo_obj = st.date_input("📅 Seleccionar Día de Histograma:", obtener_hora_peru(), key="fecha_histo_input_v12")
+            fecha_histo_obj = st.date_input("📅 Seleccionar Día de Histograma:", obtener_hora_peru(), key="fecha_histo_input_v10")
         fecha_histo_str = fecha_histo_obj.strftime("%Y-%m-%d")
 
         try:
@@ -725,7 +735,7 @@ def render_module(user, get_sheet, cargar_datos):
 
         col_r6_1, col_r6_2 = st.columns(2)
         with col_r6_1:
-            fecha_r6_obj = st.date_input("📅 Seleccionar Fecha:", fecha_def_r6, key="fecha_r6_input_v12")
+            fecha_r6_obj = st.date_input("📅 Seleccionar Fecha:", fecha_def_r6, key="fecha_r6_input_v11")
         fecha_r6_str = fecha_r6_obj.strftime("%Y-%m-%d")
         
         try:
@@ -788,7 +798,7 @@ def render_module(user, get_sheet, cargar_datos):
 
         col_r7_1, col_r7_2 = st.columns(2)
         with col_r7_1:
-            fecha_r7_obj = st.date_input("📅 Seleccionar Fecha:", fecha_def_r7, key="fecha_r7_input_v12")
+            fecha_r7_obj = st.date_input("📅 Seleccionar Fecha:", fecha_def_r7, key="fecha_r7_input_v10")
         fecha_r7_str = fecha_r7_obj.strftime("%Y-%m-%d")
         
         try:
@@ -840,16 +850,16 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_par1, col_par2 = st.columns(2)
         with col_par1:
-            fecha_parada_obj = st.date_input("Fecha de Parada:", obtener_hora_peru(), key="fecha_parada_input_v6")
+            fecha_parada_obj = st.date_input("Fecha de Parada:", obtener_hora_peru(), key="fecha_parada_input_v5")
             fecha_parada_str = fecha_parada_obj.strftime("%Y-%m-%d")
             
-            tipo_eq_par = st.selectbox("Equipo Afectado:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)", "Equipo IQF (1 y 2)"], key="tipo_eq_par_v6")
+            tipo_eq_par = st.selectbox("Equipo Afectado:", ["Plaquero (P1 - P18)", "Túnel (1, 2 y 3)", "Equipo IQF (1 y 2)"], key="tipo_eq_par_v5")
             if tipo_eq_par == "Plaquero (P1 - P18)":
-                eq_par_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="eq_par_plaquero_v6")
+                eq_par_sel = st.selectbox("Nº de Plaquero:", [f"P{i}" for i in range(1, 19)], key="eq_par_plaquero_v5")
             elif tipo_eq_par == "Túnel (1, 2 y 3)":
-                eq_par_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="eq_par_tunel_v6")
+                eq_par_sel = st.selectbox("Nº de Túnel:", ["TÚNEL 1", "TÚNEL 2", "TÚNEL 3"], key="eq_par_tunel_v5")
             else:
-                eq_par_sel = st.selectbox("Nº de IQF:", ["IQF 1", "IQF 2"], key="eq_par_iqf_v6")
+                eq_par_sel = st.selectbox("Nº de IQF:", ["IQF 1", "IQF 2"], key="eq_par_iqf_v5")
 
         with col_par2:
             motivo_parada = st.selectbox("Motivo de Parada / Demora:", [
@@ -859,12 +869,12 @@ def render_module(user, get_sheet, cargar_datos):
                 "Limpieza / Sanitización",
                 "Falta de Personal / Operativa",
                 "Otro"
-            ], key="motivo_parada_sel_v6")
+            ], key="motivo_parada_sel_v5")
             
-            minutos_muertos = st.number_input("Tiempo Muerto (en Minutos):", min_value=1, step=10, value=30, key="min_muertos_input_v6")
-            observaciones_parada = st.text_input("Observaciones / Comentarios:", "", key="obs_parada_input_v6")
+            minutos_muertos = st.number_input("Tiempo Muerto (en Minutos):", min_value=1, step=10, value=30, key="min_muertos_input_v5")
+            observaciones_parada = st.text_input("Observaciones / Comentarios:", "", key="obs_parada_input_v5")
 
-        if st.button("💾 Registrar Parada / Tiempo Muerto", type="primary", use_container_width=True, key="btn_guardar_parada_v6"):
+        if st.button("💾 Registrar Parada / Tiempo Muerto", type="primary", use_container_width=True, key="btn_guardar_parada_v5"):
             if motivo_parada == "Otro" and not observaciones_parada.strip():
                 st.error("⚠️ **Atención:** Si selecciona 'Otro', el campo de **Observaciones / Comentarios** es obligatorio.")
             else:
@@ -876,6 +886,7 @@ def render_module(user, get_sheet, cargar_datos):
                     ws_paradas.append_row([
                         id_par, fecha_parada_str, eq_par_sel, motivo_parada, str(minutos_muertos), obs_final
                     ])
+                    st.cache_data.clear()
                     st.success(f"✅ ¡Parada registrada para **{eq_par_sel}** ({minutos_muertos} min por `{motivo_parada}`)!")
                     st.rerun()
                 except Exception as e:
@@ -886,7 +897,7 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_fpar1, col_fpar2 = st.columns(2)
         with col_fpar1:
-            filtro_par_obj = st.date_input("📅 Filtrar Historial por Fecha:", obtener_hora_peru(), key="filtro_fecha_paradas_v3")
+            filtro_par_obj = st.date_input("📅 Filtrar Historial por Fecha:", obtener_hora_peru(), key="filtro_fecha_paradas_v2")
         filtro_par_str = filtro_par_obj.strftime("%Y-%m-%d")
 
         try:
