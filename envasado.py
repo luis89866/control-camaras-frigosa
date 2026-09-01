@@ -137,7 +137,7 @@ def render_module(user, get_sheet, cargar_datos):
         "NUCAS FRESCAS": "SUB012",
         "PICOS": "SUB013",
         "CONOS": "SUB014",
-        "REPRODUCTOR": "SUB015"
+        "REPRODUCTOR S/P": "SUB015"
     }
     
     lista_presentaciones = list(dic_presentaciones.keys())
@@ -162,6 +162,8 @@ def render_module(user, get_sheet, cargar_datos):
         "8-14 MM PANZA",
         "8-14 MM MEMBRANA",
         "10-14 MM"
+        "MAYOR"
+        "MENOR"
     ]
 
     # =========================================================================
