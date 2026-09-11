@@ -42,13 +42,14 @@ CATALOGO_LINEA_1 = [
     {"CODIGO": "FRG030", "PRESENTACION": "TENTACULO BAILARINA DE POTA CONGELADA S/U S/V 1000g /pza-UP"}
 ]
 
-# 2. Catálogo Línea 2 (entradas2 / salidas2)
+
+# 2. Catálogo Línea 2 con códigos idénticos a la hoja stock2
 CATALOGO_LINEA_2 = [
-    {"CODIGO": "L2-BOTON", "PRESENTACION": "BOTON"},
-    {"CODIGO": "L2-FIL01", "PRESENTACION": "FILETE 2-4 CM CT CORTADO"},
-    {"CODIGO": "L2-FIL02", "PRESENTACION": "FILETE 2-4 CM CT MANTO"},
-    {"CODIGO": "L2-ALTCV", "PRESENTACION": "ALETA CV TUNEL"},
-    {"CODIGO": "L2-ALTUP", "PRESENTACION": "ALETA 1000 UP TUNEL"}
+    {"CODIGO": "FRG5001", "PRESENTACION": "BOTON"},
+    {"CODIGO": "FRG5002", "PRESENTACION": "FILETE 2-4 CM CT CORTADO"},
+    {"CODIGO": "FRG5003", "PRESENTACION": "FILETE 2-4 CM CT MANTO"},
+    {"CODIGO": "FRG5004", "PRESENTACION": "ALETA CV TUNEL"},
+    {"CODIGO": "FRG5005", "PRESENTACION": "ALETA 1000 UP TUNEL"}
 ]
 
 # 3. Lista de Subfamilias
@@ -143,7 +144,7 @@ def render_module(user, get_gspread_client):
             with col3:
                 mes_sugerido_idx = fecha_ent.month - 1
                 mes_ent = st.selectbox("Mes Operativo", meses, index=mes_sugerido_idx, key=f"ent_mes_{hoja_ent}")
-                placa_ent = st.text_input("Placa / Vehículo")
+                placa_ent = st.text_input("Placa")
 
             btn_ent = st.form_submit_button("💾 Guardar Entrada a Túnel")
             if btn_ent:
