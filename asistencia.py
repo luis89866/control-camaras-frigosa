@@ -3,11 +3,11 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 def formatear_horas_minutos(minutos_totales):
-    """Convierte minutos enteros a formato legible 'Xh Ym' (ej. 164 min -> '2h 44m')."""
+    """Convierte minutos enteros a formato legible 'Xh Ym' (ej: 105 min -> '1h 45m')."""
     if minutos_totales <= 0:
         return "0h 0m"
     h = int(minutos_totales // 60)
-    m = int(minutos_totales % 60)
+    m = int(round(minutos_totales % 60))
     return f"{h}h {m}m"
 
 def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno, es_domingo, es_sabado):
@@ -26,14 +26,14 @@ def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno, es_doming
 
     if es_domingo:
         if modo_turno == "Con Producción":
-            if minutos_trabajados >= 720:  # 12 horas
+            if minutos_trabajados >= 720:  # 12 horas base
                 minutos_pagados = 60       # 1 hora fija pagada
                 minutos_bolsa_general = minutos_trabajados - 720
         else:
             minutos_bolsa_dominical = minutos_trabajados
     else:
         if modo_turno == "Con Producción":
-            if minutos_trabajados >= 720:  # 12 horas
+            if minutos_trabajados >= 720:  # 12 horas base
                 minutos_pagados = 60       # 1 hora fija pagada
                 minutos_bolsa_general = minutos_trabajados - 720
         elif modo_turno == "Sin Producción":
@@ -48,13 +48,18 @@ def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno, es_doming
             if minutos_trabajados > jornada_minutos:
                 minutos_bolsa_general = minutos_trabajados - jornada_minutos
 
-    minutos_extras_totales = minutos_pagados + minutos_bolsa_general + minutos_bolsa_dominical
+    # Redondeo comercial industrial al múltiplo de 15 minutos más cercano
+    # (Ejemplo: 43 min -> 45 min = 0.75 hrs; evita decimales como 1.72)
+    minutos_bg_redondeados = round(minutos_bolsa_general / 15.0) * 15
+    minutos_bd_redondeados = round(minutos_bolsa_dominical / 15.0) * 15
+    
+    minutos_extras_totales = minutos_pagados + minutos_bg_redondeados + minutos_bd_redondeados
 
-    # Valores decimales con 2 decimales para operaciones de nómina/kardex
     he_tot_dec = round(minutos_extras_totales / 60.0, 2)
     h_pag_dec = round(minutos_pagados / 60.0, 2)
-    h_bg_dec = round(minutos_bolsa_general / 60.0, 2)
-    h_bd_dec = round(minutos_bolsa_dominical / 60.0, 2)
+    h_bg_dec = round(minutos_bg_redondeados / 60.0, 2)
+    h_bd_dec = round(minutos_bd_redondeados / 60.0, 2)
+    
     texto_h_m = formatear_horas_minutos(minutos_extras_totales)
 
     return he_tot_dec, h_pag_dec, h_bg_dec, h_bd_dec, texto_h_m
@@ -140,7 +145,7 @@ def render_module(user, get_sheet, cargar_datos):
             st.info(f"💼 **Bolsa de Horas Extras ({nombre}):** `{saldo_general} hrs` disponibles.")
         with col_s2:
             st.success(f"📅 **Bolsa Dominical:** `{saldo_dominical} hrs` disponibles.")
-    except Exception as e:
+    except Exception:
         pass
 
     st.markdown("---")
@@ -208,7 +213,13 @@ def render_module(user, get_sheet, cargar_datos):
                 else:
                     id_reg = f"EXC-{datetime.now().strftime('%y%m%d%H%M%S')}"
                     etiqueta = f"EXCEPCIÓN: {tipo_asistencia}" + (f" - Tardanza: {minutos_tardanza} min" if es_tardanza else "") + (f" - {motivo_excepcion}" if motivo_excepcion else "")
-                    ws_asist.append_row([id_reg, codigo_per, nombre, fecha_actual_str, "00:00", "00:00", modo_turno, 0.0, 0.0, 0.0, etiqueta, "Completado"])
+                    # 12 columnas exactas sin apóstrofes
+                    ws_asist.append_row([
+                        id_reg, codigo_per, nombre, fecha_actual_str, 
+                        "00:00", "00:00", modo_turno, 
+                        0.0, 0.0, 0.0, 
+                        etiqueta, "Completado"
+                    ])
                     st.success(f"✅ Excepción registrada correctamente para {nombre}.")
                     st.rerun()
             except Exception as e:
@@ -217,7 +228,7 @@ def render_module(user, get_sheet, cargar_datos):
         col_reg1, col_reg2 = st.columns(2)
         with col_reg1:
             st.markdown(f"#### 📥 Ingreso ({nombre})")
-            hora_ingreso_input = st.text_input("Hora de Entrada (Ej: 12:00):", key="h_ingreso_val")
+            hora_ingreso_input = st.text_input("Hora de Entrada (Ej: 08:00):", key="h_ingreso_val")
             
             es_tardanza_ing = st.checkbox("¿Ingreso con tardanza?", key="chk_ing_tardanza")
             min_tard_ing = st.number_input("Minutos de tardanza:", min_value=1, step=5, value=15, key="num_tard_ing_val") if es_tardanza_ing else 0
@@ -238,11 +249,17 @@ def render_module(user, get_sheet, cargar_datos):
                                     break
                         
                         if ya_ingresado:
-                            st.warning(f"⚠️ El colaborador **{nombre}** ya tiene un ingreso pendiente registrado para hoy. Evite hacer doble clic.")
+                            st.warning(f"⚠️ El colaborador **{nombre}** ya tiene un ingreso pendiente registrado para hoy. Evite duplicar.")
                         else:
                             id_reg = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
                             obs_ing = "Ingreso Registrado" + (f" - Tardanza: {min_tard_ing} min" if es_tardanza_ing else "")
-                            ws_asist.append_row([id_reg, codigo_per, nombre, fecha_actual_str, hora_ingreso_input, "", modo_turno, 0.0, 0.0, 0.0, obs_ing, "Pendiente"])
+                            # 12 columnas exactas
+                            ws_asist.append_row([
+                                id_reg, codigo_per, nombre, fecha_actual_str, 
+                                hora_ingreso_input.strip(), "", modo_turno, 
+                                0.0, 0.0, 0.0, 
+                                obs_ing, "Pendiente"
+                            ])
                             st.success(f"✅ Ingreso registrado exitosamente para {nombre}!")
                             st.rerun()
                     except Exception as e:
@@ -260,7 +277,7 @@ def render_module(user, get_sheet, cargar_datos):
                     h_sal_dt = datetime.strptime(hora_salida_input.strip(), "%H:%M")
                     he_tot, h_pag, h_bg, h_bd, texto_extra_fmt = calcular_horas_extras(h_in_dt, h_sal_dt, modo_turno, es_domingo, es_sabado)
                     if he_tot > 0:
-                        st.info(f"⏱️ Tiempo extra calculado: **{texto_extra_fmt}** ({he_tot} hrs decimal)")
+                        st.info(f"⏱️ Tiempo extra calculado: **{texto_extra_fmt}** ({he_tot} hrs)")
                 except Exception:
                     pass
 
@@ -276,34 +293,41 @@ def render_module(user, get_sheet, cargar_datos):
                         ws_asist = get_sheet("Asistencia_Personal")
                         registros_actuales = ws_asist.get_all_values()
                         ya_salida = False
+                        fila_pendiente_idx = None
+
+                        # Verificar si existe el ingreso pendiente para completar esa misma fila o evitar duplicar
                         if len(registros_actuales) > 1:
-                            for f_ila in registros_actuales[1:]:
-                                if len(f_ila) >= 12 and f_ila[1].strip() == codigo_per.strip() and f_ila[3].strip() == fecha_actual_str and f_ila[5].strip() == hora_salida_input.strip():
-                                    ya_salida = True
-                                    break
+                            for idx_r, f_ila in enumerate(registros_actuales[1:], start=2):
+                                if len(f_ila) >= 12 and f_ila[1].strip() == codigo_per.strip() and f_ila[3].strip() == fecha_actual_str:
+                                    if f_ila[11].strip() == "Completado" and f_ila[5].strip() == hora_salida_input.strip():
+                                        ya_salida = True
+                                        break
+                                    elif f_ila[11].strip() == "Pendiente":
+                                        fila_pendiente_idx = idx_r
                         
                         if ya_salida:
                             st.warning("⚠️ Este registro de salida ya fue procesado. Evite hacer doble clic.")
                         else:
-                            id_reg = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
                             val_bolsa = h_bd if h_bd > 0 else h_bg
-                            
-                            # Se insertan como valores float numéricos para evitar apóstrofes (') en Google Sheets
+                            id_reg = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
+
+                            # Guardar fila completa con orden estricto de columnas (A a L)
                             ws_asist.append_row([
-                                id_reg, 
-                                codigo_per, 
-                                nombre, 
-                                fecha_actual_str, 
-                                hora_ingreso_input, 
-                                hora_salida_input, 
-                                modo_turno, 
-                                float(he_tot), 
-                                float(h_pag), 
-                                float(val_bolsa), 
-                                obs_input, 
-                                "Completado"
+                                id_reg,                     # A: id_registro
+                                codigo_per,                 # B: codigo_personal
+                                nombre,                     # C: nombre_personal
+                                fecha_actual_str,           # D: fecha
+                                hora_ingreso_input.strip(), # E: hora_entrada
+                                hora_salida_input.strip(),  # F: hora_salida
+                                modo_turno,                 # G: modo_turno
+                                float(he_tot),              # H: horas_extras_totales
+                                float(h_pag),               # I: horas_pagadas
+                                float(val_bolsa),           # J: horas_bolsa
+                                obs_input,                  # K: observacion
+                                "Completado"                # L: estado_registro
                             ])
                             
+                            # Actualización en Bolsa_Horas_Compensacion
                             if val_bolsa > 0 or h_pag > 0:
                                 ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
                                 try:
@@ -328,7 +352,7 @@ def render_module(user, get_sheet, cargar_datos):
                                     else:
                                         ws_bolsa.append_row([codigo_per, nombre, float(h_bg), 0.0, float(h_bg), 0.0, "", "Activo"])
 
-                            st.success(f"✅ Salida registrada correctamente para {nombre} ({texto_extra_fmt})!")
+                            st.success(f"✅ Salida registrada exitosamente para {nombre} ({texto_extra_fmt} = {he_tot} hrs)!")
                             st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
@@ -366,6 +390,9 @@ def render_module(user, get_sheet, cargar_datos):
                         "Hora Entrada": r.get("hora_entrada"),
                         "Hora Salida": r.get("hora_salida"),
                         "Modalidad": r.get("modo_turno"),
+                        "H. Extras": r.get("horas_extras_totales"),
+                        "H. Pagadas": r.get("horas_pagadas"),
+                        "H. Bolsa": r.get("horas_bolsa"),
                         "Estado": r.get("estado_registro"),
                         "Observación": r.get("observacion")
                     })
@@ -534,7 +561,14 @@ def render_module(user, get_sheet, cargar_datos):
                                         
                                         ws_h = get_sheet("Historial_Compensaciones")
                                         fec_str_comp = f"{fec_ini_c} al {fec_fin_c}"
-                                        ws_h.append_row([f"COMP-{datetime.now().strftime('%y%m%d%H%M%S')}", cod_comp, nom_comp, float(hrs_ret), fec_str_comp, f"AUTORIZADO BY {nombre_sesion}"])
+                                        ws_h.append_row([
+                                            f"COMP-{datetime.now().strftime('%y%m%d%H%M%S')}", 
+                                            cod_comp, 
+                                            nom_comp, 
+                                            float(hrs_ret), 
+                                            fec_str_comp, 
+                                            f"AUTORIZADO BY {nombre_sesion}"
+                                        ])
                                         
                                         ws_asist = get_sheet("Asistencia_Personal")
                                         existing_recs = ws_asist.get_all_values()
@@ -551,7 +585,12 @@ def render_module(user, get_sheet, cargar_datos):
                                                         break
                                             if not ya_reg_c:
                                                 id_reg_c = f"COMPD-{datetime.now().strftime('%y%m%d%H%M%S')}-{c_i}"
-                                                ws_asist.append_row([id_reg_c, cod_comp, nom_comp, f_str_c, "00:00", "00:00", "Sin Producción", 0.0, 0.0, float(hrs_ret), "EXCEPCIÓN: Compensación de Horas", "Completado"])
+                                                ws_asist.append_row([
+                                                    id_reg_c, cod_comp, nom_comp, f_str_c, 
+                                                    "00:00", "00:00", "Sin Producción", 
+                                                    0.0, 0.0, float(hrs_ret), 
+                                                    "EXCEPCIÓN: Compensación de Horas", "Completado"
+                                                ])
                                             curr_c += timedelta(days=1)
 
                                         st.success(f"✅ Se descontaron {hrs_ret} hrs y se procesó la compensación para **{nom_comp}**.")
@@ -601,7 +640,14 @@ def render_module(user, get_sheet, cargar_datos):
                                 ws_b.update_cell(f_idx_r, 5, float(nuevo_saldo))
                                 
                                 ws_h = get_sheet("Historial_Compensaciones")
-                                ws_h.append_row([f"REGUL-{datetime.now().strftime('%y%m%d%H%M%S')}", cod_reg, nom_reg, signo_str, datetime.now().strftime("%Y-%m-%d"), f"REGULARIZACIÓN: {motivo_reg} (By {nombre_sesion})"])
+                                ws_h.append_row([
+                                    f"REGUL-{datetime.now().strftime('%y%m%d%H%M%S')}", 
+                                    cod_reg, 
+                                    nom_reg, 
+                                    signo_str, 
+                                    datetime.now().strftime("%Y-%m-%d"), 
+                                    f"REGULARIZACIÓN: {motivo_reg} (By {nombre_sesion})"
+                                ])
                                 
                                 st.success(f"✅ Regularización aplicada a **{nom_reg}**. Nuevo saldo en bolsa: **{nuevo_saldo} hrs**.")
                                 st.rerun()
