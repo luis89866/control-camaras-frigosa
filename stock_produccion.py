@@ -5,42 +5,47 @@ from datetime import date
 # ID del Google Sheet BD_PRODUCCION_ARCHI_001
 SPREADSHEET_ID_PRODUCCION = "1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg"
 
-def render_stock_produccion(get_gspread_client):
-    st.title("📦 Control de Stock y Producción")
+def render_module(user, get_gspread_client):
+    st.subheader("📊 Módulo 5: Control de Stock y Producción")
+    st.caption(f"Usuario activo: {user.get('nombre_completo', user.get('usuario'))} | Conectado a: BD_PRODUCCION_ARCHI_001")
 
-    # Conectar al libro usando el cliente global
-    client = get_gspread_client()
-    sh = client.open_by_key(SPREADSHEET_ID_PRODUCCION)
-
-    # Carga de catálogo de productos desde la hoja 'stock'
-    @st.cache_data(ttl=60)
-    def cargar_catalogo():
-        ws = sh.worksheet("stock")
-        df = pd.DataFrame(ws.get_all_records())
-        return df[["CODIGO", "PRESENTACION"]].dropna().to_dict('records')
-
+    # Obtener conexión cliente
     try:
-        productos = cargar_catalogo()
-        opciones_prod = [f"{p['CODIGO']} - {p['PRESENTACION']}" for p in productos if p['CODIGO'] != '']
+        client = get_gspread_client()
+        sh = client.open_by_key(SPREADSHEET_ID_PRODUCCION)
     except Exception as e:
-        st.error(f"Error al cargar catálogo de productos: {e}")
-        opciones_prod = []
+        st.error(f"Error al conectar con Google Sheet: {e}")
+        st.info("Verifica que diste permisos de Editor al correo del robot de servicio en la hoja BD_PRODUCCION_ARCHI_001.")
+        return
 
-    # Pestañas de operación
+    # Cargar catálogo de productos
+    def obtener_catalogo():
+        try:
+            ws = sh.worksheet("stock")
+            filas = ws.get_all_values()
+            if len(filas) > 1:
+                df = pd.DataFrame(filas[1:], columns=filas[0])
+                df = df[df["CODIGO"].astype(str).str.strip() != ""]
+                return df[["CODIGO", "PRESENTACION"]].to_dict("records")
+        except Exception:
+            pass
+        return []
+
+    catalogo = obtener_catalogo()
+    opciones_prod = [f"{p['CODIGO']} - {p['PRESENTACION']}" for p in catalogo] if catalogo else ["-"]
+
     tab_entradas, tab_salidas, tab_stock, tab_inventario = st.tabs([
-        "📥 Entradas", "📤 Salidas", "📊 Stock Virtual", "📋 Inventario Físico"
+        "📥 Registro Entradas", "📤 Registro Salidas", "📈 Balance Stock Virtual", "📋 Inventario Físico"
     ])
 
     meses = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
              "JULIO", "AGOSTO", "SETIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
 
-    # -----------------------------
-    # 1. ENTRADAS
-    # -----------------------------
+    # --- TAB 1: ENTRADAS ---
     with tab_entradas:
-        st.subheader("Registro de Ingresos a Cámara")
-        tipo_ent = st.radio("Destino de Entrada:", ["entradas (Línea 1)", "entradas2 (Línea 2)"], horizontal=True)
-        hoja_ent = "entradas" if "Línea 1" in tipo_ent else "entradas2"
+        st.write("#### Ingreso a Túnel / Cámara")
+        destino_ent = st.radio("Línea de Entrada:", ["entradas (Línea 1)", "entradas2 (Línea 2)"], horizontal=True)
+        hoja_ent = "entradas" if "Línea 1" in destino_ent else "entradas2"
 
         with st.form("form_entradas", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
@@ -57,20 +62,21 @@ def render_stock_produccion(get_gspread_client):
                 subf_ent = st.text_input("Subfamilia")
                 lote_ent = st.text_input("Lote")
 
-            if st.form_submit_button("💾 Guardar Entrada"):
-                cod = prod_ent.split(" - ")[0]
-                pres = prod_ent.split(" - ")[1]
+            btn_ent = st.form_submit_button("💾 Guardar Entrada")
+            if btn_ent:
+                cod, pres = prod_ent.split(" - ", 1) if " - " in prod_ent else ("", "")
                 fila = [id_ent, str(fecha_ent), cod, pres, cant_ent, tunel_ent, placa_ent, mes_ent, subf_ent, lote_ent]
-                sh.worksheet(hoja_ent).append_row(fila)
-                st.success(f"Entrada agregada exitosamente en '{hoja_ent}'.")
+                try:
+                    sh.worksheet(hoja_ent).append_row(fila)
+                    st.success(f"✅ Entrada registrada en '{hoja_ent}'.")
+                except Exception as ex:
+                    st.error(f"Error al guardar: {ex}")
 
-    # -----------------------------
-    # 2. SALIDAS
-    # -----------------------------
+    # --- TAB 2: SALIDAS ---
     with tab_salidas:
-        st.subheader("Registro de Despacho / Embarques")
-        tipo_sal = st.radio("Destino de Salida:", ["salidas (Línea 1)", "salidas2 (Línea 2)"], horizontal=True)
-        hoja_sal = "salidas" if "Línea 1" in tipo_sal else "salidas2"
+        st.write("#### Despacho / Salidas")
+        destino_sal = st.radio("Línea de Salida:", ["salidas (Línea 1)", "salidas2 (Línea 2)"], horizontal=True)
+        hoja_sal = "salidas" if "Línea 1" in destino_sal else "salidas2"
 
         with st.form("form_salidas", clear_on_submit=True):
             c1, c2, c3 = st.columns(3)
@@ -91,47 +97,57 @@ def render_stock_produccion(get_gspread_client):
                 pais = st.text_input("País")
                 contenedor = st.text_input("Contenedor")
 
-            if st.form_submit_button("📤 Guardar Salida"):
-                cod_s = prod_sal.split(" - ")[0]
-                pres_s = prod_sal.split(" - ")[1]
+            btn_sal = st.form_submit_button("📤 Guardar Salida")
+            if btn_sal:
+                cod_s, pres_s = prod_sal.split(" - ", 1) if " - " in prod_sal else ("", "")
                 fila_sal = [mes_sal, str(fecha_sal), lote_sal, sudfa_sal, tipo_op, cod_s, pres_s, cant_sal, booking, cliente, pi, pais_dest, pais, contenedor]
-                sh.worksheet(hoja_sal).append_row(fila_sal)
-                st.success(f"Salida registrada exitosamente en '{hoja_sal}'.")
+                try:
+                    sh.worksheet(hoja_sal).append_row(fila_sal)
+                    st.success(f"✅ Salida registrada en '{hoja_sal}'.")
+                except Exception as ex:
+                    st.error(f"Error al guardar: {ex}")
 
-    # -----------------------------
-    # 3. STOCK VIRTUAL
-    # -----------------------------
+    # --- TAB 3: STOCK VIRTUAL ---
     with tab_stock:
-        st.subheader("Balance de Stock Virtual")
-        hoja_ver = st.radio("Ver hoja:", ["stock (Línea 1)", "stock2 (Línea 2)"], horizontal=True)
-        nombre_h = "stock" if "Línea 1" in hoja_ver else "stock2"
-        
-        if st.button("🔄 Refrescar Datos"):
-            cargar_catalogo.clear()
+        st.write("#### Balance Virtual de Stock")
+        hoja_stk_sel = st.radio("Seleccione hoja:", ["stock (Línea 1)", "stock2 (Línea 2)"], horizontal=True)
+        nombre_stk = "stock" if "Línea 1" in hoja_stk_sel else "stock2"
 
-        df_stock = pd.DataFrame(sh.worksheet(nombre_h).get_all_records())
-        st.dataframe(df_stock, use_container_width=True)
+        if st.button("🔄 Refrescar"):
+            st.rerun()
 
-    # -----------------------------
-    # 4. INVENTARIO FÍSICO
-    # -----------------------------
+        try:
+            filas_stk = sh.worksheet(nombre_stk).get_all_values()
+            if len(filas_stk) > 1:
+                df_stk = pd.DataFrame(filas_stk[1:], columns=filas_stk[0])
+                st.dataframe(df_stk, use_container_width=True)
+            else:
+                st.info("Sin registros en esta hoja.")
+        except Exception as ex:
+            st.error(f"Error al leer datos: {ex}")
+
+    # --- TAB 4: INVENTARIO FÍSICO ---
     with tab_inventario:
-        st.subheader("Toma de Inventario Físico")
+        st.write("#### Toma de Inventario Físico")
         with st.form("form_inv", clear_on_submit=True):
             i1, i2 = st.columns(2)
             with i1:
                 id_inv = st.text_input("ID")
                 fecha_inv = st.date_input("Fecha Conteo", value=date.today(), key="i_fecha")
-                prod_inv = st.selectbox("Producto", opciones_prod, key="i_prod")
+                prod_inv = st.selectbox("Producto contado", opciones_prod, key="i_prod")
             with i2:
                 cant_inv = st.number_input("Cantidad Física", min_value=0.0, step=0.01, format="%.2f", key="i_cant")
                 tunel_inv = st.text_input("Túnel", key="i_tun")
                 placas_inv = st.text_input("Placas", key="i_pla")
-                obs_inv = st.text_area("Observación")
+                obs_inv = st.text_area("Observaciones")
 
-            if st.form_submit_button("📋 Guardar Conteo"):
-                cod_i = prod_inv.split(" - ")[0]
-                pres_i = prod_inv.split(" - ")[1]
-                fila_i = [id_inv, str(fecha_inv), cod_i, pres_i, cant_inv, tunel_inv, placas_inv, obs_inv]
-                sh.worksheet("INVENTARIADO_FISICO").append_row(fila_i)
-                st.success("Inventario físico registrado correctamente.")
+            btn_inv = st.form_submit_button("📋 Registrar Conteo")
+            if btn_inv:
+                cod_i, pres_i = prod_inv.split(" - ", 1) if " - " in prod_inv else ("", "")
+                fila_inv = [id_inv, str(fecha_inv), cod_i, pres_i, cant_inv, tunel_inv, placas_inv, obs_inv]
+                try:
+                    sh.worksheet("INVENTARIADO_FISICO").append_row(fila_inv)
+                    st.success("✅ Inventario físico guardado.")
+                except Exception as ex:
+                    st.error(f"Error al guardar: {ex}")
+              
