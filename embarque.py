@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date
 import io
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
@@ -79,9 +79,9 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # -------------------------------------------------------------------------
-# GENERADOR DE REPORTE PDF OFICIAL
+# GENERADOR DE DOSSIER PDF COMPLETO (PESOS + PLANO LOTES + PLANO PRODUCTOS)
 # -------------------------------------------------------------------------
-def generar_pdf_control_pesos(cabecera, presentaciones_data, resumen):
+def generar_dossier_pdf_completo(cabecera, presentaciones_data, resumen, df_estiba_lotes, df_estiba_pres):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, 
@@ -95,26 +95,37 @@ def generar_pdf_control_pesos(cabecera, presentaciones_data, resumen):
     styles = getSampleStyleSheet()
 
     titulo_style = ParagraphStyle(
-        'TituloFrigosa',
+        'TitFrigosa',
         parent=styles['Heading1'],
-        fontSize=13,
-        leading=15,
+        fontSize=12,
+        leading=14,
         textColor=colors.HexColor("#0D3B66"),
         alignment=1
     )
+    subtitulo_style = ParagraphStyle(
+        'SubFrigosa',
+        parent=styles['Heading2'],
+        fontSize=9,
+        leading=11,
+        textColor=colors.HexColor("#2B6CB0"),
+        alignment=1
+    )
+
+    # ========================== PÁGINA 1: CONTROL DE PESOS ==========================
     story.append(Paragraph("SEGUIMIENTO DE CONTROL DE PESO - FRIGOSA SAC", titulo_style))
-    story.append(Spacer(1, 10))
+    story.append(Paragraph(f"TIPO DE CONGELACIÓN: {cabecera.get('tipo_congelacion', 'TÚNEL')}", subtitulo_style))
+    story.append(Spacer(1, 8))
 
     data_cab = [
         ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
-        ["PAYLOAD (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
-        ["CANTIDAD TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "PESO A FAVOR (MARGEN):", f"{resumen['peso_a_favor']:,.2f} KG"],
-        ["SUPERVISOR RESPONSABLE:", cabecera['responsable'], "PESO PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
+        ["SISTEMA:", cabecera.get('tipo_congelacion', 'TÚNEL'), "PAYLOAD MÁXIMO:", f"{cabecera['payload']:,.2f} KG"],
+        ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
+        ["SUPERVISOR:", cabecera['responsable'], "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"]
     ]
-    t_cab = Table(data_cab, colWidths=[120, 160, 130, 150])
+    t_cab = Table(data_cab, colWidths=[110, 160, 130, 160])
     t_cab.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('FONTSIZE', (0, 0), (-1, -1), 7.5),
         ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor("#0D3B66")),
         ('TEXTCOLOR', (2, 0), (2, -1), colors.HexColor("#0D3B66")),
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F4F6F9")),
@@ -123,9 +134,10 @@ def generar_pdf_control_pesos(cabecera, presentaciones_data, resumen):
         ('ALIGN', (3, 0), (3, -1), 'CENTER'),
     ]))
     story.append(t_cab)
-    story.append(Spacer(1, 12))
+    story.append(Spacer(1, 10))
 
-    headers = [f"{p['nombre'][:20]}..." if len(p['nombre']) > 20 else p['nombre'] for p in presentaciones_data]
+    # Muestreo balanza (30 filas)
+    headers = [f"{p['nombre'][:18]}" for p in presentaciones_data]
     matrix_pesos = [headers]
     for r in range(30):
         fila = [f"{p['pesos'][r]:.2f}" if r < len(p['pesos']) and p['pesos'][r] > 0 else "-" for p in presentaciones_data]
@@ -152,6 +164,65 @@ def generar_pdf_control_pesos(cabecera, presentaciones_data, resumen):
     ]))
     story.append(t_muestreo)
 
+    # ========================== PÁGINA 2: PLANO DE ESTIBA POR LOTES ==========================
+    if df_estiba_lotes is not None and not df_estiba_lotes.empty:
+        story.append(PageBreak())
+        story.append(Paragraph("PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", titulo_style))
+        story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | CONGELADO: {cabecera.get('tipo_congelacion', 'TÚNEL')}", subtitulo_style))
+        story.append(Spacer(1, 10))
+
+        # Convertir dataframe a tabla ReportLab
+        cols_lote = list(df_estiba_lotes.columns)
+        table_lote_data = [cols_lote]
+        for _, r in df_estiba_lotes.iterrows():
+            row_vals = []
+            for c in cols_lote:
+                val = r[c]
+                row_vals.append(str(val) if not isinstance(val, float) else f"{val:.2f}")
+            table_lote_data.append(row_vals)
+
+        c_w_lote = 560 / len(cols_lote)
+        t_lote_pdf = Table(table_lote_data, colWidths=[c_w_lote]*len(cols_lote))
+        t_lote_pdf.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 6.5),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2B6CB0")),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7FAFC")]),
+        ]))
+        story.append(t_lote_pdf)
+
+    # ========================== PÁGINA 3: PLANO POR PRESENTACIONES ==========================
+    if df_estiba_pres is not None and not df_estiba_pres.empty:
+        story.append(PageBreak())
+        story.append(Paragraph("PLANO DE ESTIBA POR PRESENTACIONES (PRODUCTO) - FRIGOSA SAC", titulo_style))
+        story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | CONGELADO: {cabecera.get('tipo_congelacion', 'TÚNEL')}", subtitulo_style))
+        story.append(Spacer(1, 10))
+
+        cols_pres = list(df_estiba_pres.columns)
+        table_pres_data = [[c[:15] for c in cols_pres]]
+        for _, r in df_estiba_pres.iterrows():
+            row_vals = []
+            for c in cols_pres:
+                val = r[c]
+                row_vals.append(str(val) if not isinstance(val, float) else f"{val:.2f}")
+            table_pres_data.append(row_vals)
+
+        c_w_pres = 560 / len(cols_pres)
+        t_pres_pdf = Table(table_pres_data, colWidths=[c_w_pres]*len(cols_pres))
+        t_pres_pdf.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 6.5),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2F855A")),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#F0FFF4")]),
+        ]))
+        story.append(t_pres_pdf)
+
     doc.build(story)
     buffer.seek(0)
     return buffer
@@ -165,7 +236,6 @@ def render_module(user, get_gspread_client):
     st.subheader("🚢 Módulo 4: Despachos, Embarques y Estiba")
     st.caption(f"Supervisor: **{nombre_user}** | Empresa: **Frigosa S.A.C.**")
 
-    # Conexión a Google Sheets
     try:
         client = get_gspread_client()
         sh = client.open_by_url(URL_PRODUCCION)
@@ -176,7 +246,29 @@ def render_module(user, get_gspread_client):
             st.error(f"Error de conexión con base de datos: {e}")
             return
 
-    # Pestañas del Módulo 4
+    # Controles generales del contenedor (visibles para todo el módulo)
+    with st.expander("📋 Parámetros de la Orden y Tipo de Congelación", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            fec_desp = st.date_input("Fecha Embarque:", date.today(), key="dp_fec")
+        with c2:
+            num_cont = st.text_input("N° Contenedor:", value="MEDU-", key="dp_cont")
+        with c3:
+            # SELECTOR CLAVE DE SISTEMA DE CONGELACIÓN
+            tipo_congelacion = st.selectbox(
+                "❄️ Sistema de Congelación:", 
+                ["TÚNEL ESTÁTICO", "PLACAS (BLOCKS)", "IQF (INDIVIDUAL QUICK FROZEN)"], 
+                key="dp_tipo_cong"
+            )
+        with c4:
+            payload = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=32000.0, value=27000.0, step=500.0, key="dp_pay")
+
+    # Variables de sesión para exportar el dossier completo
+    if "df_estiba_lotes_cache" not in st.session_state:
+        st.session_state.df_estiba_lotes_cache = None
+    if "df_estiba_pres_cache" not in st.session_state:
+        st.session_state.df_estiba_pres_cache = None
+
     tab_pesos, tab_estiba_lotes, tab_estiba_pres = st.tabs([
         "⚖️ Control y Muestreo de Pesos",
         "📅 Plano de Estiba por Fechas / Lotes",
@@ -187,18 +279,7 @@ def render_module(user, get_gspread_client):
     # PESTAÑA 1: CONTROL Y MUESTREO DE PESOS
     # =========================================================================
     with tab_pesos:
-        st.markdown("#### Parámetros del Contenedor y Muestreo")
-        with st.expander("📋 Datos de la Orden", expanded=True):
-            c1, c2, c3, c4 = st.columns(4)
-            with c1:
-                fec_desp = st.date_input("Fecha Embarque:", date.today(), key="dp_fec")
-            with c2:
-                num_cont = st.text_input("N° Contenedor:", value="MEDU-", key="dp_cont")
-            with c3:
-                payload = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=32000.0, value=27000.0, step=500.0, key="dp_pay")
-            with c4:
-                num_pres = st.number_input("N° Presentaciones:", min_value=1, max_value=6, value=4, step=1, key="dp_npres")
-
+        num_pres = st.number_input("N° de Presentaciones a cargar:", min_value=1, max_value=6, value=4, step=1, key="dp_npres")
         st.markdown("---")
         st.markdown("#### Ingreso de Pesos por Presentación (Muestreo hasta 30)")
         
@@ -219,7 +300,7 @@ def render_module(user, get_gspread_client):
                 txt_pesos = st.text_area(
                     "Pesos balanza (kg):",
                     value=f"{val_base:.2f}, {val_base+0.05:.2f}, {val_base-0.08:.2f}, {val_base+0.12:.2f}, {val_base-0.02:.2f}",
-                    height=140,
+                    height=130,
                     key=f"dp_txt_{i}"
                 )
 
@@ -264,17 +345,35 @@ def render_module(user, get_gspread_client):
         else:
             st.success(f"✅ **CARGA CORRECTA:** Dentro del margen seguro ({peso_a_favor:,.2f} kg).")
 
-        cabecera = {"fecha": str(fec_desp), "contenedor": num_cont.strip(), "payload": payload, "responsable": nombre_user}
-        resumen = {"total_bultos": tot_bultos_gral, "peso_total": peso_total_gral, "promedio_global": prom_global, "peso_a_favor": peso_a_favor}
+        cabecera = {
+            "fecha": str(fec_desp), 
+            "contenedor": num_cont.strip(), 
+            "tipo_congelacion": tipo_congelacion,
+            "payload": payload, 
+            "responsable": nombre_user
+        }
+        resumen = {
+            "total_bultos": tot_bultos_gral, 
+            "peso_total": peso_total_gral, 
+            "promedio_global": prom_global, 
+            "peso_a_favor": peso_a_favor
+        }
 
         c_b1, c_b2 = st.columns(2)
         with c_b1:
             try:
-                pdf_bytes = generar_pdf_control_pesos(cabecera, presentaciones_data, resumen)
+                # Genera el PDF completo unificado
+                pdf_bytes = generar_dossier_pdf_completo(
+                    cabecera, 
+                    presentaciones_data, 
+                    resumen, 
+                    st.session_state.df_estiba_lotes_cache, 
+                    st.session_state.df_estiba_pres_cache
+                )
                 st.download_button(
-                    label="📄 Descargar Control de Peso en PDF",
+                    label="📄 Descargar Dossier Completo en PDF (Pesos + Planos Estiba)",
                     data=pdf_bytes,
-                    file_name=f"Control_Peso_{num_cont}_{fec_desp}.pdf",
+                    file_name=f"Dossier_Embarque_{num_cont}_{fec_desp}.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )
@@ -287,9 +386,23 @@ def render_module(user, get_gspread_client):
                     ws_desp = sh.worksheet("Control_Pesos_Embarque")
                     id_dp = f"DSP-{date.today().strftime('%y%m%d%H%M%S')}"
                     detalle_txt = " | ".join([f"{p['nombre']}: {p['bultos']} bultos (prom: {p['promedio']:.2f}k)" for p in presentaciones_data])
-                    fila = [id_dp, str(fec_desp), num_cont.strip(), float(payload), int(tot_bultos_gral), float(round(peso_total_gral, 2)), float(round(prom_global, 3)), float(round(peso_a_favor, 2)), nombre_user, detalle_txt]
+                    
+                    # Se incluye el tipo de congelación en la columna D
+                    fila = [
+                        id_dp, 
+                        str(fec_desp), 
+                        num_cont.strip(), 
+                        tipo_congelacion, 
+                        float(payload), 
+                        int(tot_bultos_gral), 
+                        float(round(peso_total_gral, 2)), 
+                        float(round(prom_global, 3)), 
+                        float(round(peso_a_favor, 2)), 
+                        nombre_user, 
+                        detalle_txt
+                    ]
                     ws_desp.append_row(fila)
-                    st.success(f"✅ Registro guardado exitosamente.")
+                    st.success(f"✅ Despacho guardado exitosamente con sistema: {tipo_congelacion}.")
                 except Exception as e:
                     st.error(f"Error al guardar: {e}")
 
@@ -297,7 +410,7 @@ def render_module(user, get_gspread_client):
     # PESTAÑA 2: PLANO DE ESTIBA POR FECHAS / LOTES
     # =========================================================================
     with tab_estiba_lotes:
-        st.markdown("#### Configuración del Contenedor (Plano de Estiba)")
+        st.markdown(f"#### Plano de Estiba por Fechas ({tipo_congelacion})")
         ce1, ce2, ce3 = st.columns(3)
         with ce1:
             semana_est = st.number_input("Semana N°:", min_value=1, max_value=53, value=37, key="est_sem_tab")
@@ -343,6 +456,8 @@ def render_module(user, get_gspread_client):
             data_estiba.append(row_dict)
 
         df_estiba = pd.DataFrame(data_estiba)
+        st.session_state.df_estiba_lotes_cache = df_estiba
+        
         st.markdown("### 📊 Cuadrícula del Plano de Estiba")
         st.dataframe(df_estiba, use_container_width=True, height=450)
 
@@ -360,11 +475,11 @@ def render_module(user, get_gspread_client):
     # PESTAÑA 3: PLANO DE ESTIBA POR PRESENTACIONES
     # =========================================================================
     with tab_estiba_pres:
-        st.markdown("#### Distribución Mixta por Presentación (Sacos / Cajas)")
+        st.markdown(f"#### Distribución por Presentación ({tipo_congelacion})")
         
         cp1, cp2 = st.columns(2)
         with cp1:
-            n_pres_m = st.number_input("Número de Presentaciones a Distribuir:", min_value=1, max_value=6, value=2, key="est_pm_np")
+            n_pres_m = st.number_input("Número de Presentaciones:", min_value=1, max_value=6, value=2, key="est_pm_np")
         with cp2:
             n_filas_m = st.number_input("Total Filas Contenedor:", min_value=10, max_value=30, value=20, key="est_pm_nf")
 
@@ -397,6 +512,8 @@ def render_module(user, get_gspread_client):
             data_pres.append(row_d)
 
         df_pres = pd.DataFrame(data_pres)
+        st.session_state.df_estiba_pres_cache = df_pres
+
         st.markdown("### 📋 Plano de Estiba por Producto")
         st.dataframe(df_pres, use_container_width=True, height=450)
 
