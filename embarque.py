@@ -11,6 +11,46 @@ from reportlab.lib import colors
 URL_PRODUCCION = "https://docs.google.com/spreadsheets/d/1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg/edit"
 
 # -------------------------------------------------------------------------
+# CATÁLOGO OFICIAL DE PRESENTACIONES - FRIGOSA SAC
+# -------------------------------------------------------------------------
+LISTA_PRESENTACIONES_FRIGOSA = [
+    "ALETA FRESCA DE POTA CONGELADA 300 g/pza - 500 g/pza",
+    "ALETA FRESCA DE POTA CONGELADA 500 g/pza- 1000 g/pza",
+    "ALETA FRESCA DE POTA CONGELADA 1000 g/pza - UP",
+    "ALETA FRESCA DE POTA CONGELADA 1000 g/pza - CV",
+    "ALETA PRECOCIDA DE POTA CONGELADA 300 g/pza - UP",
+    "ANILLAS BLANCAS DE POTA CONGELADA S/M S/T",
+    "BOTONES BLANCOS DE POTA CONGELADA S/M S/T",
+    "CONOS DE POTA CONGELADA",
+    "FILETE FRESCO DE POTA CONGELADA S/PIEL S/M S/T 2000 g/pza - 4000 g/pza",
+    "FILETE FRESCO DE POTA CONGELADA S/PIEL C/M C/T 500 g/pza - 1000 g/pz",
+    "FILETE FRESCO DE POTA CONGELADA S/PIEL C/M C/T 1000 g/pza - 2000 g/pza",
+    "FILETE FRESCO DE POTA CONGELADA S/PIEL C/M C/T 2000 g/pza - 4000 g/pza",
+    "FILETE PRECOCIDO DE POTA CONGELADA 7mm - 10 mm",
+    "FILETE PRECOCIDO DE POTA CONGELADA LADO PANZA 7mm - 10 mm",
+    "FILETE PRECOCIDO DE POTA CONGELADA LADO MEMBRANA 7mm - 10 mm",
+    "FILETE PRECOCIDO DE POTA CONGELADA LADO PANZA 8 mm - 14 mm",
+    "FILETE PRECOCIDO DE POTA CONGELADA LADO MEMBRANA 8 mm - 14 mm",
+    "DESHILACHADO SAZONADO DE POTA CONGELADA -F1",
+    "DESHILACHADO SAZONADO DE POTA CONGELADA-F2",
+    "FILETE PRECOCIDO DE POTA CONGELADA 10mm - 14 mm",
+    "NUCAS DE POTA CONGELADA 100 g/pza - 300 g/pza",
+    "NUCAS DE POTA CONGELADA 300 g/pza - 500 g/pza",
+    "NUCAS DE POTA CONGELADA 500g/pza -UP",
+    "NUCAS DE POTA CONGELADA 0 -50 g/pza",
+    "RECORTE PRECOCIDO DE POTA CONGELADA",
+    "RECORTE FRESCO BLANCO DE POTA CONGELADA S/M S/T",
+    "REPRODUCTOR DE POTA CONGELADA S/PUNTA S/U S/V MAYOR A 50 cm",
+    "REPRODUCTOR DE POTA CONGELADA S/PUNTA S/U S/V MENOR A 50 cm",
+    "TENTACULO BAILARINA DE POTA CONGELADA C/U C/V 300 g/pza - 500 g/pza",
+    "TENTACULO BAILARINA DE POTA CONGELADA C/U C/V 500 g/pza - 1000 g/pza",
+    "TENTACULO BAILARINA DE POTA CONGELADA S/U S/V 300 g/pza - 500 g/pza",
+    "TENTACULO BAILARINA DE POTA CONGELADA S/U S/V 2000 g/pza - 3000 g/pza",
+    "TENTACULO BAILARINA DE POTA CONGELADA S/U S/V 1000g /pza-UP",
+    "OTRO (Digitar manualmente)"
+]
+
+# -------------------------------------------------------------------------
 # GENERADOR DE REPORTE PDF OFICIAL FRIGOSA SAC
 # -------------------------------------------------------------------------
 def generar_pdf_control_pesos(cabecera, presentaciones_data, resumen):
@@ -57,7 +97,8 @@ def generar_pdf_control_pesos(cabecera, presentaciones_data, resumen):
     story.append(t_cab)
     story.append(Spacer(1, 12))
 
-    headers = [f"{p['nombre'][:18]}" for p in presentaciones_data]
+    # Abreviamos el nombre para que encaje elegante en el PDF
+    headers = [f"{p['nombre'][:20]}..." if len(p['nombre']) > 20 else p['nombre'] for p in presentaciones_data]
     matrix_pesos = [headers]
     for r in range(30):
         fila = [f"{p['pesos'][r]:.2f}" if r < len(p['pesos']) and p['pesos'][r] > 0 else "-" for p in presentaciones_data]
@@ -74,7 +115,7 @@ def generar_pdf_control_pesos(cabecera, presentaciones_data, resumen):
     t_muestreo = Table(matrix_pesos, colWidths=[ancho_col] * len(presentaciones_data))
     t_muestreo.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 7),
+        ('FONTSIZE', (0, 0), (-1, -1), 6.5),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1A365D")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -89,7 +130,7 @@ def generar_pdf_control_pesos(cabecera, presentaciones_data, resumen):
     return buffer
 
 # -------------------------------------------------------------------------
-# FUNCIÓN PRINCIPAL LLAMADA DESDE APP_CAMARAS.PY
+# FUNCIÓN PRINCIPAL DE DESPACHOS
 # -------------------------------------------------------------------------
 def render_module(user, get_gspread_client):
     nombre_user = user.get("nombre_completo", user.get("usuario", "LUIS ENRIQUE FIESTAS ECA"))
@@ -122,7 +163,7 @@ def render_module(user, get_gspread_client):
 
     st.markdown("---")
     st.markdown("#### ⚖️ Muestreo de Pesos por Presentación (Hasta 30 lecturas)")
-    st.caption("Ingresa o pega las lecturas de peso separadas por comas o saltos de línea.")
+    st.caption("Seleccione la presentación de la lista y pegue los pesos separados por comas o saltos de línea.")
 
     cols = st.columns(int(num_pres))
     presentaciones_data = []
@@ -130,13 +171,28 @@ def render_module(user, get_gspread_client):
     for i, col in enumerate(cols):
         with col:
             st.markdown(f"**Presentación {i+1}**")
-            nom_p = st.text_input(f"Nombre / Producto {i+1}:", value="ALETA FRESCA" if i == 0 else ("FILETE 2-4" if i == 1 else f"PRODUCTO {i+1}"), key=f"d_nom_{i}")
-            tipo_envase = st.selectbox("Envase:", ["Saco (~22 kg)", "Caja (~12 kg)", "Otro"], key=f"d_env_{i}")
+            
+            # LISTA DESPLEGABLE CON EL CATÁLOGO OFICIAL
+            idx_default = min(i, len(LISTA_PRESENTACIONES_FRIGOSA) - 2)
+            pres_seleccionada = st.selectbox(
+                f"Presentación {i+1}:", 
+                LISTA_PRESENTACIONES_FRIGOSA, 
+                index=idx_default, 
+                key=f"d_sel_pres_{i}"
+            )
+            
+            # Campo alternativo si eligió "OTRO"
+            if pres_seleccionada == "OTRO (Digitar manualmente)":
+                nom_p = st.text_input(f"Especificar Producto {i+1}:", key=f"d_txt_otro_{i}")
+            else:
+                nom_p = pres_seleccionada
+
+            tipo_envase = st.selectbox("Tipo de Envase:", ["Saco (~22 kg)", "Caja (~12 kg)", "Otro"], key=f"d_env_{i}")
             cant_bultos = st.number_input(f"Cantidad Total Bultos:", min_value=0, step=50, value=650 if "Saco" in tipo_envase else 300, key=f"d_bul_{i}")
 
             val_base = 22.10 if "Saco" in tipo_envase else 11.90
             texto_pesos = st.text_area(
-                f"Pesos balanza (kg):",
+                f"Pesos de muestreo (kg):",
                 value=f"{val_base:.2f}, {val_base+0.05:.2f}, {val_base-0.08:.2f}, {val_base+0.12:.2f}, {val_base-0.02:.2f}",
                 height=150,
                 key=f"d_txt_{i}"
@@ -159,7 +215,7 @@ def render_module(user, get_gspread_client):
             st.markdown(f"📦 Subtotal: **{subtot_kg:,.2f} kg**")
 
             presentaciones_data.append({
-                "nombre": nom_p,
+                "nombre": nom_p if nom_p else f"Presentación {i+1}",
                 "bultos": cant_bultos,
                 "pesos": pesos_limpios,
                 "promedio": prom_unit,
