@@ -2,21 +2,26 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
-# ID del Google Sheet BD_PRODUCCION_ARCHI_001
-SPREADSHEET_ID_PRODUCCION = "1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg"
+# URL directa del Google Sheet
+URL_PRODUCCION = "https://docs.google.com/spreadsheets/d/1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg/edit"
 
 def render_module(user, get_gspread_client):
     st.subheader("📊 Módulo 5: Control de Stock y Producción")
     st.caption(f"Usuario activo: {user.get('nombre_completo', user.get('usuario'))} | Conectado a: BD_PRODUCCION_ARCHI_001")
 
-    # Obtener conexión cliente
+    # Conexión resiliente
     try:
         client = get_gspread_client()
-        sh = client.open_by_key(SPREADSHEET_ID_PRODUCCION)
-    except Exception as e:
-        st.error(f"Error al conectar con Google Sheet: {e}")
-        st.info("Verifica que diste permisos de Editor al correo del robot de servicio en la hoja BD_PRODUCCION_ARCHI_001.")
-        return
+        # Intentamos primero por URL directa
+        sh = client.open_by_url(URL_PRODUCCION)
+    except Exception:
+        try:
+            # Si falla, intentamos abrir directamente por el nombre exacto del archivo
+            sh = client.open("BD_PRODUCCION_ARCHI_001")
+        except Exception as e:
+            st.error(f"Error al conectar con Google Sheet: {e}")
+            st.info("Verifica que el archivo esté compartido con streamlit-frigosa@frigosa-wms.iam.gserviceaccount.com")
+            return
 
     # Cargar catálogo de productos
     def obtener_catalogo():
