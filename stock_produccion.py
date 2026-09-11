@@ -133,7 +133,7 @@ def render_module(user, get_gspread_client):
                 # Mes sincronizado con la fecha elegida
                 mes_sugerido_idx = fecha_ent.month - 1
                 mes_ent = st.selectbox("Mes Operativo", meses, index=mes_sugerido_idx, key="ent_mes_sel")
-                placa_ent = st.text_input("Placa / Vehículo")
+                placa_ent = st.text_input("Placa")
 
             btn_ent = st.form_submit_button("💾 Guardar Entrada a Túnel")
             if btn_ent:
