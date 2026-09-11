@@ -262,8 +262,8 @@ def render_module(user, get_gspread_client):
                 prod_inv = st.selectbox("Producto Contado", opciones_totales, key="i_prod_sel")
             with i2:
                 cant_inv = st.number_input("Cantidad Física Contada (TM)", min_value=0.0, step=0.001, format="%.3f", key="i_cant_val")
-                tunel_inv = st.text_input("Cámara / Túnel", key="i_tun_val")
-                placas_inv = st.text_input("Placas / Racks", key="i_pla_val")
+                tunel_inv = st.text_input("Túnel", key="i_tun_val")
+                placas_inv = st.text_input("Placas", key="i_pla_val")
                 obs_inv = st.text_area("Observaciones de Auditoría")
 
             btn_inv = st.form_submit_button("📋 Registrar Conteo Físico")
