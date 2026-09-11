@@ -170,6 +170,23 @@ if st.session_state.modulo_activo == "Home":
             st.session_state.modulo_activo = "Envasado"
             st.rerun()
 
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # NUEVA TARJETA MÓDULO 5 (Columna 1)
+        st.markdown(
+            """
+            <div style="background-color: #f8f9fa; border: 2px solid #6f42c1; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
+                <h3 style="color: #6f42c1; margin-top: 0;">📊 Módulo 5</h3>
+                <h4 style="color: #333;">Stock y Control de Producción</h4>
+                <p style="font-size: 13px; color: #666;">Entradas a túnel, salidas de despacho, balance virtual de stock L1/L2 e inventario físico.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        if st.button("🚀 Ingresar a Stock Producción", use_container_width=True, key="btn_m_stock"):
+            st.session_state.modulo_activo = "StockProduccion"
+            st.rerun()
+
     with col_card2:
         st.markdown(
             """
@@ -217,4 +234,5 @@ else:
         envasado.render_module(user, get_sheet, cargar_datos)
     elif st.session_state.modulo_activo == "Despachos":
         st.info("🚧 Módulo de Despachos y Embarques en proceso de integración modular.")
-       
+    elif st.session_state.modulo_activo == "StockProduccion":
+        stock_produccion.render_module(user, get_gspread_client)
