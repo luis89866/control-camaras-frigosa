@@ -7,21 +7,49 @@ def formatear_horas_minutos_texto(minutos_totales):
     if minutos_totales <= 0:
         return "0h 00m"
     h = int(minutos_totales // 60)
-    m = int(minutos_totales % 60)
+    m = int(round(minutos_totales % 60))
+    if m >= 60:
+        h += m // 60
+        m = m % 60
     return f"{h}h {m:02d}m"
 
 def minutos_a_formato_punto(minutos_totales):
     """
     Convierte minutos a formato numérico H.MM:
-    Ejemplo: 103 minutos = 1 hora y 43 minutos -> 1.43
-    Ejemplo: 163 minutos = 2 horas y 43 minutos -> 2.43
-    Ejemplo: 30 minutos = 0 horas y 30 minutos -> 0.30
+    103 minutos -> 1 hora y 43 minutos -> 1.43
+    256 minutos -> 4 horas y 16 minutos -> 4.16
     """
     if minutos_totales <= 0:
         return 0.0
     h = int(minutos_totales // 60)
-    m = int(minutos_totales % 60)
+    m = int(round(minutos_totales % 60))
+    if m >= 60:
+        h += m // 60
+        m = m % 60
     return round(h + (m / 100.0), 2)
+
+def formato_punto_a_minutos(val_hmm):
+    """
+    Convierte formato numérico H.MM a minutos netos:
+    2.42 -> 2 horas y 42 minutos -> 162 minutos
+    1.34 -> 1 hora y 34 minutos -> 94 minutos
+    """
+    try:
+        val = float(val_hmm or 0.0)
+    except Exception:
+        return 0
+    if val <= 0:
+        return 0
+    h = int(val)
+    m = int(round((val - h) * 100))
+    return (h * 60) + m
+
+def sumar_horas_minutos_formato(serie_o_lista):
+    """Suma múltiples valores en formato H.MM respetando base 60."""
+    total_min = 0
+    for v in serie_o_lista:
+        total_min += formato_punto_a_minutos(v)
+    return minutos_a_formato_punto(total_min)
 
 def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno, es_domingo, es_sabado):
     minutos_salida = hora_salida_dt.hour * 60 + hora_salida_dt.minute
@@ -50,19 +78,16 @@ def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno, es_doming
                 minutos_pagados = 60       # 1 hora fija pagada
                 minutos_bolsa_general = minutos_trabajados - 720
         elif modo_turno == "Sin Producción":
-            # Lunes a Viernes: límite normal 18:00 (1080 min) | Sábados: 15:00 (900 min)
             limite_normal_minutos = (15 * 60) if es_sabado else (18 * 60)
             if minutos_salida > limite_normal_minutos:
                 minutos_bolsa_general = minutos_salida - limite_normal_minutos
         elif modo_turno == "Sin Producción - Renganche":
-            # Jornada de 9 horas netas (540 minutos)
             jornada_minutos = 9 * 60
             if minutos_trabajados > jornada_minutos:
                 minutos_bolsa_general = minutos_trabajados - jornada_minutos
 
     minutos_extras_totales = minutos_pagados + minutos_bolsa_general + minutos_bolsa_dominical
 
-    # Conversión a formato H.MM (1h 43m -> 1.43, 2h 43m -> 2.43)
     he_tot_val = minutos_a_formato_punto(minutos_extras_totales)
     h_pag_val = minutos_a_formato_punto(minutos_pagados)
     h_bg_val = minutos_a_formato_punto(minutos_bolsa_general)
@@ -128,7 +153,7 @@ def render_module(user, get_sheet, cargar_datos):
                 except Exception:
                     st.error("Formato de hora inválido. Use HH:MM.")
 
-    # 1. VISUALIZADOR DE SALDOS
+    # 1. VISUALIZADOR DE SALDOS (Lee las fórmulas automáticas de Sheets)
     try:
         df_bolsa_check = cargar_datos("Bolsa_Horas_Compensacion")
         saldo_general, saldo_dominical = 0.0, 0.0
@@ -146,9 +171,9 @@ def render_module(user, get_sheet, cargar_datos):
         
         col_s1, col_s2 = st.columns(2)
         with col_s1:
-            st.info(f"💼 **Bolsa de Horas Extras ({nombre}):** `{saldo_general} hrs` disponibles.")
+            st.info(f"💼 **Bolsa de Horas Extras ({nombre}):** `{saldo_general}` hrs disponibles.")
         with col_s2:
-            st.success(f"📅 **Bolsa Dominical:** `{saldo_dominical} hrs` disponibles.")
+            st.success(f"📅 **Bolsa Dominical:** `{saldo_dominical}` hrs disponibles.")
     except Exception:
         pass
 
@@ -188,7 +213,6 @@ def render_module(user, get_sheet, cargar_datos):
                 id_reg = f"EXC-{datetime.now().strftime('%y%m%d%H%M%S')}"
                 etiqueta = f"EXCEPCIÓN: {tipo_asistencia}" + (f" - Tardanza: {minutos_tardanza} min" if es_tardanza else "") + (f" - {motivo_excepcion}" if motivo_excepcion else "")
                 
-                # 12 columnas exactas
                 ws_asist.append_row([
                     id_reg, codigo_per, nombre, fecha_actual_str, 
                     "00:00", "00:00", modo_turno, 
@@ -248,7 +272,7 @@ def render_module(user, get_sheet, cargar_datos):
             if es_domingo:
                 obs_input = f"[DOMINICAL] {obs_input}"
 
-            if st.button("Registrar Salida y Actualizar Bolsa", use_container_width=True, key="btn_reg_salida"):
+            if st.button("Registrar Salida y Guardar", use_container_width=True, key="btn_reg_salida"):
                 if not hora_salida_input.strip():
                     st.error("Ingrese hora de salida.")
                 else:
@@ -257,7 +281,6 @@ def render_module(user, get_sheet, cargar_datos):
                         val_bolsa = h_bd if h_bd > 0 else h_bg
                         id_reg = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
 
-                        # Insertar orden estricto de las 12 columnas:
                         fila_datos = [
                             id_reg,                             # A: id_registro
                             str(codigo_per).strip(),            # B: codigo_personal
@@ -266,41 +289,17 @@ def render_module(user, get_sheet, cargar_datos):
                             str(hora_ingreso_input).strip(),    # E: hora_entrada
                             str(hora_salida_input).strip(),     # F: hora_salida
                             str(modo_turno).strip(),            # G: modo_turno
-                            float(he_tot),                      # H: horas_extras_totales (ej. 2.43)
-                            float(h_pag),                       # I: horas_pagadas (ej. 1.0)
-                            float(val_bolsa),                   # J: horas_bolsa (ej. 1.43)
+                            float(he_tot),                      # H: horas_extras_totales
+                            float(h_pag),                       # I: horas_pagadas
+                            float(val_bolsa),                   # J: horas_bolsa
                             str(obs_input).strip(),             # K: observacion
                             "Completado"                        # L: estado_registro
                         ]
                         
+                        # Solo se escribe en Asistencia_Personal
                         ws_asist.append_row(fila_datos)
-                        
-                        # Actualización en Bolsa_Horas_Compensacion
-                        if val_bolsa > 0 or h_pag > 0:
-                            ws_bolsa = get_sheet("Bolsa_Horas_Compensacion")
-                            try:
-                                celda_c = ws_bolsa.find(codigo_per.strip())
-                            except Exception:
-                                celda_c = None
-                                
-                            if celda_c:
-                                f_idx = celda_c.row
-                                v_fila = ws_bolsa.row_values(f_idx)
-                                if h_bd > 0:
-                                    act_dom = float(v_fila[5]) if len(v_fila) > 5 and v_fila[5] != "" else 0.0
-                                    ws_bolsa.update_cell(f_idx, 6, float(round(act_dom + h_bd, 2)))
-                                else:
-                                    act_acum = float(v_fila[2]) if len(v_fila) > 2 and v_fila[2] != "" else 0.0
-                                    act_sald = float(v_fila[4]) if len(v_fila) > 4 and v_fila[4] != "" else 0.0
-                                    ws_bolsa.update_cell(f_idx, 3, float(round(act_acum + h_bg, 2)))
-                                    ws_bolsa.update_cell(f_idx, 5, float(round(act_sald + h_bg, 2)))
-                            else:
-                                if h_bd > 0:
-                                    ws_bolsa.append_row([codigo_per, nombre, 0.0, 0.0, 0.0, float(h_bd), "", "Activo"])
-                                else:
-                                    ws_bolsa.append_row([codigo_per, nombre, float(h_bg), 0.0, float(h_bg), 0.0, "", "Activo"])
 
-                        st.success(f"✅ Salida registrada exitosamente para {nombre}: {he_tot} (Total) | {val_bolsa} (Bolsa)!")
+                        st.success(f"✅ Salida registrada para {nombre}: {he_tot} (Total) | {val_bolsa} (Bolsa)!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
@@ -432,7 +431,7 @@ def render_module(user, get_sheet, cargar_datos):
                         cod_comp = sel_col_comp.split(" - ")[0].strip()
                         nom_comp = sel_col_comp.split(" - ")[1].strip()
                     with col_c2:
-                        hrs_ret = st.number_input("Horas a descontar:", min_value=0.5, step=0.5, value=8.0, key="i_h_c")
+                        hrs_ret = st.number_input("Horas a descontar (ej: 1.30 = 1h 30m):", min_value=0.01, step=0.5, value=8.0, key="i_h_c")
                     with col_c3:
                         fec_ini_c = st.date_input("Fecha Inicio:", datetime.now(), key="i_f_ini_c")
                     with col_c4:
@@ -443,26 +442,28 @@ def render_module(user, get_sheet, cargar_datos):
 
                     if btn_comp and fec_fin_c >= fec_ini_c:
                         try:
-                            ws_b = get_sheet("Bolsa_Horas_Compensacion")
-                            c_lib = ws_b.find(cod_comp)
-                            if c_lib:
-                                f_idx = c_lib.row
-                                v_lib = ws_b.row_values(f_idx)
-                                a_sald = float(v_lib[4]) if len(v_lib) > 4 and v_lib[4] != "" else 0.0
-                                
-                                if hrs_ret > a_sald:
-                                    st.error("❌ Saldo insuficiente.")
-                                else:
-                                    hrs_comp_ant = float(v_lib[3]) if len(v_lib) > 3 and v_lib[3] != "" else 0.0
-                                    ws_b.update_cell(f_idx, 4, float(round(hrs_comp_ant + hrs_ret, 2)))
-                                    ws_b.update_cell(f_idx, 5, float(round(a_sald - hrs_ret, 2)))
-                                    
-                                    ws_h = get_sheet("Historial_Compensaciones")
-                                    ws_h.append_row([
-                                        f"COMP-{datetime.now().strftime('%y%m%d%H%M%S')}", cod_comp, nom_comp, float(hrs_ret), f"{fec_ini_c} al {fec_fin_c}", f"AUTORIZADO BY {nombre_sesion}"
-                                    ])
-                                    st.success(f"✅ Se descontaron {hrs_ret} hrs.")
-                                    st.rerun()
+                            # Solo registra en el historial y asistencia; la bolsa se calcula sola en Sheets
+                            ws_h = get_sheet("Historial_Compensaciones")
+                            ws_h.append_row([
+                                f"COMP-{datetime.now().strftime('%y%m%d%H%M%S')}", cod_comp, nom_comp, float(hrs_ret), f"{fec_ini_c} al {fec_fin_c}", f"AUTORIZADO BY {nombre_sesion}"
+                            ])
+                            
+                            ws_asist = get_sheet("Asistencia_Personal")
+                            delta_c = (fec_fin_c - fec_ini_c).days + 1
+                            curr_c = fec_ini_c
+                            for c_i in range(delta_c):
+                                f_str_c = curr_c.strftime("%Y-%m-%d")
+                                id_reg_c = f"COMPD-{datetime.now().strftime('%y%m%d%H%M%S')}-{c_i}"
+                                ws_asist.append_row([
+                                    id_reg_c, cod_comp, nom_comp, f_str_c, 
+                                    "00:00", "00:00", "Sin Producción", 
+                                    0.0, 0.0, 0.0, 
+                                    "EXCEPCIÓN: Compensación de Horas", "Completado"
+                                ])
+                                curr_c += timedelta(days=1)
+
+                            st.success(f"✅ Se registraron {hrs_ret} hrs compensadas para {nom_comp}.")
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Error: {e}")
 
@@ -475,31 +476,25 @@ def render_module(user, get_sheet, cargar_datos):
                     with col_r2:
                         tipo_ajuste = st.selectbox("Acción:", ["Sumar Horas (+)", "Restar Horas (-)"], key="sel_tipo_ajuste")
                     with col_r3:
-                        cant_horas_reg = st.number_input("Cantidad:", min_value=0.5, step=0.5, value=1.0, key="num_horas_reg")
+                        cant_horas_reg = st.number_input("Cantidad:", min_value=0.01, step=0.5, value=1.0, key="num_horas_reg")
                     with col_r4:
                         motivo_reg = st.text_input("Motivo:", key="txt_motivo_reg")
                     
                     if st.button("⚙️ Aplicar Regularización", key="btn_aplicar_regularizacion"):
                         try:
-                            ws_b = get_sheet("Bolsa_Horas_Compensacion")
-                            c_reg = ws_b.find(cod_reg)
-                            if c_reg:
-                                f_idx_r = c_reg.row
-                                v_fila_r = ws_b.row_values(f_idx_r)
-                                saldo_actual_r = float(v_fila_r[4]) if len(v_fila_r) > 4 and v_fila_r[4] != "" else 0.0
-                                acum_general_r = float(v_fila_r[2]) if len(v_fila_r) > 2 and v_fila_r[2] != "" else 0.0
-                                
-                                if tipo_ajuste == "Sumar Horas (+)":
-                                    nuevo_saldo = saldo_actual_r + cant_horas_reg
-                                    nuevo_acum = acum_general_r + cant_horas_reg
-                                else:
-                                    nuevo_saldo = saldo_actual_r - cant_horas_reg
-                                    nuevo_acum = acum_general_r
-
-                                ws_b.update_cell(f_idx_r, 3, float(round(nuevo_acum, 2)))
-                                ws_b.update_cell(f_idx_r, 5, float(round(nuevo_saldo, 2)))
-                                st.success("✅ Regularizado.")
-                                st.rerun()
+                            # Solo registra en el historial; no toca celdas en Bolsa_Horas_Compensacion
+                            signo_str = f"+{cant_horas_reg}" if tipo_ajuste == "Sumar Horas (+)" else f"-{cant_horas_reg}"
+                            ws_h = get_sheet("Historial_Compensaciones")
+                            ws_h.append_row([
+                                f"REGUL-{datetime.now().strftime('%y%m%d%H%M%S')}", 
+                                cod_reg, 
+                                nom_reg, 
+                                signo_str, 
+                                datetime.now().strftime("%Y-%m-%d"), 
+                                f"REGULARIZACIÓN: {motivo_reg} (By {nombre_sesion})"
+                            ])
+                            st.success(f"✅ Regularización guardada en historial para {nom_reg}.")
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Error: {e}")
 
@@ -539,15 +534,17 @@ def render_module(user, get_sheet, cargar_datos):
                             obs_serie = grupo["observacion"].astype(str)
                             
                             dias_trabajados = len(grupo[(grupo["estado_registro"] == "Completado") & (~obs_serie.str.contains("EXCEPCIÓN:", case=False, na=False))])
-                            horas_bolsa_acum = pd.to_numeric(grupo["horas_bolsa"], errors="coerce").sum()
-                            horas_pagadas_acum = pd.to_numeric(grupo["horas_pagadas"], errors="coerce").sum()
+                            
+                            # Suma sexagesimal correcta en base a minutos
+                            horas_bolsa_acum = sumar_horas_minutos_formato(grupo["horas_bolsa"])
+                            horas_pagadas_acum = sumar_horas_minutos_formato(grupo["horas_pagadas"])
                             
                             resumen_list.append({
                                 "Código": cod_p_clean,
                                 "Colaborador": nombre_trab,
                                 "Días Trabajados": dias_trabajados,
-                                "H. Pagadas (25%)": round(horas_pagadas_acum, 2),
-                                "H. Compensación (35%)": round(horas_bolsa_acum, 2)
+                                "H. Pagadas (25%)": horas_pagadas_acum,
+                                "H. Compensación (35%)": horas_bolsa_acum
                             })
                         
                         st.dataframe(pd.DataFrame(resumen_list), use_container_width=True)
