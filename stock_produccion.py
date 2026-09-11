@@ -105,6 +105,22 @@ def render_module(user, get_gspread_client):
             with col3:
                 mes_ent = st.selectbox("Mes", meses, index=mes_actual_idx)
                 subf_ent = st.text_input("Subfamilia")
+                CATALOGO_MAESTRO_PRODUCTOS = [ 
+{ALETA FRESCA,
+ANILLAS, 
+ALETA PRECOCIDA, 
+BOTONES, 
+CONOS, 
+FILETE FRESCO,
+FILETE PRECOCIDO, 
+DESHILACHADO, ,
+NUCAS, 
+RECORTE PRECOCIDO,
+RECORTE FRESCO,
+REPRODUCTOR,
+TENTACULO,
+TUBO, 
+FILETE SECO, }
                 lote_ent = st.text_input("Lote")
 
             btn_ent = st.form_submit_button("💾 Guardar Entrada")
