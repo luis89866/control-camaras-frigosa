@@ -9,6 +9,7 @@ import asistencia
 import pptt
 import envasado
 import stock_produccion
+import embarque  # <-- IMPORTACIÓN DEL MÓDULO 4
 
 
 # --- CONFIGURACIÓN DE PÁGINA ---
@@ -173,7 +174,7 @@ if st.session_state.modulo_activo == "Home":
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # NUEVA TARJETA MÓDULO 5 (Columna 1)
+        # TARJETA MÓDULO 5
         st.markdown(
             """
             <div style="background-color: #f8f9fa; border: 2px solid #6f42c1; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
@@ -234,6 +235,7 @@ else:
     elif st.session_state.modulo_activo == "Envasado":
         envasado.render_module(user, get_sheet, cargar_datos)
     elif st.session_state.modulo_activo == "Despachos":
-        st.info("🚧 Módulo de Despachos y Embarques en proceso de integración modular.")
+        # Conexión directa con embarque.py pasando get_gspread_client
+        embarque.render_module(user, get_gspread_client)
     elif st.session_state.modulo_activo == "StockProduccion":
         stock_produccion.render_module(user, get_gspread_client)
