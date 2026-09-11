@@ -8,6 +8,7 @@ from datetime import datetime
 import asistencia
 import pptt
 import envasado
+import stock_produccion
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
