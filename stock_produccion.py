@@ -121,7 +121,7 @@ def render_module(user, get_gspread_client):
             col1, col2, col3 = st.columns(3)
             with col1:
                 id_ent = st.text_input("ID Ingreso (Opcional)")
-                cant_ent = st.number_input("Cantidad (kg / cajas)", min_value=0.0, step=0.01, format="%.2f")
+                cant_ent = st.number_input("Cantidad (TM)", min_value=0.0, step=0.01, format="%.2f")
                 tunel_ent = st.text_input("Túnel de Congelación")
             with col2:
                 # Subfamilia desplegable con sugerencia automática
