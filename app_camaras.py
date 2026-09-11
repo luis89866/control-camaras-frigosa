@@ -9,7 +9,7 @@ import asistencia
 import pptt
 import envasado
 import stock_produccion
-import embarque
+
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
