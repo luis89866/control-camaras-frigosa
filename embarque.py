@@ -7,70 +7,79 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
+# URL de la base de datos de producción / despachos
+URL_PRODUCCION = "https://docs.google.com/spreadsheets/d/1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg/edit"
+
+# -------------------------------------------------------------------------
+# GENERADOR DE REPORTE PDF OFICIAL FRIGOSA SAC
+# -------------------------------------------------------------------------
 def generar_pdf_control_pesos(cabecera, presentaciones_data, resumen):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=30, rightMargin=30, topMargin=30, bottomMargin=30)
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=letter, 
+        leftMargin=25, 
+        rightMargin=25, 
+        topMargin=25, 
+        bottomMargin=25
+    )
     story = []
     styles = getSampleStyleSheet()
 
-    # Título
     titulo_style = ParagraphStyle(
-        'Titulo',
+        'TituloFrigosa',
         parent=styles['Heading1'],
-        fontSize=14,
-        leading=16,
-        textColor=colors.HexColor("#1A365D"),
+        fontSize=13,
+        leading=15,
+        textColor=colors.HexColor("#0D3B66"),
         alignment=1
     )
     story.append(Paragraph("SEGUIMIENTO DE CONTROL DE PESO - FRIGOSA SAC", titulo_style))
     story.append(Spacer(1, 10))
 
-    # Cabecera
     data_cab = [
         ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
-        ["PAYLOAD (KG):", f"{cabecera['payload']:,.2f}", "PESO NETO TOTAL:", f"{resumen['peso_total']:,.2f} KG"],
-        ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "PESO A FAVOR:", f"{resumen['peso_a_favor']:,.2f} KG"],
-        ["RESPONSABLE:", cabecera['responsable'], "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
+        ["PAYLOAD (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
+        ["CANTIDAD TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "PESO A FAVOR (MARGEN):", f"{resumen['peso_a_favor']:,.2f} KG"],
+        ["SUPERVISOR RESPONSABLE:", cabecera['responsable'], "PESO PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
     ]
-    t_cab = Table(data_cab, colWidths=[110, 150, 120, 150])
+    t_cab = Table(data_cab, colWidths=[120, 160, 130, 150])
     t_cab.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, -1), 8),
-        ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor("#1A365D")),
-        ('TEXTCOLOR', (2, 0), (2, -1), colors.HexColor("#1A365D")),
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F0F4F8")),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
+        ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor("#0D3B66")),
+        ('TEXTCOLOR', (2, 0), (2, -1), colors.HexColor("#0D3B66")),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F4F6F9")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#BDC3C7")),
         ('ALIGN', (1, 0), (1, -1), 'CENTER'),
         ('ALIGN', (3, 0), (3, -1), 'CENTER'),
     ]))
     story.append(t_cab)
-    story.append(Spacer(1, 15))
+    story.append(Spacer(1, 12))
 
-    # Tabla de Pesos de Muestreo (Columnas dinámicas por presentación)
-    headers = [p['nombre'][:18] for p in presentaciones_data]
+    headers = [f"{p['nombre'][:18]}" for p in presentaciones_data]
     matrix_pesos = [headers]
     for r in range(30):
         fila = [f"{p['pesos'][r]:.2f}" if r < len(p['pesos']) and p['pesos'][r] > 0 else "-" for p in presentaciones_data]
         matrix_pesos.append(fila)
 
-    # Fila de totales y promedios por presentación
     fila_bultos = [f"Bultos: {p['bultos']}" for p in presentaciones_data]
     fila_prom = [f"Prom: {p['promedio']:.3f}" for p in presentaciones_data]
-    fila_tot = [f"Tot: {p['total_kg']:,.1f}k" for p in presentaciones_data]
+    fila_tot = [f"Total: {p['total_kg']:,.1f}k" for p in presentaciones_data]
     matrix_pesos.append(fila_bultos)
     matrix_pesos.append(fila_prom)
     matrix_pesos.append(fila_tot)
 
-    col_w = 530 / max(len(presentaciones_data), 1)
-    t_muestreo = Table(matrix_pesos, colWidths=[col_w] * len(presentaciones_data))
+    ancho_col = 560 / max(len(presentaciones_data), 1)
+    t_muestreo = Table(matrix_pesos, colWidths=[ancho_col] * len(presentaciones_data))
     t_muestreo.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, -1), 7),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2B6CB0")),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1A365D")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
-        ('BACKGROUND', (0, -3), (-1, -1), colors.HexColor("#EDF2F7")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
+        ('BACKGROUND', (0, -3), (-1, -1), colors.HexColor("#E2E8F0")),
         ('FONTNAME', (0, -3), (-1, -1), 'Helvetica-Bold'),
     ]))
     story.append(t_muestreo)
@@ -79,91 +88,113 @@ def generar_pdf_control_pesos(cabecera, presentaciones_data, resumen):
     buffer.seek(0)
     return buffer
 
-def render_calculador_pesos(user):
-    st.subheader("⚖️ Calculador y Muestreo de Pesos por Contenedor")
+# -------------------------------------------------------------------------
+# FUNCIÓN PRINCIPAL LLAMADA DESDE APP_CAMARAS.PY
+# -------------------------------------------------------------------------
+def render_module(user, get_gspread_client):
+    nombre_user = user.get("nombre_completo", user.get("usuario", "LUIS ENRIQUE FIESTAS ECA"))
 
-    # Controles superiores
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        fec_desp = st.date_input("Fecha Despacho:", date.today())
-    with c2:
-        num_cont = st.text_input("N° Contenedor:", placeholder="Ej: MEDU1234567")
-    with c3:
-        payload = st.number_input("Payload Máx (KG):", min_value=10000.0, max_value=32000.0, value=27000.0, step=500.0)
-    with c4:
-        num_pres = st.number_input("N° de Presentaciones a cargar:", min_value=1, max_value=8, value=4, step=1)
+    st.subheader("🚢 Módulo 4: Despachos y Control de Pesos de Embarque")
+    st.caption(f"Supervisor a cargo: **{nombre_user}** | Planta: **Frigosa SAC**")
+
+    # Conexión con Google Sheet
+    try:
+        client = get_gspread_client()
+        sh = client.open_by_url(URL_PRODUCCION)
+    except Exception:
+        try:
+            sh = client.open("BD_PRODUCCION_ARCHI_001")
+        except Exception as e:
+            st.error(f"Error al conectar con base de datos de producción: {e}")
+            return
+
+    # Controles generales del contenedor
+    with st.expander("📋 Parámetros del Contenedor", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            fec_desp = st.date_input("Fecha de Embarque:", date.today(), key="dp_fec")
+        with c2:
+            num_cont = st.text_input("N° Contenedor:", value="MEDU-", key="dp_cont")
+        with c3:
+            payload = st.number_input("Payload Máximo (kg):", min_value=15000.0, max_value=32000.0, value=27000.0, step=500.0, key="dp_pay")
+        with c4:
+            num_pres = st.number_input("N° de Presentaciones a cargar:", min_value=1, max_value=6, value=4, step=1, key="dp_npres")
 
     st.markdown("---")
+    st.markdown("#### ⚖️ Muestreo de Pesos por Presentación (Hasta 30 lecturas)")
+    st.caption("Ingresa o pega las lecturas de peso separadas por comas o saltos de línea.")
 
-    # Columnas dinámicas para muestreo
     cols = st.columns(int(num_pres))
     presentaciones_data = []
 
     for i, col in enumerate(cols):
         with col:
             st.markdown(f"**Presentación {i+1}**")
-            nom_pres = st.text_input(f"Producto {i+1}:", value="Sacos Pota" if i % 2 == 0 else "Cajas Pota", key=f"nom_p_{i}")
-            tipo_envase = st.selectbox("Envase:", ["Sacos (~22kg)", "Cajas (~12kg)", "Otro"], key=f"env_{i}")
-            cant_bultos = st.number_input(f"Cantidad Total (Bultos):", min_value=0, step=50, value=600 if "Sacos" in tipo_envase else 400, key=f"cant_b_{i}")
+            nom_p = st.text_input(f"Nombre / Producto {i+1}:", value="ALETA FRESCA" if i == 0 else ("FILETE 2-4" if i == 1 else f"PRODUCTO {i+1}"), key=f"d_nom_{i}")
+            tipo_envase = st.selectbox("Envase:", ["Saco (~22 kg)", "Caja (~12 kg)", "Otro"], key=f"d_env_{i}")
+            cant_bultos = st.number_input(f"Cantidad Total Bultos:", min_value=0, step=50, value=650 if "Saco" in tipo_envase else 300, key=f"d_bul_{i}")
 
-            val_default = 22.10 if "Sacos" in tipo_envase else 11.90
+            val_base = 22.10 if "Saco" in tipo_envase else 11.90
             texto_pesos = st.text_area(
-                f"Pesos muestra (hasta 30, separados por coma o salto):",
-                value=f"{val_default}, {val_default+0.05}, {val_default-0.08}",
-                key=f"txt_pesos_{i}",
-                height=130
+                f"Pesos balanza (kg):",
+                value=f"{val_base:.2f}, {val_base+0.05:.2f}, {val_base-0.08:.2f}, {val_base+0.12:.2f}, {val_base-0.02:.2f}",
+                height=150,
+                key=f"d_txt_{i}"
             )
 
-            # Parsear pesos ingresados
             pesos_limpios = []
             for p in texto_pesos.replace("\n", ",").split(","):
                 try:
                     val = float(p.strip())
                     if val > 0:
                         pesos_limpios.append(val)
-                except:
+                except Exception:
                     pass
 
-            promedio_p = (sum(pesos_limpios) / len(pesos_limpios)) if pesos_limpios else val_default
-            total_kg_p = promedio_p * cant_bultos
+            prom_unit = (sum(pesos_limpios) / len(pesos_limpios)) if pesos_limpios else val_base
+            subtot_kg = prom_unit * cant_bultos
 
-            st.caption(f"Promedio: **{promedio_p:.3f} kg**")
-            st.caption(f"Total Estimado: **{total_kg_p:,.2f} kg**")
+            st.markdown(f"📊 Muestras: **{len(pesos_limpios)}**")
+            st.markdown(f"🎯 Promedio: **{prom_unit:.3f} kg**")
+            st.markdown(f"📦 Subtotal: **{subtot_kg:,.2f} kg**")
 
             presentaciones_data.append({
-                "nombre": nom_pres,
+                "nombre": nom_p,
                 "bultos": cant_bultos,
                 "pesos": pesos_limpios,
-                "promedio": promedio_p,
-                "total_kg": total_kg_p
+                "promedio": prom_unit,
+                "total_kg": subtot_kg
             })
 
-    # Consolidado General
+    # Consolidado General Ponderado
     total_bultos_gral = sum(p['bultos'] for p in presentaciones_data)
     peso_total_gral = sum(p['total_kg'] for p in presentaciones_data)
     prom_global = (peso_total_gral / total_bultos_gral) if total_bultos_gral > 0 else 0.0
     peso_a_favor = payload - peso_total_gral
 
     st.markdown("---")
-    st.markdown("### 📊 Resumen Ejecutivo del Embarque")
+    st.markdown("### 📈 Balance y Liquidación de Embarque")
 
     r1, r2, r3, r4 = st.columns(4)
     r1.metric("📦 Bultos Totales", f"{total_bultos_gral:,}")
-    r2.metric("⚖️ Promedio Global", f"{prom_global:.3f} kg")
-    r3.metric("🚛 Peso Total Estimado", f"{peso_total_gral:,.2f} kg")
-    
-    delta_color = "normal" if peso_a_favor >= 0 else "inverse"
-    r4.metric("🎯 Peso a Favor (Margen)", f"{peso_a_favor:,.2f} kg", delta=f"{peso_a_favor:,.2f} kg", delta_color=delta_color)
+    r2.metric("⚖️ Promedio Ponderado", f"{prom_global:.3f} kg")
+    r3.metric("🚛 Peso Neto Total", f"{peso_total_gral:,.2f} kg")
+
+    color_delta = "normal" if peso_a_favor >= 0 else "inverse"
+    r4.metric("🎯 Margen / Peso a Favor", f"{peso_a_favor:,.2f} kg", delta=f"{peso_a_favor:,.2f} kg", delta_color=color_delta)
 
     if peso_a_favor < 0:
-        st.error(f"⚠️ ¡ALERTA DE SOBREPESO! El contenedor excede el Payload por {abs(peso_a_favor):,.2f} kg.")
+        st.error(f"🚨 **ALERTA DE SOBREPESO:** El contenedor excede el Payload por **{abs(peso_a_favor):,.2f} kg**.")
+    else:
+        st.success(f"✅ **CARGA PERMITIDA:** Margen disponible de **{peso_a_favor:,.2f} kg**.")
 
-    # Exportación a PDF
+    st.markdown("---")
+
     cabecera = {
         "fecha": str(fec_desp),
-        "contenedor": num_cont if num_cont else "S/N",
+        "contenedor": num_cont.strip(),
         "payload": payload,
-        "responsable": user.get('nombre_completo', user.get('usuario', 'LUIS ENRIQUE FIESTAS ECA'))
+        "responsable": nombre_user
     }
     resumen = {
         "total_bultos": total_bultos_gral,
@@ -172,12 +203,41 @@ def render_calculador_pesos(user):
         "peso_a_favor": peso_a_favor
     }
 
-    pdf_bytes = generar_pdf_control_pesos(cabecera, presentaciones_data, resumen)
+    c_btn1, c_btn2 = st.columns(2)
+    with c_btn1:
+        try:
+            pdf_bytes = generar_pdf_control_pesos(cabecera, presentaciones_data, resumen)
+            st.download_button(
+                label="📄 Descargar Control de Peso en PDF",
+                data=pdf_bytes,
+                file_name=f"Control_Peso_{num_cont}_{fec_desp}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+        except Exception as e:
+            st.warning(f"Nota en PDF: {e}")
 
-    st.download_button(
-        label="📄 Descargar Reporte de Control de Peso en PDF",
-        data=pdf_bytes,
-        file_name=f"Control_Peso_{num_cont}_{fec_desp}.pdf",
-        mime="application/pdf",
-        use_container_width=True
-    )
+    with c_btn2:
+        if st.button("💾 Guardar en Google Sheets (Control_Pesos_Embarque)", use_container_width=True):
+            try:
+                ws_desp = sh.worksheet("Control_Pesos_Embarque")
+                id_dp = f"DSP-{date.today().strftime('%y%m%d%H%M%S')}"
+                detalle_txt = " | ".join([f"{p['nombre']}: {p['bultos']} bultos (prom: {p['promedio']:.2f}k)" for p in presentaciones_data])
+                
+                fila_guardar = [
+                    id_dp,
+                    str(fec_desp),
+                    num_cont.strip(),
+                    float(payload),
+                    int(total_bultos_gral),
+                    float(round(peso_total_gral, 2)),
+                    float(round(prom_global, 3)),
+                    float(round(peso_a_favor, 2)),
+                    nombre_user,
+                    detalle_txt
+                ]
+                ws_desp.append_row(fila_guardar)
+                st.success(f"✅ Registro del contenedor {num_cont} guardado en Google Sheets.")
+            except Exception as e:
+                st.error(f"Error al guardar en Google Sheets: {e}")
+    
