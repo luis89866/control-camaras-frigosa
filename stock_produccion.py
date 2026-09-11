@@ -5,8 +5,8 @@ from datetime import date
 # URL directa del Google Sheet
 URL_PRODUCCION = "https://docs.google.com/spreadsheets/d/1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg/edit"
 
-# 1. Catálogo Maestro de Productos
-CATALOGO_MAESTRO_PRODUCTOS = [
+# 1. Catálogo Línea 1 (entradas / salidas)
+CATALOGO_LINEA_1 = [
     {"CODIGO": "FRG002", "PRESENTACION": "ALETA FRESCA DE POTA CONGELADA 300 g/pza - 500 g/pza"},
     {"CODIGO": "FRG003", "PRESENTACION": "ALETA FRESCA DE POTA CONGELADA 500 g/pza - 1000 g/pza"},
     {"CODIGO": "FRG004", "PRESENTACION": "ALETA FRESCA DE POTA CONGELADA 1000 g/pza - UP"},
@@ -42,7 +42,16 @@ CATALOGO_MAESTRO_PRODUCTOS = [
     {"CODIGO": "FRG030", "PRESENTACION": "TENTACULO BAILARINA DE POTA CONGELADA S/U S/V 1000g /pza-UP"}
 ]
 
-# 2. Catálogo Oficial de Subfamilias
+# 2. Catálogo Línea 2 (entradas2 / salidas2)
+CATALOGO_LINEA_2 = [
+    {"CODIGO": "L2-BOTON", "PRESENTACION": "BOTON"},
+    {"CODIGO": "L2-FIL01", "PRESENTACION": "FILETE 2-4 CM CT CORTADO"},
+    {"CODIGO": "L2-FIL02", "PRESENTACION": "FILETE 2-4 CM CT MANTO"},
+    {"CODIGO": "L2-ALTCV", "PRESENTACION": "ALETA CV TUNEL"},
+    {"CODIGO": "L2-ALTUP", "PRESENTACION": "ALETA 1000 UP TUNEL"}
+]
+
+# 3. Lista de Subfamilias
 LISTA_SUBFAMILIAS = [
     "ALETA FRESCA",
     "ANILLAS",
@@ -61,13 +70,17 @@ LISTA_SUBFAMILIAS = [
 ]
 
 def autocalcular_lote(fecha_obj):
-    """Calcula el lote del año de 3 dígitos (ej: 01 de enero -> LT 001, 25 de enero -> LT 025)."""
     dia_del_anio = fecha_obj.timetuple().tm_yday
     return f"LT {dia_del_anio:03d}"
 
 def sugerir_subfamilia(nombre_producto):
-    """Detecta automáticamente la subfamilia según el nombre del producto."""
     nom_upper = str(nombre_producto).upper()
+    if "BOTON" in nom_upper:
+        return "BOTONES"
+    elif "ALETA" in nom_upper:
+        return "ALETA FRESCA"
+    elif "FILETE" in nom_upper:
+        return "FILETE FRESCO"
     for subf in LISTA_SUBFAMILIAS:
         if subf in nom_upper:
             return subf
@@ -89,9 +102,6 @@ def render_module(user, get_gspread_client):
             st.info("Verifica que el archivo esté compartido con streamlit-frigosa@frigosa-wms.iam.gserviceaccount.com")
             return
 
-    # Opciones de productos disponibles
-    opciones_prod = [f"{p['CODIGO']} - {p['PRESENTACION']}" for p in CATALOGO_MAESTRO_PRODUCTOS]
-
     tab_entradas, tab_salidas, tab_stock, tab_inventario = st.tabs([
         "📥 Registro Entradas", "📤 Registro Salidas", "📈 Balance Stock Virtual", "📋 Inventario Físico"
     ])
@@ -100,46 +110,46 @@ def render_module(user, get_gspread_client):
         "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
         "JULIO", "AGOSTO", "SETIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"
     ]
-    mes_actual_idx = date.today().month - 1
 
     # --- TAB 1: ENTRADAS ---
     with tab_entradas:
         st.write("#### Ingreso a Túnel / Cámara")
         destino_ent = st.radio("Línea de Entrada:", ["entradas (Línea 1)", "entradas2 (Línea 2)"], horizontal=True, key="rad_ent_linea")
-        hoja_ent = "entradas" if "Línea 1" in destino_ent else "entradas2"
+        es_linea_2 = "Línea 2" in destino_ent
+        hoja_ent = "entradas2" if es_linea_2 else "entradas"
 
-        # Controles dinámicos fuera del form para refresco en tiempo real
+        # Selección de catálogo según línea activa
+        catalogo_activo = CATALOGO_LINEA_2 if es_linea_2 else CATALOGO_LINEA_1
+        opciones_prod_ent = [f"{p['CODIGO']} - {p['PRESENTACION']}" for p in catalogo_activo]
+
         c_top1, c_top2 = st.columns(2)
         with c_top1:
             fecha_ent = st.date_input("Fecha de Producción / Entrada", value=date.today(), key="ent_fecha_val")
             lote_autocalculado = autocalcular_lote(fecha_ent)
         with c_top2:
-            prod_ent = st.selectbox("Código / Presentación de Producto", opciones_prod, key="ent_prod_sel")
+            prod_ent = st.selectbox("Código / Presentación de Producto", opciones_prod_ent, key=f"ent_prod_{hoja_ent}")
             subf_sugerida = sugerir_subfamilia(prod_ent)
 
         with st.form("form_entradas", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
             with col1:
                 id_ent = st.text_input("ID Ingreso (Opcional)")
-                cant_ent = st.number_input("Cantidad (TM)", min_value=0.0, step=0.01, format="%.2f")
+                cant_ent = st.number_input("Cantidad (TM)", min_value=0.0, step=0.001, format="%.3f")
                 tunel_ent = st.text_input("Túnel de Congelación")
             with col2:
-                # Subfamilia desplegable con sugerencia automática
                 idx_subf = LISTA_SUBFAMILIAS.index(subf_sugerida) if subf_sugerida in LISTA_SUBFAMILIAS else 0
-                subf_ent = st.selectbox("Subfamilia", LISTA_SUBFAMILIAS, index=idx_subf, key="ent_subf_sel")
-                # Lote autocalculado con opción a editar si es necesario
-                lote_ent = st.text_input("Lote (Autocalculado por fecha)", value=lote_autocalculado, key="ent_lote_val")
+                subf_ent = st.selectbox("Subfamilia", LISTA_SUBFAMILIAS, index=idx_subf, key=f"ent_subf_{hoja_ent}")
+                lote_ent = st.text_input("Lote (Autocalculado por fecha)", value=lote_autocalculado, key=f"ent_lote_{hoja_ent}")
             with col3:
-                # Mes sincronizado con la fecha elegida
                 mes_sugerido_idx = fecha_ent.month - 1
-                mes_ent = st.selectbox("Mes Operativo", meses, index=mes_sugerido_idx, key="ent_mes_sel")
-                placa_ent = st.text_input("Placa")
+                mes_ent = st.selectbox("Mes Operativo", meses, index=mes_sugerido_idx, key=f"ent_mes_{hoja_ent}")
+                placa_ent = st.text_input("Placa / Vehículo")
 
             btn_ent = st.form_submit_button("💾 Guardar Entrada a Túnel")
             if btn_ent:
                 cod, pres = prod_ent.split(" - ", 1) if " - " in prod_ent else ("", "")
                 fila = [
-                    id_ent, 
+                    id_ent.strip(), 
                     str(fecha_ent), 
                     cod.strip(), 
                     pres.strip(), 
@@ -152,7 +162,7 @@ def render_module(user, get_gspread_client):
                 ]
                 try:
                     sh.worksheet(hoja_ent).append_row(fila)
-                    st.success(f"✅ Entrada registrada: {cod} | Lote: {lote_ent} ({cant_ent} kg/cajas) en '{hoja_ent}'.")
+                    st.success(f"✅ Entrada registrada en '{hoja_ent}': {cod} | Lote: {lote_ent} ({cant_ent} TM).")
                 except Exception as ex:
                     st.error(f"Error al guardar: {ex}")
 
@@ -160,25 +170,31 @@ def render_module(user, get_gspread_client):
     with tab_salidas:
         st.write("#### Despacho / Salidas")
         destino_sal = st.radio("Línea de Salida:", ["salidas (Línea 1)", "salidas2 (Línea 2)"], horizontal=True, key="rad_sal_linea")
-        hoja_sal = "salidas" if "Línea 1" in destino_sal else "salidas2"
+        es_salida_2 = "Línea 2" in destino_sal
+        hoja_sal = "salidas2" if es_salida_2 else "salidas"
+
+        catalogo_sal_activo = CATALOGO_LINEA_2 if es_salida_2 else CATALOGO_LINEA_1
+        opciones_prod_sal = [f"{p['CODIGO']} - {p['PRESENTACION']}" for p in catalogo_sal_activo]
 
         c_sal_top1, c_sal_top2 = st.columns(2)
         with c_sal_top1:
             fecha_sal = st.date_input("Fecha Embarque", value=date.today(), key="s_fecha_val")
             lote_sal_auto = autocalcular_lote(fecha_sal)
         with c_sal_top2:
-            prod_sal = st.selectbox("Producto a Despachar", opciones_prod, key="s_prod_sel")
+            prod_sal = st.selectbox("Producto a Despachar", opciones_prod_sal, key=f"s_prod_{hoja_sal}")
 
         with st.form("form_salidas", clear_on_submit=True):
             c1, c2, c3 = st.columns(3)
             with c1:
                 mes_sal_idx = fecha_sal.month - 1
-                mes_sal = st.selectbox("Mes Embarque", meses, index=mes_sal_idx, key="s_mes_sel")
-                lote_sal = st.text_input("Lote Embarque", value=lote_sal_auto, key="s_lote_val")
-                sudfa_sal = st.selectbox("Subfamilia (SUDFA)", LISTA_SUBFAMILIAS, index=LISTA_SUBFAMILIAS.index(sugerir_subfamilia(prod_sal)), key="s_sudfa_sel")
+                mes_sal = st.selectbox("Mes Embarque", meses, index=mes_sal_idx, key=f"s_mes_{hoja_sal}")
+                lote_sal = st.text_input("Lote Embarque", value=lote_sal_auto, key=f"s_lote_{hoja_sal}")
+                subf_sal_sug = sugerir_subfamilia(prod_sal)
+                idx_subf_sal = LISTA_SUBFAMILIAS.index(subf_sal_sug) if subf_sal_sug in LISTA_SUBFAMILIAS else 0
+                sudfa_sal = st.selectbox("Subfamilia (SUDFA)", LISTA_SUBFAMILIAS, index=idx_subf_sal, key=f"s_sudfa_{hoja_sal}")
                 tipo_op = st.text_input("Tipo de Operación", value="Exportación")
             with c2:
-                cant_sal = st.number_input("Cantidad Despachada", min_value=0.0, step=0.01, format="%.2f", key="s_cant_val")
+                cant_sal = st.number_input("Cantidad Despachada (TM)", min_value=0.0, step=0.001, format="%.3f", key=f"s_cant_{hoja_sal}")
                 booking = st.text_input("Booking")
                 cliente = st.text_input("Cliente")
             with c3:
@@ -208,7 +224,7 @@ def render_module(user, get_gspread_client):
                 ]
                 try:
                     sh.worksheet(hoja_sal).append_row(fila_sal)
-                    st.success(f"✅ Salida de {cod_s} registrada exitosamente en '{hoja_sal}'.")
+                    st.success(f"✅ Salida registrada en '{hoja_sal}': {cod_s} ({cant_sal} TM).")
                 except Exception as ex:
                     st.error(f"Error al guardar: {ex}")
 
@@ -216,7 +232,7 @@ def render_module(user, get_gspread_client):
     with tab_stock:
         st.write("#### Balance Virtual de Stock")
         hoja_stk_sel = st.radio("Seleccione hoja de balance:", ["stock (Línea 1)", "stock2 (Línea 2)"], horizontal=True, key="rad_stk_sel")
-        nombre_stk = "stock" if "Línea 1" in hoja_stk_sel else "stock2"
+        nombre_stk = "stock2" if "Línea 2" in hoja_stk_sel else "stock"
 
         if st.button("🔄 Refrescar Balance"):
             st.rerun()
@@ -227,21 +243,24 @@ def render_module(user, get_gspread_client):
                 df_stk = pd.DataFrame(filas_stk[1:], columns=filas_stk[0])
                 st.dataframe(df_stk, use_container_width=True)
             else:
-                st.info("Sin registros disponibles en esta hoja.")
+                st.info(f"Sin registros disponibles en la hoja '{nombre_stk}'.")
         except Exception as ex:
             st.error(f"Error al leer stock: {ex}")
 
     # --- TAB 4: INVENTARIO FÍSICO ---
     with tab_inventario:
         st.write("#### Toma de Inventario Físico")
+        # Combina ambos catálogos para permitir inventariar cualquier producto de planta
+        opciones_totales = [f"{p['CODIGO']} - {p['PRESENTACION']}" for p in (CATALOGO_LINEA_1 + CATALOGO_LINEA_2)]
+        
         with st.form("form_inv", clear_on_submit=True):
             i1, i2 = st.columns(2)
             with i1:
                 id_inv = st.text_input("ID Inventario")
                 fecha_inv = st.date_input("Fecha de Conteo", value=date.today(), key="i_fecha_val")
-                prod_inv = st.selectbox("Producto Contado", opciones_prod, key="i_prod_sel")
+                prod_inv = st.selectbox("Producto Contado", opciones_totales, key="i_prod_sel")
             with i2:
-                cant_inv = st.number_input("Cantidad Física Contada", min_value=0.0, step=0.01, format="%.2f", key="i_cant_val")
+                cant_inv = st.number_input("Cantidad Física Contada (TM)", min_value=0.0, step=0.001, format="%.3f", key="i_cant_val")
                 tunel_inv = st.text_input("Cámara / Túnel", key="i_tun_val")
                 placas_inv = st.text_input("Placas / Racks", key="i_pla_val")
                 obs_inv = st.text_area("Observaciones de Auditoría")
@@ -261,8 +280,7 @@ def render_module(user, get_gspread_client):
                 ]
                 try:
                     sh.worksheet("INVENTARIADO_FISICO").append_row(fila_inv)
-                    st.success(f"✅ Conteo físico guardado para {cod_i}.")
+                    st.success(f"✅ Conteo guardado para {cod_i}.")
                 except Exception as ex:
                     st.error(f"Error al registrar inventario físico: {ex}")
-                  
               
