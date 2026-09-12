@@ -7,7 +7,8 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
-URL_PRODUCCION = "https://docs.google.com/spreadsheets/d/1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg/edit"
+# ID exacto del Google Sheet de Producción / Embarques
+ID_SPREADSHEET_PRODUCCION = "1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg"
 
 LISTA_PRESENTACIONES_FRIGOSA = [
     "ALETA FRESCA DE POTA CONGELADA 300 g/pza - 500 g/pza",
@@ -84,7 +85,7 @@ def generar_dossier_pdf_completo(cabecera, presentaciones_data, resumen, df_esti
     titulo_style = ParagraphStyle('TitF', parent=styles['Heading1'], fontSize=11, leading=13, textColor=colors.HexColor("#0D3B66"), alignment=1)
     sub_style = ParagraphStyle('SubF', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
 
-    # ------------------ PÁGINA 1: CONTROL DE PESOS (MÁX 20 PESOS) ------------------
+    # ------------------ PÁGINA 1: CONTROL DE PESOS (COMPACTO A 20 LECTURAS) ------------------
     story.append(Paragraph("SEGUIMIENTO DE CONTROL DE PESO - FRIGOSA SAC", titulo_style))
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | SEMANA N°: {cabecera.get('semana', '-')}", sub_style))
     story.append(Spacer(1, 6))
@@ -109,7 +110,6 @@ def generar_dossier_pdf_completo(cabecera, presentaciones_data, resumen, df_esti
     story.append(t_cab)
     story.append(Spacer(1, 6))
 
-    # Matriz compacta ajustada exactamente a 20 pesos para evitar salto de hoja
     headers = [f"{p['nombre'][:20]}" for p in presentaciones_data]
     matrix_pesos = [headers]
     for r in range(20):
@@ -147,7 +147,6 @@ def generar_dossier_pdf_completo(cabecera, presentaciones_data, resumen, df_esti
             cols = list(df_in.columns)
             num_cols = len(cols)
             
-            # Ancho proporcional: primeras columnas fijas más angostas, lotes distribuidos
             if num_cols > 3:
                 w_prim = [45, 55, 55]
                 w_resto = (572 - sum(w_prim)) / (num_cols - 3)
@@ -166,7 +165,6 @@ def generar_dossier_pdf_completo(cabecera, presentaciones_data, resumen, df_esti
                         row_vals.append(str(val))
                 t_data.append(row_vals)
 
-            # FILA DE TOTALES EN EL PDF
             tot_row = []
             for idx_c, col_name in enumerate(cols):
                 if idx_c == 0:
@@ -179,7 +177,6 @@ def generar_dossier_pdf_completo(cabecera, presentaciones_data, resumen, df_esti
                         tot_row.append("-")
             t_data.append(tot_row)
 
-            # Ajuste de tamaño de fuente según cantidad de columnas
             f_size = 5.5 if num_cols > 7 else (6.0 if num_cols > 5 else 6.5)
 
             t_pdf = Table(t_data, colWidths=col_widths)
@@ -210,7 +207,7 @@ def render_module(user, get_gspread_client):
     nombre_user = user.get("nombre_completo", user.get("usuario", "LUIS ENRIQUE FIESTAS ECA"))
     st.subheader("🚢 Módulo 4: Despachos, Estiba y Embarques")
 
-    # Multicontenedor (3 contenedores independientes)
+    # Selección de contenedor activo
     c_sel1, c_sel2 = st.columns([2, 2])
     with c_sel1:
         cont_activo_key = st.radio(
@@ -272,7 +269,6 @@ def render_module(user, get_gspread_client):
             peso_std = st.number_input("Peso Estándar Bulto (kg):", value=c_state["w_std"], step=0.1, key=f"wstd_{cont_activo_key}")
             c_state["w_std"] = float(peso_std)
 
-        # Vector maestro de capacidades sincronizado para todas las pestañas
         caps_filas_maestro = [int(cap_gral)] * int(n_filas)
         caps_filas_maestro[0] = int(cap_f1)
         caps_filas_maestro[-1] = int(cap_fult)
@@ -306,7 +302,6 @@ def render_module(user, get_gspread_client):
         df_lotes = pd.DataFrame(data_estiba)
         c_state["df_lotes"] = df_lotes
 
-        # Render sin índice cero
         st.dataframe(df_lotes, hide_index=True, use_container_width=True, height=400)
         
         tot_b = sum(df_lotes["CANT/FILA"])
@@ -355,7 +350,6 @@ def render_module(user, get_gspread_client):
         df_pres = pd.DataFrame(data_pres)
         c_state["df_pres"] = df_pres
 
-        # Render sin índice cero
         st.dataframe(df_pres, hide_index=True, use_container_width=True, height=400)
         tot_tm_m = sum(df_pres["TM ESTIMADO"])
         tot_b_m = sum(df_pres["TOTAL BULTOS"])
@@ -387,7 +381,7 @@ def render_module(user, get_gspread_client):
         df_editado = st.data_editor(
             df_sist_editor,
             disabled=["N° FILA", "TM", "TOTAL"],
-            hide_index=True,  # Elimina columna con índice 0
+            hide_index=True,
             use_container_width=True,
             height=400,
             key=f"editor_sist_{cont_activo_key}"
@@ -444,7 +438,6 @@ def render_module(user, get_gspread_client):
                     except:
                         pass
 
-                # Truncar a máximo 20 lecturas para formato de página única
                 pesos_clean = pesos_clean[:20]
 
                 prom_u = (sum(pesos_clean) / len(pesos_clean)) if pesos_clean else val_base
@@ -511,7 +504,13 @@ def render_module(user, get_gspread_client):
             if st.button(f"💾 Guardar en Google Sheets ({num_cont})", use_container_width=True, key=f"btn_save_{cont_activo_key}"):
                 try:
                     client = get_gspread_client()
-                    sh = client.open_by_url(URL_PRODUCCION)
+                    
+                    # Conexión directa por ID limpio (Evita Error 404)
+                    try:
+                        sh = client.open_by_key(ID_SPREADSHEET_PRODUCCION)
+                    except Exception:
+                        sh = client.open("BD_PRODUCCION_ARCHI_001")
+                        
                     ws_desp = sh.worksheet("Control_Pesos_Embarque")
                     
                     id_dp = f"DSP-{date.today().strftime('%y%m%d%H%M%S')}"
@@ -521,17 +520,17 @@ def render_module(user, get_gspread_client):
                     fila = [
                         id_dp,
                         str(fec_desp),
-                        num_cont.strip(),
+                        str(num_cont).strip(),
                         resumen_sist,
                         float(payload),
                         int(tot_b_gral),
                         float(round(peso_tot_gral, 2)),
                         float(round(prom_global, 3)),
                         float(round(peso_a_favor, 2)),
-                        nombre_user,
+                        str(nombre_user),
                         detalle_txt
                     ]
                     ws_desp.append_row(fila)
-                    st.success(f"✅ Contenedor {num_cont} guardado en 'Control_Pesos_Embarque'.")
+                    st.success(f"✅ Contenedor {num_cont} guardado exitosamente en 'Control_Pesos_Embarque'.")
                 except Exception as ex:
                     st.error(f"Error al guardar: {ex}")
