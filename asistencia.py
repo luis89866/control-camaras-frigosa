@@ -194,7 +194,7 @@ def render_module(user, get_sheet, cargar_datos):
     with col_t3:
         tipo_asistencia = st.selectbox(
             "Estado del Día:", 
-            ["Asistencia Normal (Trabajó)", "Feriado", "Licencia", "Permiso", "Compensación", "Vacaciones", "Descanso Médico", "Inasistencia / Falta"],
+            ["Asistencia Normal (Trabajó)", "Feriado", "Licencia", "Permiso","Suspension" ,"Compensación", "Vacaciones", "Descanso Médico", "Inasistencia / Falta"],
             key="asist_tipo_dia"
         )
 
