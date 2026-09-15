@@ -1,13 +1,13 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 import io
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
-# ID exacto del Google Sheet de Producción / Embarques
+# ID del Google Sheet de Producción / Embarques
 ID_SPREADSHEET_PRODUCCION = "1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg"
 
 LISTA_PRESENTACIONES_FRIGOSA = [
@@ -47,6 +47,15 @@ LISTA_PRESENTACIONES_FRIGOSA = [
     "OTRO (Digitar manualmente)"
 ]
 
+def generar_lote_juliano(fecha_obj):
+    """Calcula automáticamente el formato de lote juliano: LT 0AA.DDD (ej. LT 026.258)"""
+    try:
+        yy = str(fecha_obj.year)[-2:]
+        juliano = fecha_obj.timetuple().tm_yday
+        return f"LT 0{yy}.{juliano:03d}"
+    except Exception:
+        return "LT 026.001"
+
 def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     num_filas = len(filas_capacidades)
     num_cols = len(lista_elementos)
@@ -84,24 +93,27 @@ def generar_dossier_pdf_completo(cabecera, presentaciones_data, resumen, df_esti
 
     titulo_style = ParagraphStyle('TitF', parent=styles['Heading1'], fontSize=11, leading=13, textColor=colors.HexColor("#0D3B66"), alignment=1)
     sub_style = ParagraphStyle('SubF', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
+    cell_head_style = ParagraphStyle('CH', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
-    # ------------------ PÁGINA 1: CONTROL DE PESOS (COMPACTO A 20 LECTURAS) ------------------
-    story.append(Paragraph("SEGUIMIENTO DE CONTROL DE PESO - FRIGOSA SAC", titulo_style))
-    story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | SEMANA N°: {cabecera.get('semana', '-')}", sub_style))
-    story.append(Spacer(1, 6))
+    # ------------------ PÁGINA 1: CONTROL DE PESOS Y DATOS LOGÍSTICOS ------------------
+    story.append(Paragraph("SEGUIMIENTO DE CONTROL DE PESO Y EMBARQUE - FRIGOSA SAC", titulo_style))
+    story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | SEMANA: {cabecera.get('semana', '-')} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
+    story.append(Spacer(1, 4))
 
     data_cab = [
         ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
+        ["CLIENTE:", cabecera.get('cliente', '-'), "DESTINO:", cabecera.get('destino', '-')],
+        ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
         ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
         ["SUPERVISOR:", cabecera['responsable'], "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
     ]
-    t_cab = Table(data_cab, colWidths=[110, 165, 125, 172])
+    t_cab = Table(data_cab, colWidths=[105, 175, 115, 177])
     t_cab.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 7),
-        ('TOPPADDING', (0, 0), (-1, -1), 2),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+        ('FONTSIZE', (0, 0), (-1, -1), 6.5),
+        ('TOPPADDING', (0, 0), (-1, -1), 1.8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.8),
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F4F6F9")),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
         ('ALIGN', (1, 0), (1, -1), 'CENTER'),
@@ -110,7 +122,7 @@ def generar_dossier_pdf_completo(cabecera, presentaciones_data, resumen, df_esti
     story.append(t_cab)
     story.append(Spacer(1, 6))
 
-    headers = [f"{p['nombre'][:20]}" for p in presentaciones_data]
+    headers = [Paragraph(f"<b>{p['nombre'][:20]}</b>", ParagraphStyle('PNH', parent=cell_head_style, fontSize=6)) for p in presentaciones_data]
     matrix_pesos = [headers]
     for r in range(20):
         fila = [f"{p['pesos'][r]:.2f}" if r < len(p['pesos']) and p['pesos'][r] > 0 else "-" for p in presentaciones_data]
@@ -129,7 +141,6 @@ def generar_dossier_pdf_completo(cabecera, presentaciones_data, resumen, df_esti
         ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1A365D")),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
         ('BACKGROUND', (0, -3), (-1, -1), colors.HexColor("#EDF2F7")),
         ('FONTNAME', (0, -3), (-1, -1), 'Helvetica-Bold'),
@@ -141,20 +152,27 @@ def generar_dossier_pdf_completo(cabecera, presentaciones_data, resumen, df_esti
         if df_in is not None and not df_in.empty:
             story.append(PageBreak())
             story.append(Paragraph(titulo_tab, titulo_style))
-            story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | FECHA: {cabecera['fecha']}", sub_style))
+            story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | FECHA: {cabecera['fecha']} | CLIENTE: {cabecera.get('cliente', '-')}", sub_style))
             story.append(Spacer(1, 6))
 
             cols = list(df_in.columns)
             num_cols = len(cols)
             
             if num_cols > 3:
-                w_prim = [45, 55, 55]
+                w_prim = [40, 50, 52]
                 w_resto = (572 - sum(w_prim)) / (num_cols - 3)
                 col_widths = w_prim + [w_resto] * (num_cols - 3)
             else:
                 col_widths = [572 / num_cols] * num_cols
 
-            t_data = [[c[:16] for c in cols]]
+            # Encabezados con soporte de doble línea para fecha y lote completo
+            header_row = []
+            for c in cols:
+                txt_format = str(c).replace(" | ", "<br/>")
+                header_row.append(Paragraph(txt_format, cell_head_style))
+            
+            t_data = [header_row]
+
             for _, r in df_in.iterrows():
                 row_vals = []
                 for c in cols:
@@ -182,12 +200,12 @@ def generar_dossier_pdf_completo(cabecera, presentaciones_data, resumen, df_esti
             t_pdf = Table(t_data, colWidths=col_widths)
             t_pdf.setStyle(TableStyle([
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), f_size),
-                ('TOPPADDING', (0, 0), (-1, -1), 1.8),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 1.8),
+                ('FONTSIZE', (0, 1), (-1, -1), f_size),
+                ('TOPPADDING', (0, 0), (-1, -1), 1.5),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(color_header)),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
                 ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#FEFCBF")),
                 ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
@@ -207,7 +225,7 @@ def render_module(user, get_gspread_client):
     nombre_user = user.get("nombre_completo", user.get("usuario", "LUIS ENRIQUE FIESTAS ECA"))
     st.subheader("🚢 Módulo 4: Despachos, Estiba y Embarques")
 
-    # Selección de contenedor activo
+    # Selección de contenedor en operación
     c_sel1, c_sel2 = st.columns([2, 2])
     with c_sel1:
         cont_activo_key = st.radio(
@@ -216,29 +234,66 @@ def render_module(user, get_gspread_client):
             horizontal=True
         )
     with c_sel2:
-        st.info(f"Operando sobre: **{cont_activo_key}** (Estiba y pesos independientes)")
+        st.info(f"Operando: **{cont_activo_key}** (Datos persistentes protegidos contra recarga móvil)")
 
+    # Inicialización del almacenamiento para no perder datos en móviles
     if "contenedores_data" not in st.session_state:
         st.session_state.contenedores_data = {
-            "Contenedor 1": {"cont": "MSGU-101", "pay": 27000.0, "sem": 37, "nfil": 20, "cap_g": 60, "cap_f1": 58, "cap_fu": 62, "w_std": 20.0},
-            "Contenedor 2": {"cont": "MSGU-102", "pay": 27000.0, "sem": 37, "nfil": 20, "cap_g": 60, "cap_f1": 58, "cap_fu": 62, "w_std": 20.0},
-            "Contenedor 3": {"cont": "MSGU-103", "pay": 27000.0, "sem": 37, "nfil": 20, "cap_g": 60, "cap_f1": 58, "cap_fu": 62, "w_std": 20.0}
+            "Contenedor 1": {
+                "cont": "MSGU-101", "pay": 27000.0, "sem": 37, "nfil": 20, 
+                "cap_g": 67, "cap_f1": 77, "cap_fu": 67, "w_std": 20.0,
+                "pi": "", "booking": "", "cliente": "", "destino": "",
+                "lotes_input": [
+                    {"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 485},
+                    {"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 458},
+                    {"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 400}
+                ]
+            },
+            "Contenedor 2": {
+                "cont": "MSGU-102", "pay": 27000.0, "sem": 37, "nfil": 20, 
+                "cap_g": 67, "cap_f1": 77, "cap_fu": 67, "w_std": 20.0,
+                "pi": "", "booking": "", "cliente": "", "destino": "",
+                "lotes_input": [
+                    {"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 485},
+                    {"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 458},
+                    {"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 400}
+                ]
+            },
+            "Contenedor 3": {
+                "cont": "MSGU-103", "pay": 27000.0, "sem": 37, "nfil": 20, 
+                "cap_g": 67, "cap_f1": 77, "cap_fu": 67, "w_std": 20.0,
+                "pi": "", "booking": "", "cliente": "", "destino": "",
+                "lotes_input": [
+                    {"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 485},
+                    {"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 458},
+                    {"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 400}
+                ]
+            }
         }
 
     c_state = st.session_state.contenedores_data[cont_activo_key]
 
-    with st.expander(f"⚙️ Configuración Global - {cont_activo_key}", expanded=True):
+    # --- CONFIGURACIÓN GLOBAL Y LOGÍSTICA ---
+    with st.expander(f"⚙️ Configuración Logística y Embarque - {cont_activo_key}", expanded=True):
         cp1, cp2, cp3, cp4 = st.columns(4)
         with cp1:
             fec_desp = st.date_input("Fecha Embarque:", date.today(), key=f"fec_{cont_activo_key}")
-        with cp2:
-            num_cont = st.text_input("N° Contenedor:", value=c_state["cont"], key=f"num_{cont_activo_key}")
+            num_cont = st.text_input("N° Contenedor:", value=c_state.get("cont", ""), key=f"num_{cont_activo_key}")
             c_state["cont"] = num_cont
+        with cp2:
+            booking = st.text_input("Booking:", value=c_state.get("booking", ""), key=f"bk_{cont_activo_key}")
+            c_state["booking"] = booking
+            pi_val = st.text_input("N° P.I. (Pedido):", value=c_state.get("pi", ""), key=f"pi_{cont_activo_key}")
+            c_state["pi"] = pi_val
         with cp3:
-            payload = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=32000.0, value=c_state["pay"], step=500.0, key=f"pay_{cont_activo_key}")
-            c_state["pay"] = payload
+            cliente = st.text_input("Cliente:", value=c_state.get("cliente", ""), key=f"cli_{cont_activo_key}")
+            c_state["cliente"] = cliente
+            destino = st.text_input("Destino (País/Puerto):", value=c_state.get("destino", ""), key=f"dest_{cont_activo_key}")
+            c_state["destino"] = destino
         with cp4:
-            semana_est = st.number_input("Semana N°:", min_value=1, max_value=53, value=c_state["sem"], key=f"sem_{cont_activo_key}")
+            payload = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=32000.0, value=float(c_state.get("pay", 27000.0)), step=500.0, key=f"pay_{cont_activo_key}")
+            c_state["pay"] = payload
+            semana_est = st.number_input("Semana N°:", min_value=1, max_value=53, value=int(c_state.get("sem", 37)), key=f"sem_{cont_activo_key}")
             c_state["sem"] = semana_est
 
     tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos = st.tabs([
@@ -249,24 +304,24 @@ def render_module(user, get_gspread_client):
     ])
 
     # =========================================================================
-    # TAB 1: PLANO DE ESTIBA POR LOTES
+    # TAB 1: PLANO DE ESTIBA POR LOTES (CÁLCULO AUTOMÁTICO Y MANUAL)
     # =========================================================================
     with tab_estiba_lotes:
         st.markdown("#### Configuración de Filas y Carga de Lotes")
         cf1, cf2, cf3, cf4 = st.columns(4)
         with cf1:
-            n_filas = st.number_input("Total Filas:", min_value=10, max_value=30, value=c_state["nfil"], key=f"nfil_{cont_activo_key}")
+            n_filas = st.number_input("Total Filas:", min_value=10, max_value=30, value=int(c_state["nfil"]), key=f"nfil_{cont_activo_key}")
             c_state["nfil"] = int(n_filas)
         with cf2:
-            cap_gral = st.number_input("Capacidad Estándar Fila:", min_value=30, max_value=100, value=c_state["cap_g"], key=f"capg_{cont_activo_key}")
+            cap_gral = st.number_input("Capacidad Estándar Fila:", min_value=30, max_value=100, value=int(c_state["cap_g"]), key=f"capg_{cont_activo_key}")
             c_state["cap_g"] = int(cap_gral)
         with cf3:
-            cap_f1 = st.number_input("Capacidad Fila 1 (Tope):", min_value=20, max_value=100, value=c_state["cap_f1"], key=f"capf1_{cont_activo_key}")
+            cap_f1 = st.number_input("Capacidad Fila 1 (Tope):", min_value=20, max_value=100, value=int(c_state["cap_f1"]), key=f"capf1_{cont_activo_key}")
             c_state["cap_f1"] = int(cap_f1)
         with cf4:
-            cap_fult = st.number_input(f"Capacidad Fila {n_filas} (Puerta):", min_value=20, max_value=100, value=c_state["cap_fu"], key=f"capfu_{cont_activo_key}")
+            cap_fult = st.number_input(f"Capacidad Fila {n_filas} (Puerta):", min_value=20, max_value=100, value=int(c_state["cap_fu"]), key=f"capfu_{cont_activo_key}")
             c_state["cap_fu"] = int(cap_fult)
-            peso_std = st.number_input("Peso Estándar Bulto (kg):", value=c_state["w_std"], step=0.1, key=f"wstd_{cont_activo_key}")
+            peso_std = st.number_input("Peso Estándar Bulto (kg):", value=float(c_state["w_std"]), step=0.1, key=f"wstd_{cont_activo_key}")
             c_state["w_std"] = float(peso_std)
 
         caps_filas_maestro = [int(cap_gral)] * int(n_filas)
@@ -276,16 +331,42 @@ def render_module(user, get_gspread_client):
 
         st.markdown("---")
         st.markdown("#### Lotes a Cargar (Zonas Celestes)")
-        n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=10, value=3, key=f"nlot_{cont_activo_key}")
-        cols_l = st.columns(int(n_lotes))
+        n_lotes = st.number_input("Cantidad de Lotes a Estibar:", min_value=1, max_value=10, value=len(c_state["lotes_input"]), key=f"nlot_{cont_activo_key}")
+        
+        # Ajuste dinámico de lista de lotes
+        while len(c_state["lotes_input"]) < n_lotes:
+            c_state["lotes_input"].append({"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 400})
+        while len(c_state["lotes_input"]) > n_lotes:
+            c_state["lotes_input"].pop()
 
+        cols_l = st.columns(int(n_lotes))
         lista_lotes = []
+
         for i, col in enumerate(cols_l):
+            item_lote = c_state["lotes_input"][i]
             with col:
-                fec_l = st.date_input(f"Fecha {i+1}:", date.today(), key=f"fl_{i}_{cont_activo_key}")
-                cod_l = st.text_input(f"Lote {i+1}:", value=f"LT 026.{268+i}", key=f"cl_{i}_{cont_activo_key}")
-                cant_l = st.number_input(f"Bultos {i+1}:", min_value=0, value=485 if i==0 else (458 if i==1 else 400), step=10, key=f"bl_{i}_{cont_activo_key}")
-                lista_lotes.append({"fecha_txt": fec_l.strftime('%d/%m/%Y'), "lote_txt": cod_l, "cantidad": int(cant_l)})
+                # 1. Fecha de producción
+                fec_l = st.date_input(f"Fecha {i+1}:", value=item_lote["fecha"], key=f"fl_{i}_{cont_activo_key}")
+                
+                # Si la fecha cambió respecto a la almacenada, sugerir nuevo juliano
+                lote_sugerido = generar_lote_juliano(fec_l) if fec_l != item_lote["fecha"] else item_lote["lote"]
+                
+                # 2. Lote (Editable manualmente por si es de año anterior o lote especial)
+                cod_l = st.text_input(f"Lote {i+1}:", value=lote_sugerido, key=f"cl_{i}_{cont_activo_key}")
+                
+                # 3. Bultos
+                cant_l = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(item_lote["bultos"]), step=10, key=f"bl_{i}_{cont_activo_key}")
+                
+                # Actualizar estado persistente
+                item_lote["fecha"] = fec_l
+                item_lote["lote"] = cod_l
+                item_lote["bultos"] = int(cant_l)
+
+                lista_lotes.append({
+                    "fecha_txt": fec_l.strftime('%d/%m/%Y'),
+                    "lote_txt": cod_l.strip(),
+                    "cantidad": int(cant_l)
+                })
 
         matriz_lotes = calcular_matriz_estiba(caps_filas_maestro, lista_lotes)
         headers_l = [f"{l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes]
@@ -318,10 +399,8 @@ def render_module(user, get_gspread_client):
     # TAB 2: PLANO DE ESTIBA POR PRESENTACIONES
     # =========================================================================
     with tab_estiba_pres:
-        st.markdown("#### Distribución de Presentaciones (Sincronizado con Fila y Capacidades de Lotes)")
-        st.caption(f"Filas activas: **{len(caps_filas_maestro)} filas** | Capacidad Total: **{sum(caps_filas_maestro)} bultos**")
-
-        np_m = st.number_input("Número de Presentaciones a Cargar:", min_value=1, max_value=6, value=2, key=f"npm_{cont_activo_key}")
+        st.markdown("#### Distribución de Presentaciones")
+        np_m = st.number_input("Número de Presentaciones:", min_value=1, max_value=6, value=2, key=f"npm_{cont_activo_key}")
         cols_pm = st.columns(int(np_m))
 
         lista_pres_m = []
@@ -331,7 +410,7 @@ def render_module(user, get_gspread_client):
                 idx_def_p = min(i, len(LISTA_PRESENTACIONES_FRIGOSA) - 2)
                 p_sel = st.selectbox(f"Corte {i+1}:", LISTA_PRESENTACIONES_FRIGOSA, index=idx_def_p, key=f"selp_{i}_{cont_activo_key}")
                 nom_pm = st.text_input(f"Detalle {i+1}:", key=f"otrp_{i}_{cont_activo_key}") if p_sel == "OTRO (Digitar manualmente)" else p_sel
-                cant_pm = st.number_input(f"Cantidad Total Bultos {i+1}:", min_value=0, value=650 if i==0 else 550, step=20, key=f"cantp_{i}_{cont_activo_key}")
+                cant_pm = st.number_input(f"Bultos {i+1}:", min_value=0, value=650 if i==0 else 550, step=20, key=f"cantp_{i}_{cont_activo_key}")
                 peso_pm = st.number_input(f"Peso Promedio (kg) {i+1}:", value=22.10 if i==0 else 11.90, step=0.05, key=f"wpr_{i}_{cont_activo_key}")
                 lista_pres_m.append({"nombre": nom_pm, "cantidad": int(cant_pm), "peso_unit": float(peso_pm)})
 
@@ -363,8 +442,6 @@ def render_module(user, get_gspread_client):
     # =========================================================================
     with tab_placa_tunel:
         st.markdown("#### Distribución de Congelación por Fila (Placas / Túnel / IQF)")
-        st.caption("Edita los bultos por sistema en cada fila respetando la capacidad nominal.")
-
         data_sist = []
         for f_idx in range(len(caps_filas_maestro)):
             bultos_fila_target = caps_filas_maestro[f_idx]
@@ -401,11 +478,11 @@ def render_module(user, get_gspread_client):
         s4.metric("Total General", f"{tot_placas + tot_tunel + tot_iqf:,} bultos")
 
     # =========================================================================
-    # TAB 4: CONTROL Y MUESTREO DE PESOS (MÁXIMO 20 PESOS)
+    # TAB 4: CONTROL Y MUESTREO DE PESOS (HASTA 20 PESOS)
     # =========================================================================
     with tab_pesos:
         st.markdown(f"#### Control de Balanza / Pesos ({cont_activo_key} - {num_cont})")
-        st.caption("Pega o digita hasta 20 lecturas reales de balanza tomadas durante el embarque.")
+        st.caption(f"Embarque PI: **{pi_val}** | Booking: **{booking}** | Destino: **{destino}**")
 
         num_pres_pesos = st.number_input("Presentaciones a Evaluar:", min_value=1, max_value=6, value=len(lista_pres_m), key=f"npw_{cont_activo_key}")
         cols_w = st.columns(int(num_pres_pesos))
@@ -439,7 +516,6 @@ def render_module(user, get_gspread_client):
                         pass
 
                 pesos_clean = pesos_clean[:20]
-
                 prom_u = (sum(pesos_clean) / len(pesos_clean)) if pesos_clean else val_base
                 tot_k = prom_u * bultos_val
                 st.caption(f"Muestras: **{len(pesos_clean)}/20** | Prom: **{prom_u:.3f} kg**")
@@ -470,7 +546,11 @@ def render_module(user, get_gspread_client):
             "contenedor": num_cont.strip(),
             "payload": payload,
             "semana": semana_est,
-            "responsable": nombre_user
+            "responsable": nombre_user,
+            "pi": pi_val,
+            "booking": booking,
+            "cliente": cliente,
+            "destino": destino
         }
         resumen_pdf = {
             "total_bultos": tot_b_gral,
@@ -491,7 +571,7 @@ def render_module(user, get_gspread_client):
                     c_state.get("df_sist")
                 )
                 st.download_button(
-                    label=f"📄 Descargar Dossier PDF Unificado ({num_cont})",
+                    label=f"📄 Descargar Dossier PDF Completo ({num_cont})",
                     data=pdf_bytes,
                     file_name=f"Dossier_{num_cont}_{fec_desp}.pdf",
                     mime="application/pdf",
@@ -504,8 +584,6 @@ def render_module(user, get_gspread_client):
             if st.button(f"💾 Guardar en Google Sheets ({num_cont})", use_container_width=True, key=f"btn_save_{cont_activo_key}"):
                 try:
                     client = get_gspread_client()
-                    
-                    # Conexión directa por ID limpio (Evita Error 404)
                     try:
                         sh = client.open_by_key(ID_SPREADSHEET_PRODUCCION)
                     except Exception:
@@ -521,6 +599,10 @@ def render_module(user, get_gspread_client):
                         id_dp,
                         str(fec_desp),
                         str(num_cont).strip(),
+                        str(pi_val).strip(),
+                        str(booking).strip(),
+                        str(cliente).strip(),
+                        str(destino).strip(),
                         resumen_sist,
                         float(payload),
                         int(tot_b_gral),
@@ -533,4 +615,4 @@ def render_module(user, get_gspread_client):
                     ws_desp.append_row(fila)
                     st.success(f"✅ Contenedor {num_cont} guardado exitosamente en 'Control_Pesos_Embarque'.")
                 except Exception as ex:
-                    st.error(f"Error al guardar: {ex}")
+                    st.error(f"Error al guardar en Sheets: {ex}")
