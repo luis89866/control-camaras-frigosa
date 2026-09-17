@@ -83,30 +83,32 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
 # =========================================================================
 def generar_pdf_planos_estiba(cabecera, df_estiba_lotes, df_estiba_pres):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=20, rightMargin=20, topMargin=20, bottomMargin=20)
+    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=18, rightMargin=18, topMargin=18, bottomMargin=18)
     story = []
     styles = getSampleStyleSheet()
 
-    titulo_style = ParagraphStyle('TitF', parent=styles['Heading1'], fontSize=11, leading=13, textColor=colors.HexColor("#0D3B66"), alignment=1)
-    sub_style = ParagraphStyle('SubF', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
-    cell_head_style = ParagraphStyle('CH', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
+    titulo_style = ParagraphStyle('TitF', parent=styles['Heading1'], fontSize=10.5, leading=12, textColor=colors.HexColor("#0D3B66"), alignment=1)
+    sub_style = ParagraphStyle('SubF', parent=styles['Heading2'], fontSize=7.5, leading=9.5, textColor=colors.HexColor("#2B6CB0"), alignment=1)
+    cell_head_style = ParagraphStyle('CH', parent=styles['Normal'], fontSize=5.5, leading=6.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
     def agregar_tabla(df_in, titulo_tab, color_header):
         if df_in is not None and not df_in.empty:
             story.append(Paragraph(titulo_tab, titulo_style))
             story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | FECHA: {cabecera['fecha']} | CLIENTE: {cabecera.get('cliente', '-')}", sub_style))
-            story.append(Spacer(1, 6))
+            story.append(Spacer(1, 5))
 
             cols = list(df_in.columns)
             num_cols = len(cols)
+            
+            # Anchos calculados con holgura para evitar desbordes
             if num_cols > 3:
-                w_prim = [40, 50, 52]
-                w_resto = (572 - sum(w_prim)) / (num_cols - 3)
+                w_prim = [40, 52, 55]
+                w_resto = (576 - sum(w_prim)) / (num_cols - 3)
                 col_widths = w_prim + [w_resto] * (num_cols - 3)
             else:
-                col_widths = [572 / num_cols] * num_cols
+                col_widths = [576 / num_cols] * num_cols
 
-            header_row = [Paragraph(str(c).replace(" | ", "<br/>"), cell_head_style) for c in cols]
+            header_row = [Paragraph(str(c).replace(" | ", "<br/>").replace("\n", "<br/>"), cell_head_style) for c in cols]
             t_data = [header_row]
 
             for _, r in df_in.iterrows():
@@ -131,13 +133,13 @@ def generar_pdf_planos_estiba(cabecera, df_estiba_lotes, df_estiba_pres):
                         tot_row.append("-")
             t_data.append(tot_row)
 
-            f_size = 5.5 if num_cols > 7 else (6.0 if num_cols > 5 else 6.5)
+            f_size = 5.2 if num_cols > 6 else (5.8 if num_cols > 4 else 6.2)
             t_pdf = Table(t_data, colWidths=col_widths)
             t_pdf.setStyle(TableStyle([
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0, 1), (-1, -1), f_size),
-                ('TOPPADDING', (0, 0), (-1, -1), 1.5),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+                ('TOPPADDING', (0, 0), (-1, -1), 1.2),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 1.2),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(color_header)),
@@ -278,9 +280,6 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     buffer.seek(0)
     return buffer
 
-# =========================================================================
-# FUNCIÓN AUXILIAR DE ACCESO A WORKSHEETS
-# =========================================================================
 def obtener_hoja_google(get_gspread_client, nombre_hoja):
     client = get_gspread_client()
     try:
@@ -289,14 +288,10 @@ def obtener_hoja_google(get_gspread_client, nombre_hoja):
         sh = client.open("BD_PRODUCCION_ARCHI_001")
     return sh.worksheet(nombre_hoja)
 
-# =========================================================================
-# RENDER PRINCIPAL STREAMLIT
-# =========================================================================
 def render_module(user, get_gspread_client):
     nombre_user = user.get("nombre_completo", user.get("usuario", "LUIS ENRIQUE FIESTAS ECA"))
     st.subheader("🚢 Módulo 4: Despachos, Estiba y Embarques")
 
-    # Inicialización limpia en session_state
     if "embarque_state" not in st.session_state:
         st.session_state.embarque_state = {
             "cont": "MSGU-101", "pay": 30400.0, "sem": 38, "nfil": 20,
@@ -312,7 +307,6 @@ def render_module(user, get_gspread_client):
 
     c_state = st.session_state.embarque_state
 
-    # Botón para limpiar todas las ventanas y reiniciar
     col_top1, col_top2 = st.columns([3, 1])
     with col_top2:
         if st.button("🧹 Limpiar Ventanas / Nuevo", help="Limpia todos los campos para iniciar otro contenedor", use_container_width=True):
@@ -328,7 +322,6 @@ def render_module(user, get_gspread_client):
             }
             st.rerun()
 
-    # --- DATOS DE CABECERA Y BOOKING ---
     with st.expander("⚙️ Datos de Cabecera y Booking (Global)", expanded=True):
         cp1, cp2, cp3, cp4 = st.columns(4)
         with cp1:
@@ -442,26 +435,28 @@ def render_module(user, get_gspread_client):
         m4.metric("Espacio Libre", f"{cap_max - tot_b} bultos")
 
     # =========================================================================
-    # TAB 2: PLANO ESTIBA POR PRESENTACIONES + PDF Y GUARDADO DE DISTRIBUCIONES
+    # TAB 2: PLANO ESTIBA POR PRESENTACIONES (CORREGIDO SIN COLAPSO DE COLUMNAS)
     # =========================================================================
     with tab_estiba_pres:
         st.markdown("#### Presentaciones a Embarcar")
-        np_m = st.number_input("Número de Presentaciones:", min_value=1, max_value=6, value=1, key="npm_main")
+        np_m = st.number_input("Número de Presentaciones:", min_value=1, max_value=6, value=2, key="npm_main")
         cols_pm = st.columns(int(np_m))
 
         lista_pres_m = []
         for i, col in enumerate(cols_pm):
             with col:
                 st.markdown(f"**Presentación {i+1}**")
-                idx_def_p = 2 if i == 0 else 0
-                p_sel = st.selectbox(f"Corte {i+1}:", LISTA_PRESENTACIONES_FRIGOSA, index=idx_def_p, key=f"selp_{i}_main")
-                nom_pm = st.text_input(f"Detalle {i+1}:", key=f"otrp_{i}_main") if p_sel == "OTRO (Digitar manualmente)" else p_sel
-                cant_pm = st.number_input(f"Bultos {i+1}:", min_value=0, value=1350 if i==0 else 0, step=10, key=f"cantp_{i}_main")
+                idx_def_p = 12 if i == 0 else (13 if i == 1 else 0)
+                p_sel = st.selectbox(f"Corte {i+1}:", LISTA_PRESENTACIONES_FRIGOSA, index=min(idx_def_p, len(LISTA_PRESENTACIONES_FRIGOSA)-1), key=f"selp_{i}_main")
+                nom_pm = st.text_input(f"Detalle {i+1}:", key=f"otrp_{i}_main") if p_sel == "OTRO (Digitar manualmente)" else p_sel.strip()
+                cant_pm = st.number_input(f"Bultos {i+1}:", min_value=0, value=800 if i==0 else (550 if i==1 else 0), step=10, key=f"cantp_{i}_main")
                 peso_pm = st.number_input(f"Peso Promedio (kg) {i+1}:", value=21.68 if i==0 else 20.0, step=0.05, key=f"wpr_{i}_main")
                 lista_pres_m.append({"nombre": nom_pm, "cantidad": int(cant_pm), "peso_unit": float(peso_pm)})
 
         matriz_m = calcular_matriz_estiba(caps_filas_maestro, lista_pres_m)
-        headers_m = [p['nombre'][:25] for p in lista_pres_m]
+        
+        # Encabezado único garantizado para no colapsar columnas duplicadas
+        headers_m = [f"{p['nombre']} (P{idx_p+1})" for idx_p, p in enumerate(lista_pres_m)]
 
         data_pres = []
         for f_idx in range(len(caps_filas_maestro)):
@@ -510,7 +505,6 @@ def render_module(user, get_gspread_client):
                     detalle_pres_txt = " | ".join([f"{p['nombre']}: {p['cantidad']}b" for p in lista_pres_m if p['cantidad'] > 0])
                     detalle_lotes_txt = " | ".join([f"{l['lote_txt']} ({l['fecha_txt']}): {l['cantidad']}b" for l in lista_lotes if l['cantidad'] > 0])
 
-                    # Encabezados: id_despacho, fecha, contenedor, N° de P.I., Booking, Cliente, Destino, supervisor, detalle_presentaciones, detalle_lotes_fechas
                     fila_dist = [
                         id_dp,
                         str(fec_desp),
@@ -617,7 +611,6 @@ def render_module(user, get_gspread_client):
                     ws_cong = obtener_hoja_google(get_gspread_client, "tipo_de_congelado")
                     id_dp = f"DSP-{date.today().strftime('%y%m%d%H%M%S')}"
 
-                    # Encabezados: id_despacho, fecha, contenedor, N° de P.I., Booking, Cliente, Destino, supervisor, placas, tunel, iqf
                     fila_cong = [
                         id_dp,
                         str(fec_desp),
@@ -742,7 +735,6 @@ def render_module(user, get_gspread_client):
                     ws_pesos = obtener_hoja_google(get_gspread_client, "pesos")
                     id_dp = f"DSP-{date.today().strftime('%y%m%d%H%M%S')}"
 
-                    # Encabezados: id_despacho, fecha, contenedor, N° de P.I., Booking, Cliente, Destino, supervisor, payload_contenedor, total_bultos, peso_bruto, margen_a_favor, promedio_global
                     fila_pesos = [
                         id_dp,
                         str(fec_desp),
