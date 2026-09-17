@@ -9,8 +9,8 @@ import asistencia
 import pptt
 import envasado
 import stock_produccion
-import embarque  # <-- IMPORTACIÓN DEL MÓDULO 4
-
+import embarque  # <-- MÓDULO 4: DESPACHOS Y EMBARQUES
+import mp        # <-- MÓDULO 6: MATERIA PRIMA (TOLVA)
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -134,7 +134,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --- VISTA 1: DASHBOARD PRINCIPAL CON CUADROS / TARJETAS GRANDES ---
+# --- VISTA 1: DASHBOARD PRINCIPAL CON TARJETAS ---
 if st.session_state.modulo_activo == "Home":
     st.markdown("### 🎛️ Panel de Módulos del Sistema")
     st.caption("Seleccione un módulo haciendo clic en el cuadro correspondiente para gestionar las operaciones.")
@@ -142,6 +142,7 @@ if st.session_state.modulo_activo == "Home":
     col_card1, col_card2 = st.columns(2)
     
     with col_card1:
+        # TARJETA MÓDULO 1
         st.markdown(
             """
             <div style="background-color: #f8f9fa; border: 2px solid #1E3D59; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
@@ -158,6 +159,7 @@ if st.session_state.modulo_activo == "Home":
 
         st.markdown("<br>", unsafe_allow_html=True)
 
+        # TARJETA MÓDULO 3
         st.markdown(
             """
             <div style="background-color: #f8f9fa; border: 2px solid #ff8800; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
@@ -190,6 +192,7 @@ if st.session_state.modulo_activo == "Home":
             st.rerun()
 
     with col_card2:
+        # TARJETA MÓDULO 2
         st.markdown(
             """
             <div style="background-color: #f8f9fa; border: 2px solid #007bff; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
@@ -206,6 +209,7 @@ if st.session_state.modulo_activo == "Home":
 
         st.markdown("<br>", unsafe_allow_html=True)
 
+        # TARJETA MÓDULO 4
         st.markdown(
             """
             <div style="background-color: #f8f9fa; border: 2px solid #28a745; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
@@ -218,6 +222,23 @@ if st.session_state.modulo_activo == "Home":
         )
         if st.button("🚀 Ingresar a Despachos", use_container_width=True, key="btn_m3"):
             st.session_state.modulo_activo = "Despachos"
+            st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # TARJETA MÓDULO 6 (NUEVO: MATERIA PRIMA / TOLVA)
+        st.markdown(
+            """
+            <div style="background-color: #f8f9fa; border: 2px solid #17a2b8; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
+                <h3 style="color: #17a2b8; margin-top: 0;">🐟 Módulo 6</h3>
+                <h4 style="color: #333;">Materia Prima (Tolva / Descarga)</h4>
+                <p style="font-size: 13px; color: #666;">Registro ágil de tolvas, embarcaciones, matrículas, pesadas acumulativas y tiempos.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        if st.button("🚀 Ingresar a Materia Prima (Tolva)", use_container_width=True, key="btn_m_mp"):
+            st.session_state.modulo_activo = "MateriaPrima"
             st.rerun()
 
 # --- VISTA 2: CARGA DEL MÓDULO SELECCIONADO ---
@@ -235,7 +256,8 @@ else:
     elif st.session_state.modulo_activo == "Envasado":
         envasado.render_module(user, get_sheet, cargar_datos)
     elif st.session_state.modulo_activo == "Despachos":
-        # Conexión directa con embarque.py pasando get_gspread_client
         embarque.render_module(user, get_gspread_client)
     elif st.session_state.modulo_activo == "StockProduccion":
         stock_produccion.render_module(user, get_gspread_client)
+    elif st.session_state.modulo_activo == "MateriaPrima":
+        mp.render_module(user, get_gspread_client)
