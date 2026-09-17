@@ -22,6 +22,8 @@ LISTA_PRESENTACIONES_FRIGOSA = [
     "FF C/M C/T 500 g/pza - 1000 g/pz",
     "FF C/M C/T 1000 g/pza - 2000 g/pza",
     "FF C/M C/T 2000 g/pza - 4000 g/pza",
+    "FF C/M C/T 2000 g/pza - 4000 g/pza MANTO ",
+    "FF C/M C/T 2000 g/pza - 4000 g/pza CORTADO ",
     "FPC 7mm - 10 mm",
     "FPC PANZA 7mm - 10 mm",
     "FPC MEMBRANA 7mm - 10 mm",
