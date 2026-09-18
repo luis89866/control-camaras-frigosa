@@ -260,7 +260,7 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     t_muestreo = Table(matrix_pesos, colWidths=[ancho_col] * len(presentaciones_data))
     t_muestreo.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 6.5),
+        ('FONTSIZE', (0, 1), (-1, -1), 6.5),
         ('TOPPADDING', (0, 0), (-1, -1), 1.5),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -276,7 +276,7 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     return buffer
 
 # =========================================================================
-# LÓGICA DE SHEETS
+# LÓGICA DE SHEETS (CON PERSISTENCIA DE PESOS Y ANTI-DUPLICADOS)
 # =========================================================================
 def obtener_hoja_distribuciones(get_gspread_client):
     client = get_gspread_client()
@@ -286,25 +286,29 @@ def obtener_hoja_distribuciones(get_gspread_client):
         sh = client.open("BD_PRODUCCION_ARCHI_001")
     return sh.worksheet("DISTRIBUCIONES")
 
-def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila):
+def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo=False):
     ws = obtener_hoja_distribuciones(get_gspread_client)
     contenedores_col = ws.col_values(2)  # Columna B: CONTENEDOR
-    num_cont = str(datos_fila[1]).strip()
+    num_cont = str(datos_fila[1]).strip().upper()
 
     fila_idx = None
     for idx, c_val in enumerate(contenedores_col):
-        if str(c_val).strip() == num_cont and idx > 0:
+        if str(c_val).strip().upper() == num_cont and idx > 0:
             fila_idx = idx + 1
             break
 
+    # Validación anti-duplicado si el usuario intenta crear uno que ya existe
+    if forzar_nuevo and fila_idx:
+        return False, f"El contenedor '{num_cont}' ya existe en la fila {fila_idx}. Cambie a 'Cargar / Editar' para modificarlo."
+
     if fila_idx:
-        # Abarca desde Columna A hasta AN (39 columnas)
-        rango = f"A{fila_idx}:AN{fila_idx}"
+        # Abarca desde Columna A hasta AO (41 columnas)
+        rango = f"A{fila_idx}:AO{fila_idx}"
         ws.update(rango, [datos_fila])
-        return f"Actualizado (Fila {fila_idx})"
+        return True, f"Actualizado exitosamente (Fila {fila_idx})"
     else:
         ws.append_row(datos_fila)
-        return "Registrado como nuevo"
+        return True, "Registrado como nuevo registro"
 
 # =========================================================================
 # MÓDULO PRINCIPAL
@@ -337,7 +341,7 @@ def render_module(user, get_gspread_client):
     if "pay_val" not in st.session_state:
         st.session_state.pay_val = 30400.0
 
-    # Configuración de estiba física con guardado
+    # Configuración de estiba física
     if "nfil_val" not in st.session_state:
         st.session_state.nfil_val = 18
     if "capg_val" not in st.session_state:
@@ -411,7 +415,7 @@ def render_module(user, get_gspread_client):
                     except Exception:
                         st.session_state.pay_val = 30400.0
 
-                    # 1. Recuperación de la estiba física guardada (Columnas AJ a AN)
+                    # 1. Recuperación de estiba física guardada (AJ a AN)
                     try:
                         if len(fila_encontrada) > 35 and fila_encontrada[35].strip():
                             st.session_state.nfil_val = int(fila_encontrada[35].strip())
@@ -440,7 +444,7 @@ def render_module(user, get_gspread_client):
                     if cargadas_pres:
                         st.session_state.pres_items = cargadas_pres
 
-                    # 3. Parsear Lotes de columna AI
+                    # 3. Parsear Lotes (Columna AI)
                     if len(fila_encontrada) > 34 and fila_encontrada[34].strip():
                         det_lotes_str = fila_encontrada[34].strip()
                         partes_l = det_lotes_str.split(" | ")
@@ -458,12 +462,20 @@ def render_module(user, get_gspread_client):
                         if nuevos_lotes:
                             st.session_state.lotes_items = nuevos_lotes
 
-                    # Limpiar tabla de congelado para sincronizar de inmediato
+                    # 4. Parsear Pesos de Balanza Guardados (Columna AO / Índice 40)
+                    if len(fila_encontrada) > 40 and fila_encontrada[40].strip():
+                        raw_pesos = fila_encontrada[40].strip().split(" ;; ")
+                        st.session_state.txt_pesos_mem = {}
+                        for item_p in raw_pesos:
+                            if "::" in item_p:
+                                p_idx, p_vals = item_p.split("::", 1)
+                                st.session_state.txt_pesos_mem[p_idx.strip()] = p_vals.strip()
+
                     if "df_congelado_edit" in st.session_state:
                         del st.session_state["df_congelado_edit"]
 
                     st.session_state.form_version += 1
-                    st.success(f"✅ ¡Contenedor {cont_seleccionado} cargado con su estiba de {st.session_state.nfil_val} filas!")
+                    st.success(f"✅ ¡Contenedor {cont_seleccionado} cargado con estiba y pesos restaurados!")
                     st.rerun()
 
     with col_sel2:
@@ -491,7 +503,7 @@ def render_module(user, get_gspread_client):
             st.session_state.form_version += 1
             st.rerun()
 
-    # --- DATOS DE CABECERA ---
+    # --- CABECERA ---
     with st.expander("⚙️ Datos Principales del Contenedor", expanded=True):
         cp1, cp2, cp3, cp4 = st.columns(4)
         with cp1:
@@ -620,21 +632,38 @@ def render_module(user, get_gspread_client):
             pass
 
     # =========================================================================
-    # TAB 3: PLACAS / TÚNEL / IQF
+    # TAB 3: PLACAS / TÚNEL / IQF (LIMPIEZA AUTOMÁTICA EN MIXTO)
     # =========================================================================
     with tab_placa_tunel:
         st.markdown("#### Configuración de Sistema de Congelación")
-        
+
+        # Callback para limpiar valores cuando el usuario cambia a modo Mixto
+        def on_change_modo_cong():
+            opc = st.session_state.get(f"rad_cong_{v}")
+            num_f = len(caps_filas_maestro)
+            if opc == "Mixto (Ingreso Manual Fila por Fila)":
+                filas_clean = []
+                for f_idx in range(num_f):
+                    filas_clean.append({
+                        "N° FILA": f_idx + 1,
+                        "TM": 0.0,
+                        "PLACAS": 0,
+                        "TUNEL": 0,
+                        "IQF": 0,
+                        "TOTAL": 0
+                    })
+                st.session_state.df_congelado_edit = pd.DataFrame(filas_clean)
+
         modo_cong_opc = st.radio(
             "Carga predominante:",
             ["Solo Placas (100% de la carga)", "Solo Túnel (100% de la carga)", "Mixto (Ingreso Manual Fila por Fila)"],
             horizontal=True,
-            key=f"rad_cong_{v}"
+            key=f"rad_cong_{v}",
+            on_change=on_change_modo_cong
         )
 
         num_filas_actual = len(caps_filas_maestro)
 
-        # Si cambió el número de filas en la pestaña 1, sincronizar tamaño sin romper
         if "df_congelado_edit" not in st.session_state or len(st.session_state.df_congelado_edit) != num_filas_actual:
             filas_sist = []
             for f_idx in range(num_filas_actual):
@@ -666,7 +695,7 @@ def render_module(user, get_gspread_client):
                 df_editor_source.at[idx, "IQF"] = 0
                 df_editor_source.at[idx, "TOTAL"] = cap_f
 
-        st.info("💡 Edita las cantidades de Placas, Túnel o IQF directamente por fila si es una carga combinada:")
+        st.info("💡 En 'Mixto' la tabla se limpia en 0 para que digites directamente fila por fila:")
         
         df_congelado_resultado = st.data_editor(
             df_editor_source,
@@ -698,7 +727,7 @@ def render_module(user, get_gspread_client):
             pass
 
     # =========================================================================
-    # TAB 4: CONTROL DE PESOS
+    # TAB 4: CONTROL DE PESOS (RESTAURACIÓN Y GUARDADO COMPLETO)
     # =========================================================================
     with tab_pesos:
         st.markdown("#### Pesos de Balanza")
@@ -708,6 +737,7 @@ def render_module(user, get_gspread_client):
         for i, col in enumerate(cols_w):
             with col:
                 st.markdown(f"**{lista_pres_calc[i]['nombre'][:20]}**")
+                # Valor guardado o recuperado de Sheets
                 val_mem = st.session_state.txt_pesos_mem.get(str(i), "20.00, 20.05, 19.98")
                 txt_p = st.text_area(f"Pesos balanza ({i+1}):", value=val_mem, height=90, key=f"pw_box_{i}_{v}")
                 st.session_state.txt_pesos_mem[str(i)] = txt_p
@@ -768,10 +798,11 @@ def render_module(user, get_gspread_client):
             pass
 
     # =========================================================================
-    # GUARDADO / ACTUALIZACIÓN CENTRALIZADO
+    # GUARDADO / ACTUALIZACIÓN CENTRALIZADO (ANTI-DUPLICADOS)
     # =========================================================================
     st.markdown("---")
-    if st.button(f"💾 Guardar / Actualizar Información de {st.session_state.cont_val or 'Contenedor'} en Sheets", type="primary", use_container_width=True):
+    btn_label = f"💾 Guardar / Actualizar Información de {st.session_state.cont_val or 'Contenedor'} en Sheets"
+    if st.button(btn_label, type="primary", use_container_width=True):
         if not st.session_state.cont_val.strip():
             st.warning("⚠️ Debe ingresar el N° de Contenedor antes de guardar.")
         else:
@@ -785,7 +816,15 @@ def render_module(user, get_gspread_client):
 
                 detalle_lotes_str = " | ".join([f"{l['lote_txt']} ({l['fecha_txt']}): {l['cantidad']}b" for l in lista_lotes_calc if l['cantidad'] > 0])
 
-                # Mapeo completo: A hasta AN (39 columnas)
+                # Serializar todos los pesos para que se guarden y no se pierdan nunca
+                serial_pesos = []
+                for k_p, v_p in st.session_state.txt_pesos_mem.items():
+                    clean_v = v_p.replace("\n", " ").strip()
+                    if clean_v:
+                        serial_pesos.append(f"{k_p}::{clean_v}")
+                detalle_pesos_str = " ;; ".join(serial_pesos)
+
+                # Mapeo exacto: Columnas A hasta AO (41 columnas)
                 fila_maestra = [
                     st.session_state.emb_id,                       # A: ID_EMBARQUE
                     str(st.session_state.cont_val).strip(),        # B: CONTENEDOR
@@ -811,10 +850,16 @@ def render_module(user, get_gspread_client):
                     int(st.session_state.capg_val),                # AK: cap_estandar_fila
                     int(st.session_state.capf1_val),               # AL: cap_fila_1
                     int(st.session_state.capfu_val),               # AM: cap_fila_puerta
-                    float(st.session_state.wstd_val)               # AN: peso_std_bulto
+                    float(st.session_state.wstd_val),              # AN: peso_std_bulto
+                    detalle_pesos_str                              # AO: detalle_pesos_balanza
                 ]
 
-                res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra)
-                st.success(f"✅ Contenedor {st.session_state.cont_val} {res_msg} en 'DISTRIBUCIONES' con su configuración de {st.session_state.nfil_val} filas.")
+                es_modo_nuevo = (modo_operacion == "Nuevo Contenedor")
+                ok, res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra, forzar_nuevo=es_modo_nuevo)
+
+                if ok:
+                    st.success(f"✅ Contenedor {st.session_state.cont_val} {res_msg} en 'DISTRIBUCIONES'.")
+                else:
+                    st.error(f"🚫 {res_msg}")
             except Exception as e:
                 st.error(f"Error al guardar en Sheets: {e}")
