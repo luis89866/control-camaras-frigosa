@@ -387,7 +387,6 @@ def render_module(user, get_gspread_client):
                 if not ver_todos:
                     fecha_filtro = st.date_input("Filtrar por Fecha de Despacho:", value=date.today(), key="f_filtro_cont")
             
-            # Filtro inteligente de contenedores
             opciones_conts = []
             for r in registros[1:]:
                 if len(r) > 3 and r[1].strip():
@@ -490,11 +489,10 @@ def render_module(user, get_gspread_client):
                                 p_idx, p_vals = item_p.split("::", 1)
                                 st.session_state.txt_pesos_mem[p_idx.strip()] = p_vals.strip()
 
-                    # Resetear tablas editadas para regenerar con nueva data
                     if "df_congelado_edit" in st.session_state:
                         del st.session_state["df_congelado_edit"]
-                    if "df_lotes_editor" in st.session_state:
-                        del st.session_state["df_lotes_editor"]
+                    if "caps_filas_override" in st.session_state:
+                        del st.session_state["caps_filas_override"]
 
                     st.session_state.form_version += 1
                     st.success(f"✅ ¡Contenedor {cont_seleccionado} cargado con éxito!")
@@ -522,8 +520,8 @@ def render_module(user, get_gspread_client):
             st.session_state.txt_pesos_mem = {}
             if "df_congelado_edit" in st.session_state:
                 del st.session_state["df_congelado_edit"]
-            if "df_lotes_editor" in st.session_state:
-                del st.session_state["df_lotes_editor"]
+            if "caps_filas_override" in st.session_state:
+                del st.session_state["caps_filas_override"]
             st.session_state.form_version += 1
             st.rerun()
 
@@ -553,7 +551,7 @@ def render_module(user, get_gspread_client):
     ])
 
     # =========================================================================
-    # TAB 1: LOTES (CON BALANCEO Y EDICIÓN MANUAL LIBRE)
+    # TAB 1: LOTES (EDICIÓN ÚNICA EN 'CANT/FILA' CON CÁLCULO AUTOMÁTICO DEL RESTO)
     # =========================================================================
     with tab_estiba_lotes:
         st.markdown("#### Configuración de Filas y Capacidad")
@@ -568,9 +566,14 @@ def render_module(user, get_gspread_client):
             st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {st.session_state.nfil_val}:", min_value=20, max_value=100, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
             st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
 
-        caps_filas_base = [int(st.session_state.capg_val)] * int(st.session_state.nfil_val)
-        caps_filas_base[0] = int(st.session_state.capf1_val)
-        caps_filas_base[-1] = int(st.session_state.capfu_val)
+        # Capacidades base por defecto
+        caps_filas_default = [int(st.session_state.capg_val)] * int(st.session_state.nfil_val)
+        caps_filas_default[0] = int(st.session_state.capf1_val)
+        caps_filas_default[-1] = int(st.session_state.capfu_val)
+
+        # Si el usuario ya modificó CANT/FILA se respeta su lista; de lo contrario se usa la base
+        if "caps_filas_override" not in st.session_state or len(st.session_state.caps_filas_override) != int(st.session_state.nfil_val):
+            st.session_state.caps_filas_override = caps_filas_default.copy()
 
         n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=10, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
         while len(st.session_state.lotes_items) < n_lotes:
@@ -593,47 +596,52 @@ def render_module(user, get_gspread_client):
 
         headers_l = [f"{l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_calc]
 
-        # Si el DataFrame no existe o cambió el tamaño de filas o columnas, inicializar cálculo
-        if "df_lotes_editor" not in st.session_state or len(st.session_state.df_lotes_editor) != int(st.session_state.nfil_val):
-            matriz_lotes_init = calcular_matriz_estiba(caps_filas_base, lista_lotes_calc)
-            data_init = []
-            for f_idx in range(int(st.session_state.nfil_val)):
-                b_f = sum(matriz_lotes_init[f_idx])
-                r_dict = {"N° FILA": f_idx + 1, "TM": round((b_f * float(st.session_state.wstd_val)) / 1000.0, 4), "CANT/FILA": b_f}
-                for l_i in range(len(lista_lotes_calc)):
-                    r_dict[headers_l[l_i]] = matriz_lotes_init[f_idx][l_i]
-                data_init.append(r_dict)
-            st.session_state.df_lotes_editor = pd.DataFrame(data_init)
+        # Cálculo automático de la matriz de estiba según los valores actuales de CANT/FILA
+        caps_para_matriz = [int(x) for x in st.session_state.caps_filas_override]
+        matriz_lotes_auto = calcular_matriz_estiba(caps_para_matriz, lista_lotes_calc)
 
-        st.info("💡 Puedes editar directamente los bultos en cada fila para balancear (+1, -1, etc.).")
-        
+        data_filas_tabla = []
+        for f_idx in range(int(st.session_state.nfil_val)):
+            b_f = caps_para_matriz[f_idx]
+            tm_f = round((b_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+            r_dict = {"N° FILA": f_idx + 1, "TM": tm_f, "CANT/FILA": b_f}
+            for l_i in range(len(lista_lotes_calc)):
+                r_dict[headers_l[l_i]] = matriz_lotes_auto[f_idx][l_i]
+            data_filas_tabla.append(r_dict)
+
+        df_lotes_mostrar = pd.DataFrame(data_filas_tabla)
+
+        # TODAS LAS COLUMNAS BLOQUEADAS EXCEPTO 'CANT/FILA'
+        cols_bloqueadas = ["N° FILA", "TM"] + headers_l
+
+        st.info("💡 Solo edita el número en la columna **CANT/FILA** (ej. poner 76 o 74). La distribución de lotes y toneladas se calcula automáticamente.")
+
         df_lotes_editado = st.data_editor(
-            st.session_state.df_lotes_editor,
-            disabled=["N° FILA", "TM", "CANT/FILA"],
+            df_lotes_mostrar,
+            disabled=cols_bloqueadas,
             hide_index=True,
             use_container_width=True,
             height=300,
-            key=f"editor_lotes_{v}_{st.session_state.nfil_val}"
+            key=f"editor_cantfila_only_{v}_{st.session_state.nfil_val}"
         )
 
-        # Recálculo en tiempo real de filas y tonelajes tras edición manual
-        cols_lote_activas = [c for c in df_lotes_editado.columns if c not in ["N° FILA", "TM", "CANT/FILA"]]
-        df_lotes_editado["CANT/FILA"] = df_lotes_editado[cols_lote_activas].sum(axis=1)
-        df_lotes_editado["TM"] = round((df_lotes_editado["CANT/FILA"] * float(st.session_state.wstd_val)) / 1000.0, 4)
-        st.session_state.df_lotes_editor = df_lotes_editado
+        # Detectar si el usuario modificó algún número en CANT/FILA y actualizar estado
+        nuevas_capacidades = df_lotes_editado["CANT/FILA"].astype(int).tolist()
+        if nuevas_capacidades != st.session_state.caps_filas_override:
+            st.session_state.caps_filas_override = nuevas_capacidades
+            st.rerun()
 
-        # ESTA LISTA ES LA MATRIZ MAESTRA REAL DE BULTOS POR FILA QUE ALIMENTA TODO EL SISTEMA
-        caps_filas_reales = df_lotes_editado["CANT/FILA"].tolist()
+        caps_filas_reales = st.session_state.caps_filas_override
 
         tot_b_cargados = sum(caps_filas_reales)
-        tot_tm_cargados = sum(df_lotes_editado["TM"])
+        tot_tm_cargados = (tot_b_cargados * float(st.session_state.wstd_val)) / 1000.0
 
         m1, m2 = st.columns(2)
         m1.metric("Total Bultos Cargados (Lotes)", f"{tot_b_cargados:,} bultos")
         m2.metric("Tonelaje Total", f"{tot_tm_cargados:.3f} TM")
 
     # =========================================================================
-    # TAB 2: PRESENTACIONES (ALIMENTADA DE LA MATRIZ REAL DE LOTES)
+    # TAB 2: PRESENTACIONES (ALIMENTADA AUTOMÁTICAMENTE DE CANT/FILA)
     # =========================================================================
     with tab_estiba_pres:
         st.markdown("#### Presentaciones a Embarcar (Hasta 8 según la hoja)")
@@ -656,7 +664,6 @@ def render_module(user, get_gspread_client):
                 p_item["bultos"] = int(cant_b)
                 lista_pres_calc.append({"nombre": sel_nom, "cantidad": int(cant_b), "peso_unit": float(p_item.get("peso", st.session_state.wstd_val))})
 
-        # Estiba calculada respetando los bultos reales por fila ajustados en Tab 1
         matriz_pres = calcular_matriz_estiba(caps_filas_reales, lista_pres_calc)
         headers_pres = [f"{p['nombre']} (P{idx+1})" for idx, p in enumerate(lista_pres_calc)]
         data_pres = []
@@ -685,7 +692,7 @@ def render_module(user, get_gspread_client):
             pass
 
     # =========================================================================
-    # TAB 3: PLACAS / TÚNEL / IQF (ALIMENTADA DE LA MATRIZ REAL DE LOTES)
+    # TAB 3: PLACAS / TÚNEL / IQF (ALIMENTADA AUTOMÁTICAMENTE DE CANT/FILA)
     # =========================================================================
     with tab_placa_tunel:
         st.markdown("#### Configuración de Sistema de Congelación")
@@ -748,7 +755,7 @@ def render_module(user, get_gspread_client):
                 df_editor_source.at[idx, "TOTAL"] = cap_f
 
         st.info("💡 En 'Mixto' la tabla se limpia en 0 para digitar directamente fila por fila:")
-        
+
         df_congelado_resultado = st.data_editor(
             df_editor_source,
             disabled=["N° FILA", "TM", "TOTAL"],
@@ -911,4 +918,4 @@ def render_module(user, get_gspread_client):
                 else:
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
-                st.error(f"Error al guardar en Sheets: {e}") 
+                st.error(f"Error al guardar en Sheets: {e}")
