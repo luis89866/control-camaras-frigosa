@@ -260,7 +260,7 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     t_muestreo = Table(matrix_pesos, colWidths=[ancho_col] * len(presentaciones_data))
     t_muestreo.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 6.5),
+        ('FONTSIZE', (0, 1), (-1, -1), 6.5),
         ('TOPPADDING', (0, 0), (-1, -1), 1.5),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -312,36 +312,40 @@ def render_module(user, get_gspread_client):
     nombre_user = user.get("nombre_completo", user.get("usuario", "LUIS ENRIQUE FIESTAS ECA"))
     st.subheader("🚢 Módulo 4: Despachos, Estiba y Embarques")
 
+    # Identificador de versión para resetear inputs cuando se cargan datos
+    if "form_version" not in st.session_state:
+        st.session_state.form_version = 0
+
     if "emb_id" not in st.session_state:
         st.session_state.emb_id = f"EMB-{date.today().strftime('%y%m%d%H%M%S')}"
-    if "cont_emb" not in st.session_state:
-        st.session_state.cont_emb = ""
-    if "fec_emb" not in st.session_state:
-        st.session_state.fec_emb = date.today()
-    if "mes_emb" not in st.session_state:
-        st.session_state.mes_emb = MESES_ESP.get(date.today().month, "SETIEMBRE")
-    if "pi_emb" not in st.session_state:
-        st.session_state.pi_emb = ""
-    if "bk_emb" not in st.session_state:
-        st.session_state.bk_emb = ""
-    if "cli_emb" not in st.session_state:
-        st.session_state.cli_emb = "Shandong sheenier"
-    if "dest_emb" not in st.session_state:
-        st.session_state.dest_emb = "Yantai china"
-    if "pais_emb" not in st.session_state:
-        st.session_state.pais_emb = "CHINA"
-    if "pay_emb" not in st.session_state:
-        st.session_state.pay_emb = 30400.0
-    if "nfil_emb" not in st.session_state:
-        st.session_state.nfil_emb = 20
-    if "capg_emb" not in st.session_state:
-        st.session_state.capg_emb = 67
-    if "capf1_emb" not in st.session_state:
-        st.session_state.capf1_emb = 77
-    if "capfu_emb" not in st.session_state:
-        st.session_state.capfu_emb = 67
-    if "wstd_emb" not in st.session_state:
-        st.session_state.wstd_emb = 21.68
+    if "cont_val" not in st.session_state:
+        st.session_state.cont_val = ""
+    if "fec_val" not in st.session_state:
+        st.session_state.fec_val = date.today()
+    if "mes_val" not in st.session_state:
+        st.session_state.mes_val = MESES_ESP.get(date.today().month, "SETIEMBRE")
+    if "pi_val" not in st.session_state:
+        st.session_state.pi_val = ""
+    if "bk_val" not in st.session_state:
+        st.session_state.bk_val = ""
+    if "cli_val" not in st.session_state:
+        st.session_state.cli_val = "Shandong sheenier"
+    if "dest_val" not in st.session_state:
+        st.session_state.dest_val = "Yantai china"
+    if "pais_val" not in st.session_state:
+        st.session_state.pais_val = "CHINA"
+    if "pay_val" not in st.session_state:
+        st.session_state.pay_val = 30400.0
+    if "nfil_val" not in st.session_state:
+        st.session_state.nfil_val = 20
+    if "capg_val" not in st.session_state:
+        st.session_state.capg_val = 67
+    if "capf1_val" not in st.session_state:
+        st.session_state.capf1_val = 77
+    if "capfu_val" not in st.session_state:
+        st.session_state.capfu_val = 67
+    if "wstd_val" not in st.session_state:
+        st.session_state.wstd_val = 21.68
     if "pres_items" not in st.session_state:
         st.session_state.pres_items = [
             {"nombre": "FF C/M C/T 2000 g/pza - 4000 g/pza MANTO ", "bultos": 800, "peso": 21.68},
@@ -354,6 +358,8 @@ def render_module(user, get_gspread_client):
         ]
     if "txt_pesos_mem" not in st.session_state:
         st.session_state.txt_pesos_mem = {}
+
+    v = st.session_state.form_version
 
     # Selector de modo
     col_sel1, col_sel2 = st.columns([3, 1])
@@ -384,25 +390,26 @@ def render_module(user, get_gspread_client):
 
                 if fila_encontrada:
                     st.session_state.emb_id = fila_encontrada[0]
-                    st.session_state.cont_emb = fila_encontrada[1]
-                    st.session_state.mes_emb = fila_encontrada[2] if len(fila_encontrada) > 2 and fila_encontrada[2] else "SETIEMBRE"
+                    st.session_state.cont_val = fila_encontrada[1].strip()
+                    st.session_state.mes_val = fila_encontrada[2].strip() if len(fila_encontrada) > 2 and fila_encontrada[2].strip() else "SETIEMBRE"
                     
                     try:
-                        st.session_state.fec_emb = datetime.strptime(fila_encontrada[3].strip(), "%Y-%m-%d").date()
+                        st.session_state.fec_val = datetime.strptime(fila_encontrada[3].strip(), "%Y-%m-%d").date()
                     except Exception:
-                        st.session_state.fec_emb = date.today()
+                        st.session_state.fec_val = date.today()
 
-                    st.session_state.pi_emb = fila_encontrada[4] if len(fila_encontrada) > 4 else ""
-                    st.session_state.bk_emb = fila_encontrada[5] if len(fila_encontrada) > 5 else ""
-                    st.session_state.cli_emb = fila_encontrada[6] if len(fila_encontrada) > 6 else ""
-                    st.session_state.dest_emb = fila_encontrada[7] if len(fila_encontrada) > 7 else ""
-                    st.session_state.pais_emb = fila_encontrada[8] if len(fila_encontrada) > 8 else "CHINA"
+                    st.session_state.pi_val = fila_encontrada[4].strip() if len(fila_encontrada) > 4 else ""
+                    st.session_state.bk_val = fila_encontrada[5].strip() if len(fila_encontrada) > 5 else ""
+                    st.session_state.cli_val = fila_encontrada[6].strip() if len(fila_encontrada) > 6 else ""
+                    st.session_state.dest_val = fila_encontrada[7].strip() if len(fila_encontrada) > 7 else ""
+                    st.session_state.pais_val = fila_encontrada[8].strip() if len(fila_encontrada) > 8 else "CHINA"
 
                     try:
-                        st.session_state.pay_emb = float(fila_encontrada[26]) if len(fila_encontrada) > 26 and fila_encontrada[26] else 30400.0
+                        st.session_state.pay_val = float(fila_encontrada[26]) if len(fila_encontrada) > 26 and fila_encontrada[26].strip() else 30400.0
                     except Exception:
-                        st.session_state.pay_emb = 30400.0
+                        st.session_state.pay_val = 30400.0
 
+                    # Parsear presentaciones de columnas K hasta Z (10 a 25)
                     cargadas_pres = []
                     for p_i in range(10, 26, 2):
                         if len(fila_encontrada) > p_i + 1:
@@ -416,6 +423,7 @@ def render_module(user, get_gspread_client):
                     if cargadas_pres:
                         st.session_state.pres_items = cargadas_pres
 
+                    # Parsear Lotes de columna AI (34)
                     if len(fila_encontrada) > 34 and fila_encontrada[34].strip():
                         det_lotes_str = fila_encontrada[34].strip()
                         partes_l = det_lotes_str.split(" | ")
@@ -433,48 +441,55 @@ def render_module(user, get_gspread_client):
                         if nuevos_lotes:
                             st.session_state.lotes_items = nuevos_lotes
 
+                    # Limpiar tabla de congelado para forzar reconstrucción limpia
                     if "df_congelado_edit" in st.session_state:
                         del st.session_state["df_congelado_edit"]
 
+                    st.session_state.form_version += 1
                     st.success(f"✅ ¡Contenedor {cont_seleccionado} cargado con éxito!")
                     st.rerun()
 
     with col_sel2:
         if st.button("🧹 Limpiar Pantalla"):
             st.session_state.emb_id = f"EMB-{date.today().strftime('%y%m%d%H%M%S')}"
-            st.session_state.cont_emb = ""
-            st.session_state.fec_emb = date.today()
-            st.session_state.mes_emb = MESES_ESP.get(date.today().month, "SETIEMBRE")
-            st.session_state.pi_emb = ""
-            st.session_state.bk_emb = ""
-            st.session_state.cli_emb = ""
-            st.session_state.dest_emb = ""
-            st.session_state.pais_emb = ""
-            st.session_state.pay_emb = 30400.0
+            st.session_state.cont_val = ""
+            st.session_state.fec_val = date.today()
+            st.session_state.mes_val = MESES_ESP.get(date.today().month, "SETIEMBRE")
+            st.session_state.pi_val = ""
+            st.session_state.bk_val = ""
+            st.session_state.cli_val = ""
+            st.session_state.dest_val = ""
+            st.session_state.pais_val = ""
+            st.session_state.pay_val = 30400.0
+            st.session_state.nfil_val = 20
+            st.session_state.capg_val = 67
+            st.session_state.capf1_val = 77
+            st.session_state.capfu_val = 67
             st.session_state.pres_items = [{"nombre": LISTA_PRESENTACIONES_FRIGOSA[0], "bultos": 0, "peso": 20.0}]
             st.session_state.lotes_items = [{"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0}]
             st.session_state.txt_pesos_mem = {}
             if "df_congelado_edit" in st.session_state:
                 del st.session_state["df_congelado_edit"]
+            st.session_state.form_version += 1
             st.rerun()
 
-    # --- CAMPOS DE CABECERA VINCULADOS A SESSION_STATE ---
+    # --- CAMPOS DE CABECERA ---
     with st.expander("⚙️ Datos Principales del Contenedor", expanded=True):
         cp1, cp2, cp3, cp4 = st.columns(4)
         with cp1:
-            st.date_input("Fecha:", key="fec_emb")
-            st.text_input("N° Contenedor:", key="cont_emb")
-            mes_idx = list(MESES_ESP.values()).index(st.session_state.mes_emb) if st.session_state.mes_emb in MESES_ESP.values() else 8
-            st.selectbox("Mes:", list(MESES_ESP.values()), index=mes_idx, key="mes_emb")
+            st.session_state.fec_val = st.date_input("Fecha:", value=st.session_state.fec_val, key=f"fec_emb_{v}")
+            st.session_state.cont_val = st.text_input("N° Contenedor:", value=st.session_state.cont_val, key=f"cont_emb_{v}").upper().strip()
+            mes_idx = list(MESES_ESP.values()).index(st.session_state.mes_val) if st.session_state.mes_val in MESES_ESP.values() else 8
+            st.session_state.mes_val = st.selectbox("Mes:", list(MESES_ESP.values()), index=mes_idx, key=f"mes_emb_{v}")
         with cp2:
-            st.text_input("Booking:", key="bk_emb")
-            st.text_input("N° P.I. (Pedido):", key="pi_emb")
+            st.session_state.bk_val = st.text_input("Booking:", value=st.session_state.bk_val, key=f"bk_emb_{v}").strip()
+            st.session_state.pi_val = st.text_input("N° P.I. (Pedido):", value=st.session_state.pi_val, key=f"pi_emb_{v}").strip()
         with cp3:
-            st.text_input("Cliente:", key="cli_emb")
-            st.text_input("Destino (Puerto):", key="dest_emb")
+            st.session_state.cli_val = st.text_input("Cliente:", value=st.session_state.cli_val, key=f"cli_emb_{v}").strip()
+            st.session_state.dest_val = st.text_input("Destino (Puerto):", value=st.session_state.dest_val, key=f"dest_emb_{v}").strip()
         with cp4:
-            st.text_input("País:", key="pais_emb")
-            st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=34000.0, step=100.0, key="pay_emb")
+            st.session_state.pais_val = st.text_input("País:", value=st.session_state.pais_val, key=f"pais_emb_{v}").strip().upper()
+            st.session_state.pay_val = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=34000.0, value=float(st.session_state.pay_val), step=100.0, key=f"pay_emb_{v}")
 
     tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos = st.tabs([
         "📅 1. Plano Estiba (Lotes)",
@@ -483,10 +498,6 @@ def render_module(user, get_gspread_client):
         "⚖️ 4. Control de Pesos (Balanza)"
     ])
 
-    caps_filas_maestro = [int(st.session_state.capg_emb)] * int(st.session_state.nfil_emb)
-    caps_filas_maestro[0] = int(st.session_state.capf1_emb)
-    caps_filas_maestro[-1] = int(st.session_state.capfu_emb)
-
     # =========================================================================
     # TAB 1: LOTES
     # =========================================================================
@@ -494,16 +505,21 @@ def render_module(user, get_gspread_client):
         st.markdown("#### Configuración de Filas y Lotes")
         cf1, cf2, cf3, cf4 = st.columns(4)
         with cf1:
-            st.number_input("Total Filas:", min_value=10, max_value=30, key="nfil_emb")
+            st.session_state.nfil_val = int(st.number_input("Total Filas:", min_value=10, max_value=30, value=int(st.session_state.nfil_val), key=f"nfil_{v}"))
         with cf2:
-            st.number_input("Capacidad Estándar Fila:", min_value=30, max_value=100, key="capg_emb")
+            st.session_state.capg_val = int(st.number_input("Capacidad Estándar Fila:", min_value=30, max_value=100, value=int(st.session_state.capg_val), key=f"capg_{v}"))
         with cf3:
-            st.number_input("Capacidad Fila 1:", min_value=20, max_value=100, key="capf1_emb")
+            st.session_state.capf1_val = int(st.number_input("Capacidad Fila 1:", min_value=20, max_value=100, value=int(st.session_state.capf1_val), key=f"capf1_{v}"))
         with cf4:
-            st.number_input(f"Capacidad Fila {st.session_state.nfil_emb}:", min_value=20, max_value=100, key="capfu_emb")
-            st.number_input("Peso Estándar Bulto (kg):", step=0.1, key="wstd_emb")
+            st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {st.session_state.nfil_val}:", min_value=20, max_value=100, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
+            st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
 
-        n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=10, value=max(len(st.session_state.lotes_items), 1), key="nlot_count")
+        # Construcción segura de capacidades por fila
+        caps_filas_maestro = [int(st.session_state.capg_val)] * int(st.session_state.nfil_val)
+        caps_filas_maestro[0] = int(st.session_state.capf1_val)
+        caps_filas_maestro[-1] = int(st.session_state.capfu_val)
+
+        n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=10, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
         while len(st.session_state.lotes_items) < n_lotes:
             st.session_state.lotes_items.append({"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0})
         while len(st.session_state.lotes_items) > n_lotes:
@@ -514,9 +530,9 @@ def render_module(user, get_gspread_client):
         for i, col in enumerate(cols_l):
             item_l = st.session_state.lotes_items[i]
             with col:
-                fl = st.date_input(f"Fecha {i+1}:", value=item_l["fecha"], key=f"f_lot_in_{i}")
-                lot_txt = st.text_input(f"Lote {i+1}:", value=item_l["lote"], key=f"c_lot_in_{i}")
-                bl = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(item_l["bultos"]), step=10, key=f"b_lot_in_{i}")
+                fl = st.date_input(f"Fecha {i+1}:", value=item_l["fecha"], key=f"fl_{i}_{v}")
+                lot_txt = st.text_input(f"Lote {i+1}:", value=item_l["lote"], key=f"cl_{i}_{v}")
+                bl = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(item_l["bultos"]), step=10, key=f"bl_{i}_{v}")
                 item_l["fecha"] = fl
                 item_l["lote"] = lot_txt
                 item_l["bultos"] = int(bl)
@@ -525,9 +541,9 @@ def render_module(user, get_gspread_client):
         matriz_lotes = calcular_matriz_estiba(caps_filas_maestro, lista_lotes_calc)
         headers_l = [f"{l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_calc]
         data_estiba = []
-        for f_idx in range(int(st.session_state.nfil_emb)):
+        for f_idx in range(int(st.session_state.nfil_val)):
             b_f = sum(matriz_lotes[f_idx])
-            r_dict = {"N° FILA": f_idx + 1, "TM": round((b_f * float(st.session_state.wstd_emb)) / 1000.0, 4), "CANT/FILA": b_f}
+            r_dict = {"N° FILA": f_idx + 1, "TM": round((b_f * float(st.session_state.wstd_val)) / 1000.0, 4), "CANT/FILA": b_f}
             for l_i in range(len(lista_lotes_calc)):
                 r_dict[headers_l[l_i]] = matriz_lotes[f_idx][l_i]
             data_estiba.append(r_dict)
@@ -540,7 +556,7 @@ def render_module(user, get_gspread_client):
     # =========================================================================
     with tab_estiba_pres:
         st.markdown("#### Presentaciones a Embarcar (Hasta 8 según la hoja)")
-        np_m = st.number_input("Número de Presentaciones:", min_value=1, max_value=8, value=max(len(st.session_state.pres_items), 1), key="npres_count")
+        np_m = st.number_input("Número de Presentaciones:", min_value=1, max_value=8, value=max(len(st.session_state.pres_items), 1), key=f"npres_c_{v}")
         while len(st.session_state.pres_items) < np_m:
             st.session_state.pres_items.append({"nombre": LISTA_PRESENTACIONES_FRIGOSA[0], "bultos": 0, "peso": 20.0})
         while len(st.session_state.pres_items) > np_m:
@@ -553,8 +569,8 @@ def render_module(user, get_gspread_client):
             with col:
                 st.markdown(f"**Presentación {i+1}**")
                 idx_p_sel = LISTA_PRESENTACIONES_FRIGOSA.index(p_item["nombre"]) if p_item["nombre"] in LISTA_PRESENTACIONES_FRIGOSA else 0
-                sel_nom = st.selectbox(f"Corte {i+1}:", LISTA_PRESENTACIONES_FRIGOSA, index=idx_p_sel, key=f"sel_p_in_{i}")
-                cant_b = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(p_item["bultos"]), step=10, key=f"b_pres_in_{i}")
+                sel_nom = st.selectbox(f"Corte {i+1}:", LISTA_PRESENTACIONES_FRIGOSA, index=idx_p_sel, key=f"sp_{i}_{v}")
+                cant_b = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(p_item["bultos"]), step=10, key=f"bp_{i}_{v}")
                 p_item["nombre"] = sel_nom
                 p_item["bultos"] = int(cant_b)
                 lista_pres_calc.append({"nombre": sel_nom, "cantidad": int(cant_b), "peso_unit": float(p_item.get("peso", 20.0))})
@@ -574,20 +590,20 @@ def render_module(user, get_gspread_client):
         st.dataframe(df_pres, hide_index=True, use_container_width=True, height=280)
 
         cabecera_estiba = {
-            "contenedor": st.session_state.cont_emb,
-            "booking": st.session_state.bk_emb,
-            "pi": st.session_state.pi_emb,
-            "cliente": st.session_state.cli_emb,
-            "fecha": str(st.session_state.fec_emb)
+            "contenedor": st.session_state.cont_val,
+            "booking": st.session_state.bk_val,
+            "pi": st.session_state.pi_val,
+            "cliente": st.session_state.cli_val,
+            "fecha": str(st.session_state.fec_val)
         }
         try:
             pdf_planos = generar_pdf_planos_estiba(cabecera_estiba, df_lotes, df_pres)
-            st.download_button("📄 Descargar PDF Distribución (Lotes + Pres)", data=pdf_planos, file_name=f"Distribucion_{st.session_state.cont_emb}.pdf", mime="application/pdf")
+            st.download_button("📄 Descargar PDF Distribución (Lotes + Pres)", data=pdf_planos, file_name=f"Distribucion_{st.session_state.cont_val}.pdf", mime="application/pdf")
         except Exception:
             pass
 
     # =========================================================================
-    # TAB 3: PLACAS / TÚNEL / IQF
+    # TAB 3: PLACAS / TÚNEL / IQF (RESOLUCIÓN DE INDEXERROR)
     # =========================================================================
     with tab_placa_tunel:
         st.markdown("#### Configuración de Sistema de Congelación")
@@ -595,16 +611,20 @@ def render_module(user, get_gspread_client):
         modo_cong_opc = st.radio(
             "Carga predominante:",
             ["Solo Placas (100% de la carga)", "Solo Túnel (100% de la carga)", "Mixto (Ingreso Manual Fila por Fila)"],
-            horizontal=True
+            horizontal=True,
+            key=f"rad_cong_{v}"
         )
 
-        if "df_congelado_edit" not in st.session_state:
+        num_filas_actual = len(caps_filas_maestro)
+
+        # Si el DataFrame no existe o cambió el número de filas, se regenera limpio
+        if "df_congelado_edit" not in st.session_state or len(st.session_state.df_congelado_edit) != num_filas_actual:
             filas_sist = []
-            for f_idx in range(len(caps_filas_maestro)):
+            for f_idx in range(num_filas_actual):
                 cap_f = caps_filas_maestro[f_idx]
                 filas_sist.append({
                     "N° FILA": f_idx + 1,
-                    "TM": round((cap_f * float(st.session_state.wstd_emb)) / 1000.0, 4),
+                    "TM": round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4),
                     "PLACAS": cap_f,
                     "TUNEL": 0,
                     "IQF": 0,
@@ -614,15 +634,16 @@ def render_module(user, get_gspread_client):
 
         df_editor_source = st.session_state.df_congelado_edit.copy()
 
+        # Automatización segura de selección global
         if modo_cong_opc == "Solo Placas (100% de la carga)":
-            for idx in range(len(df_editor_source)):
+            for idx in range(num_filas_actual):
                 cap_f = caps_filas_maestro[idx]
                 df_editor_source.at[idx, "PLACAS"] = cap_f
                 df_editor_source.at[idx, "TUNEL"] = 0
                 df_editor_source.at[idx, "IQF"] = 0
                 df_editor_source.at[idx, "TOTAL"] = cap_f
         elif modo_cong_opc == "Solo Túnel (100% de la carga)":
-            for idx in range(len(df_editor_source)):
+            for idx in range(num_filas_actual):
                 cap_f = caps_filas_maestro[idx]
                 df_editor_source.at[idx, "PLACAS"] = 0
                 df_editor_source.at[idx, "TUNEL"] = cap_f
@@ -637,10 +658,12 @@ def render_module(user, get_gspread_client):
             hide_index=True,
             use_container_width=True,
             height=320,
-            key="grid_congelado_live"
+            key=f"grid_cong_{v}_{num_filas_actual}"
         )
+
+        # Recálculo de totales por fila
         df_congelado_resultado["TOTAL"] = df_congelado_resultado["PLACAS"] + df_congelado_resultado["TUNEL"] + df_congelado_resultado["IQF"]
-        df_congelado_resultado["TM"] = round((df_congelado_resultado["TOTAL"] * float(st.session_state.wstd_emb)) / 1000.0, 4)
+        df_congelado_resultado["TM"] = round((df_congelado_resultado["TOTAL"] * float(st.session_state.wstd_val)) / 1000.0, 4)
         st.session_state.df_congelado_edit = df_congelado_resultado
 
         tot_placas_sum = int(df_congelado_resultado["PLACAS"].sum())
@@ -655,7 +678,7 @@ def render_module(user, get_gspread_client):
 
         try:
             pdf_cong = generar_pdf_congelado(cabecera_estiba, df_congelado_resultado)
-            st.download_button("📄 Descargar PDF Placas / Túnel / IQF", data=pdf_cong, file_name=f"Congelacion_{st.session_state.cont_emb}.pdf", mime="application/pdf")
+            st.download_button("📄 Descargar PDF Placas / Túnel / IQF", data=pdf_cong, file_name=f"Congelacion_{st.session_state.cont_val}.pdf", mime="application/pdf")
         except Exception:
             pass
 
@@ -671,19 +694,19 @@ def render_module(user, get_gspread_client):
             with col:
                 st.markdown(f"**{lista_pres_calc[i]['nombre'][:20]}**")
                 val_mem = st.session_state.txt_pesos_mem.get(str(i), "21.65, 21.70, 21.68")
-                txt_p = st.text_area(f"Pesos balanza ({i+1}):", value=val_mem, height=90, key=f"pw_box_{i}")
+                txt_p = st.text_area(f"Pesos balanza ({i+1}):", value=val_mem, height=90, key=f"pw_box_{i}_{v}")
                 st.session_state.txt_pesos_mem[str(i)] = txt_p
 
                 pesos_clean = []
                 for p in txt_p.replace("\n", ",").split(","):
                     try:
-                        v = float(p.strip())
-                        if v > 0:
-                            pesos_clean.append(v)
+                        val_num = float(p.strip())
+                        if val_num > 0:
+                            pesos_clean.append(val_num)
                     except Exception:
                         pass
                 pesos_clean = pesos_clean[:20]
-                prom_u = (sum(pesos_clean) / len(pesos_clean)) if pesos_clean else float(st.session_state.wstd_emb)
+                prom_u = (sum(pesos_clean) / len(pesos_clean)) if pesos_clean else float(st.session_state.wstd_val)
                 tot_k = prom_u * lista_pres_calc[i]["cantidad"]
                 st.caption(f"Prom: **{prom_u:.3f} kg** | Subtotal: **{tot_k:,.1f} kg**")
                 presentaciones_data.append({
@@ -697,7 +720,7 @@ def render_module(user, get_gspread_client):
         tot_b_gral = sum(p['bultos'] for p in presentaciones_data)
         peso_tot_gral = sum(p['total_kg'] for p in presentaciones_data)
         prom_global = (peso_tot_gral / tot_b_gral) if tot_b_gral > 0 else 0.0
-        peso_a_favor = float(st.session_state.pay_emb) - peso_tot_gral
+        peso_a_favor = float(st.session_state.pay_val) - peso_tot_gral
 
         st.markdown("---")
         r1, r2, r3, r4 = st.columns(4)
@@ -707,14 +730,14 @@ def render_module(user, get_gspread_client):
         r4.metric("Margen a Favor", f"{peso_a_favor:,.2f} kg")
 
         cabecera_pdf_pesos = {
-            "fecha": str(st.session_state.fec_emb),
-            "contenedor": st.session_state.cont_emb,
-            "payload": float(st.session_state.pay_emb),
+            "fecha": str(st.session_state.fec_val),
+            "contenedor": st.session_state.cont_val,
+            "payload": float(st.session_state.pay_val),
             "responsable": nombre_user,
-            "pi": st.session_state.pi_emb,
-            "booking": st.session_state.bk_emb,
-            "cliente": st.session_state.cli_emb,
-            "destino": st.session_state.dest_emb
+            "pi": st.session_state.pi_val,
+            "booking": st.session_state.bk_val,
+            "cliente": st.session_state.cli_val,
+            "destino": st.session_state.dest_val
         }
         resumen_pdf_pesos = {
             "total_bultos": tot_b_gral,
@@ -725,7 +748,7 @@ def render_module(user, get_gspread_client):
 
         try:
             pdf_pesos_bytes = generar_pdf_pesos_solos(cabecera_pdf_pesos, presentaciones_data, resumen_pdf_pesos)
-            st.download_button("📄 Descargar PDF Pesos y Balanza", data=pdf_pesos_bytes, file_name=f"Pesos_{st.session_state.cont_emb}.pdf", mime="application/pdf")
+            st.download_button("📄 Descargar PDF Pesos y Balanza", data=pdf_pesos_bytes, file_name=f"Pesos_{st.session_state.cont_val}.pdf", mime="application/pdf")
         except Exception:
             pass
 
@@ -733,8 +756,8 @@ def render_module(user, get_gspread_client):
     # GUARDADO / ACTUALIZACIÓN CENTRALIZADO
     # =========================================================================
     st.markdown("---")
-    if st.button(f"💾 Guardar / Actualizar Información de {st.session_state.cont_emb or 'Contenedor'} en Sheets", type="primary", use_container_width=True):
-        if not st.session_state.cont_emb.strip():
+    if st.button(f"💾 Guardar / Actualizar Información de {st.session_state.cont_val or 'Contenedor'} en Sheets", type="primary", use_container_width=True):
+        if not st.session_state.cont_val.strip():
             st.warning("⚠️ Debe ingresar el N° de Contenedor antes de guardar.")
         else:
             try:
@@ -749,17 +772,17 @@ def render_module(user, get_gspread_client):
 
                 fila_maestra = [
                     st.session_state.emb_id,
-                    str(st.session_state.cont_emb).strip(),
-                    str(st.session_state.mes_emb),
-                    str(st.session_state.fec_emb),
-                    str(st.session_state.pi_emb).strip(),
-                    str(st.session_state.bk_emb).strip(),
-                    str(st.session_state.cli_emb).strip(),
-                    str(st.session_state.dest_emb).strip(),
-                    str(st.session_state.pais_emb).strip(),
+                    str(st.session_state.cont_val).strip(),
+                    str(st.session_state.mes_val),
+                    str(st.session_state.fec_val),
+                    str(st.session_state.pi_val).strip(),
+                    str(st.session_state.bk_val).strip(),
+                    str(st.session_state.cli_val).strip(),
+                    str(st.session_state.dest_val).strip(),
+                    str(st.session_state.pais_val).strip(),
                     str(nombre_user),
                     *pres_cols,
-                    float(st.session_state.pay_emb),
+                    float(st.session_state.pay_val),
                     int(tot_b_gral),
                     float(round(peso_tot_gral, 2)),
                     float(round(peso_a_favor, 2)),
@@ -771,6 +794,6 @@ def render_module(user, get_gspread_client):
                 ]
 
                 res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra)
-                st.success(f"✅ Contenedor {st.session_state.cont_emb} {res_msg} en la hoja 'DISTRIBUCIONES'.")
+                st.success(f"✅ Contenedor {st.session_state.cont_val} {res_msg} en la hoja 'DISTRIBUCIONES'.")
             except Exception as e:
                 st.error(f"Error al guardar en Sheets: {e}")
