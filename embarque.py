@@ -276,7 +276,7 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     return buffer
 
 # =========================================================================
-# LÓGICA DE SHEETS (CON PERSISTENCIA DE PESOS Y ANTI-DUPLICADOS)
+# LÓGICA DE SHEETS (CON PERSISTENCIA Y ANTI-DUPLICADOS)
 # =========================================================================
 def obtener_hoja_distribuciones(get_gspread_client):
     client = get_gspread_client()
@@ -297,12 +297,10 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
             fila_idx = idx + 1
             break
 
-    # Validación anti-duplicado si el usuario intenta crear uno que ya existe
     if forzar_nuevo and fila_idx:
-        return False, f"El contenedor '{num_cont}' ya existe en la fila {fila_idx}. Cambie a 'Cargar / Editar' para modificarlo."
+        return False, f"El contenedor '{num_cont}' ya existe en la fila {fila_idx}. Cambie al modo 'Cargar / Editar' para modificarlo."
 
     if fila_idx:
-        # Abarca desde Columna A hasta AO (41 columnas)
         rango = f"A{fila_idx}:AO{fila_idx}"
         ws.update(rango, [datos_fila])
         return True, f"Actualizado exitosamente (Fila {fila_idx})"
@@ -341,7 +339,6 @@ def render_module(user, get_gspread_client):
     if "pay_val" not in st.session_state:
         st.session_state.pay_val = 30400.0
 
-    # Configuración de estiba física
     if "nfil_val" not in st.session_state:
         st.session_state.nfil_val = 18
     if "capg_val" not in st.session_state:
@@ -373,9 +370,7 @@ def render_module(user, get_gspread_client):
         try:
             ws_d = obtener_hoja_distribuciones(get_gspread_client)
             registros = ws_d.get_all_values()
-            conts_existentes = [r[1].strip() for r in registros[1:] if len(r) > 1 and r[1].strip()]
         except Exception:
-            conts_existentes = []
             registros = []
 
         modo_operacion = st.radio(
@@ -384,10 +379,38 @@ def render_module(user, get_gspread_client):
             horizontal=True
         )
 
-        if modo_operacion == "Cargar / Editar Contenedor Existente" and conts_existentes:
-            cont_seleccionado = st.selectbox("Seleccionar Contenedor registrado en Sheets:", conts_existentes)
+        if modo_operacion == "Cargar / Editar Contenedor Existente" and len(registros) > 1:
+            st.markdown("##### 🔍 Buscar Contenedor Registrado")
+            c_f1, c_f2 = st.columns([1.5, 2])
+            with c_f1:
+                ver_todos = st.checkbox("Ver todo el histórico", value=False)
+                if not ver_todos:
+                    fecha_filtro = st.date_input("Filtrar por Fecha de Despacho:", value=date.today(), key="f_filtro_cont")
             
-            if st.button("📥 Cargar Datos de este Contenedor"):
+            # Filtro inteligente de contenedores
+            opciones_conts = []
+            for r in registros[1:]:
+                if len(r) > 3 and r[1].strip():
+                    c_num = r[1].strip()
+                    c_fec = r[3].strip()
+                    c_cli = r[6].strip() if len(r) > 6 else ""
+                    
+                    if ver_todos:
+                        opciones_conts.append((c_num, f"{c_num} | {c_fec} | {c_cli}"))
+                    else:
+                        if c_fec == str(fecha_filtro):
+                            opciones_conts.append((c_num, f"{c_num} | {c_fec} | {c_cli}"))
+
+            with c_f2:
+                if opciones_conts:
+                    map_display = {disp: c_id for c_id, disp in opciones_conts}
+                    sel_display = st.selectbox("Seleccionar Contenedor encontrado:", list(map_display.keys()))
+                    cont_seleccionado = map_display[sel_display]
+                else:
+                    st.info("No hay contenedores registrados en la fecha elegida.")
+                    cont_seleccionado = None
+
+            if cont_seleccionado and st.button("📥 Cargar Datos de este Contenedor"):
                 fila_encontrada = None
                 for r in registros[1:]:
                     if len(r) > 1 and r[1].strip() == cont_seleccionado:
@@ -415,7 +438,6 @@ def render_module(user, get_gspread_client):
                     except Exception:
                         st.session_state.pay_val = 30400.0
 
-                    # 1. Recuperación de estiba física guardada (AJ a AN)
                     try:
                         if len(fila_encontrada) > 35 and fila_encontrada[35].strip():
                             st.session_state.nfil_val = int(fila_encontrada[35].strip())
@@ -430,7 +452,6 @@ def render_module(user, get_gspread_client):
                     except Exception:
                         pass
 
-                    # 2. Parsear presentaciones (K hasta Z)
                     cargadas_pres = []
                     for p_i in range(10, 26, 2):
                         if len(fila_encontrada) > p_i + 1:
@@ -444,7 +465,6 @@ def render_module(user, get_gspread_client):
                     if cargadas_pres:
                         st.session_state.pres_items = cargadas_pres
 
-                    # 3. Parsear Lotes (Columna AI)
                     if len(fila_encontrada) > 34 and fila_encontrada[34].strip():
                         det_lotes_str = fila_encontrada[34].strip()
                         partes_l = det_lotes_str.split(" | ")
@@ -462,7 +482,6 @@ def render_module(user, get_gspread_client):
                         if nuevos_lotes:
                             st.session_state.lotes_items = nuevos_lotes
 
-                    # 4. Parsear Pesos de Balanza Guardados (Columna AO / Índice 40)
                     if len(fila_encontrada) > 40 and fila_encontrada[40].strip():
                         raw_pesos = fila_encontrada[40].strip().split(" ;; ")
                         st.session_state.txt_pesos_mem = {}
@@ -471,11 +490,14 @@ def render_module(user, get_gspread_client):
                                 p_idx, p_vals = item_p.split("::", 1)
                                 st.session_state.txt_pesos_mem[p_idx.strip()] = p_vals.strip()
 
+                    # Resetear tablas editadas para regenerar con nueva data
                     if "df_congelado_edit" in st.session_state:
                         del st.session_state["df_congelado_edit"]
+                    if "df_lotes_editor" in st.session_state:
+                        del st.session_state["df_lotes_editor"]
 
                     st.session_state.form_version += 1
-                    st.success(f"✅ ¡Contenedor {cont_seleccionado} cargado con estiba y pesos restaurados!")
+                    st.success(f"✅ ¡Contenedor {cont_seleccionado} cargado con éxito!")
                     st.rerun()
 
     with col_sel2:
@@ -500,6 +522,8 @@ def render_module(user, get_gspread_client):
             st.session_state.txt_pesos_mem = {}
             if "df_congelado_edit" in st.session_state:
                 del st.session_state["df_congelado_edit"]
+            if "df_lotes_editor" in st.session_state:
+                del st.session_state["df_lotes_editor"]
             st.session_state.form_version += 1
             st.rerun()
 
@@ -529,10 +553,10 @@ def render_module(user, get_gspread_client):
     ])
 
     # =========================================================================
-    # TAB 1: LOTES
+    # TAB 1: LOTES (CON BALANCEO Y EDICIÓN MANUAL LIBRE)
     # =========================================================================
     with tab_estiba_lotes:
-        st.markdown("#### Configuración de Filas y Lotes")
+        st.markdown("#### Configuración de Filas y Capacidad")
         cf1, cf2, cf3, cf4 = st.columns(4)
         with cf1:
             st.session_state.nfil_val = int(st.number_input("Total Filas:", min_value=10, max_value=30, value=int(st.session_state.nfil_val), key=f"nfil_{v}"))
@@ -544,9 +568,9 @@ def render_module(user, get_gspread_client):
             st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {st.session_state.nfil_val}:", min_value=20, max_value=100, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
             st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
 
-        caps_filas_maestro = [int(st.session_state.capg_val)] * int(st.session_state.nfil_val)
-        caps_filas_maestro[0] = int(st.session_state.capf1_val)
-        caps_filas_maestro[-1] = int(st.session_state.capfu_val)
+        caps_filas_base = [int(st.session_state.capg_val)] * int(st.session_state.nfil_val)
+        caps_filas_base[0] = int(st.session_state.capf1_val)
+        caps_filas_base[-1] = int(st.session_state.capfu_val)
 
         n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=10, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
         while len(st.session_state.lotes_items) < n_lotes:
@@ -567,21 +591,49 @@ def render_module(user, get_gspread_client):
                 item_l["bultos"] = int(bl)
                 lista_lotes_calc.append({"fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt.strip(), "cantidad": int(bl)})
 
-        matriz_lotes = calcular_matriz_estiba(caps_filas_maestro, lista_lotes_calc)
         headers_l = [f"{l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_calc]
-        data_estiba = []
-        for f_idx in range(int(st.session_state.nfil_val)):
-            b_f = sum(matriz_lotes[f_idx])
-            r_dict = {"N° FILA": f_idx + 1, "TM": round((b_f * float(st.session_state.wstd_val)) / 1000.0, 4), "CANT/FILA": b_f}
-            for l_i in range(len(lista_lotes_calc)):
-                r_dict[headers_l[l_i]] = matriz_lotes[f_idx][l_i]
-            data_estiba.append(r_dict)
 
-        df_lotes = pd.DataFrame(data_estiba)
-        st.dataframe(df_lotes, hide_index=True, use_container_width=True, height=280)
+        # Si el DataFrame no existe o cambió el tamaño de filas o columnas, inicializar cálculo
+        if "df_lotes_editor" not in st.session_state or len(st.session_state.df_lotes_editor) != int(st.session_state.nfil_val):
+            matriz_lotes_init = calcular_matriz_estiba(caps_filas_base, lista_lotes_calc)
+            data_init = []
+            for f_idx in range(int(st.session_state.nfil_val)):
+                b_f = sum(matriz_lotes_init[f_idx])
+                r_dict = {"N° FILA": f_idx + 1, "TM": round((b_f * float(st.session_state.wstd_val)) / 1000.0, 4), "CANT/FILA": b_f}
+                for l_i in range(len(lista_lotes_calc)):
+                    r_dict[headers_l[l_i]] = matriz_lotes_init[f_idx][l_i]
+                data_init.append(r_dict)
+            st.session_state.df_lotes_editor = pd.DataFrame(data_init)
+
+        st.info("💡 Puedes editar directamente los bultos en cada fila para balancear (+1, -1, etc.).")
+        
+        df_lotes_editado = st.data_editor(
+            st.session_state.df_lotes_editor,
+            disabled=["N° FILA", "TM", "CANT/FILA"],
+            hide_index=True,
+            use_container_width=True,
+            height=300,
+            key=f"editor_lotes_{v}_{st.session_state.nfil_val}"
+        )
+
+        # Recálculo en tiempo real de filas y tonelajes tras edición manual
+        cols_lote_activas = [c for c in df_lotes_editado.columns if c not in ["N° FILA", "TM", "CANT/FILA"]]
+        df_lotes_editado["CANT/FILA"] = df_lotes_editado[cols_lote_activas].sum(axis=1)
+        df_lotes_editado["TM"] = round((df_lotes_editado["CANT/FILA"] * float(st.session_state.wstd_val)) / 1000.0, 4)
+        st.session_state.df_lotes_editor = df_lotes_editado
+
+        # ESTA LISTA ES LA MATRIZ MAESTRA REAL DE BULTOS POR FILA QUE ALIMENTA TODO EL SISTEMA
+        caps_filas_reales = df_lotes_editado["CANT/FILA"].tolist()
+
+        tot_b_cargados = sum(caps_filas_reales)
+        tot_tm_cargados = sum(df_lotes_editado["TM"])
+
+        m1, m2 = st.columns(2)
+        m1.metric("Total Bultos Cargados (Lotes)", f"{tot_b_cargados:,} bultos")
+        m2.metric("Tonelaje Total", f"{tot_tm_cargados:.3f} TM")
 
     # =========================================================================
-    # TAB 2: PRESENTACIONES
+    # TAB 2: PRESENTACIONES (ALIMENTADA DE LA MATRIZ REAL DE LOTES)
     # =========================================================================
     with tab_estiba_pres:
         st.markdown("#### Presentaciones a Embarcar (Hasta 8 según la hoja)")
@@ -604,10 +656,11 @@ def render_module(user, get_gspread_client):
                 p_item["bultos"] = int(cant_b)
                 lista_pres_calc.append({"nombre": sel_nom, "cantidad": int(cant_b), "peso_unit": float(p_item.get("peso", st.session_state.wstd_val))})
 
-        matriz_pres = calcular_matriz_estiba(caps_filas_maestro, lista_pres_calc)
+        # Estiba calculada respetando los bultos reales por fila ajustados en Tab 1
+        matriz_pres = calcular_matriz_estiba(caps_filas_reales, lista_pres_calc)
         headers_pres = [f"{p['nombre']} (P{idx+1})" for idx, p in enumerate(lista_pres_calc)]
         data_pres = []
-        for f_idx in range(len(caps_filas_maestro)):
+        for f_idx in range(len(caps_filas_reales)):
             b_f = sum(matriz_pres[f_idx])
             tm_f = sum(matriz_pres[f_idx][p_i] * lista_pres_calc[p_i]['peso_unit'] for p_i in range(len(lista_pres_calc))) / 1000.0
             r_d = {"N° FILA": f_idx + 1, "TM ESTIMADO": round(tm_f, 4), "TOTAL BULTOS": b_f}
@@ -626,21 +679,20 @@ def render_module(user, get_gspread_client):
             "fecha": str(st.session_state.fec_val)
         }
         try:
-            pdf_planos = generar_pdf_planos_estiba(cabecera_estiba, df_lotes, df_pres)
+            pdf_planos = generar_pdf_planos_estiba(cabecera_estiba, df_lotes_editado, df_pres)
             st.download_button("📄 Descargar PDF Distribución (Lotes + Pres)", data=pdf_planos, file_name=f"Distribucion_{st.session_state.cont_val}.pdf", mime="application/pdf")
         except Exception:
             pass
 
     # =========================================================================
-    # TAB 3: PLACAS / TÚNEL / IQF (LIMPIEZA AUTOMÁTICA EN MIXTO)
+    # TAB 3: PLACAS / TÚNEL / IQF (ALIMENTADA DE LA MATRIZ REAL DE LOTES)
     # =========================================================================
     with tab_placa_tunel:
         st.markdown("#### Configuración de Sistema de Congelación")
 
-        # Callback para limpiar valores cuando el usuario cambia a modo Mixto
         def on_change_modo_cong():
             opc = st.session_state.get(f"rad_cong_{v}")
-            num_f = len(caps_filas_maestro)
+            num_f = len(caps_filas_reales)
             if opc == "Mixto (Ingreso Manual Fila por Fila)":
                 filas_clean = []
                 for f_idx in range(num_f):
@@ -662,12 +714,12 @@ def render_module(user, get_gspread_client):
             on_change=on_change_modo_cong
         )
 
-        num_filas_actual = len(caps_filas_maestro)
+        num_filas_actual = len(caps_filas_reales)
 
         if "df_congelado_edit" not in st.session_state or len(st.session_state.df_congelado_edit) != num_filas_actual:
             filas_sist = []
             for f_idx in range(num_filas_actual):
-                cap_f = caps_filas_maestro[f_idx]
+                cap_f = caps_filas_reales[f_idx]
                 filas_sist.append({
                     "N° FILA": f_idx + 1,
                     "TM": round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4),
@@ -682,20 +734,20 @@ def render_module(user, get_gspread_client):
 
         if modo_cong_opc == "Solo Placas (100% de la carga)":
             for idx in range(num_filas_actual):
-                cap_f = caps_filas_maestro[idx]
+                cap_f = caps_filas_reales[idx]
                 df_editor_source.at[idx, "PLACAS"] = cap_f
                 df_editor_source.at[idx, "TUNEL"] = 0
                 df_editor_source.at[idx, "IQF"] = 0
                 df_editor_source.at[idx, "TOTAL"] = cap_f
         elif modo_cong_opc == "Solo Túnel (100% de la carga)":
             for idx in range(num_filas_actual):
-                cap_f = caps_filas_maestro[idx]
+                cap_f = caps_filas_reales[idx]
                 df_editor_source.at[idx, "PLACAS"] = 0
                 df_editor_source.at[idx, "TUNEL"] = cap_f
                 df_editor_source.at[idx, "IQF"] = 0
                 df_editor_source.at[idx, "TOTAL"] = cap_f
 
-        st.info("💡 En 'Mixto' la tabla se limpia en 0 para que digites directamente fila por fila:")
+        st.info("💡 En 'Mixto' la tabla se limpia en 0 para digitar directamente fila por fila:")
         
         df_congelado_resultado = st.data_editor(
             df_editor_source,
@@ -727,7 +779,7 @@ def render_module(user, get_gspread_client):
             pass
 
     # =========================================================================
-    # TAB 4: CONTROL DE PESOS (RESTAURACIÓN Y GUARDADO COMPLETO)
+    # TAB 4: CONTROL DE PESOS
     # =========================================================================
     with tab_pesos:
         st.markdown("#### Pesos de Balanza")
@@ -737,7 +789,6 @@ def render_module(user, get_gspread_client):
         for i, col in enumerate(cols_w):
             with col:
                 st.markdown(f"**{lista_pres_calc[i]['nombre'][:20]}**")
-                # Valor guardado o recuperado de Sheets
                 val_mem = st.session_state.txt_pesos_mem.get(str(i), "20.00, 20.05, 19.98")
                 txt_p = st.text_area(f"Pesos balanza ({i+1}):", value=val_mem, height=90, key=f"pw_box_{i}_{v}")
                 st.session_state.txt_pesos_mem[str(i)] = txt_p
@@ -816,7 +867,6 @@ def render_module(user, get_gspread_client):
 
                 detalle_lotes_str = " | ".join([f"{l['lote_txt']} ({l['fecha_txt']}): {l['cantidad']}b" for l in lista_lotes_calc if l['cantidad'] > 0])
 
-                # Serializar todos los pesos para que se guarden y no se pierdan nunca
                 serial_pesos = []
                 for k_p, v_p in st.session_state.txt_pesos_mem.items():
                     clean_v = v_p.replace("\n", " ").strip()
@@ -824,7 +874,6 @@ def render_module(user, get_gspread_client):
                         serial_pesos.append(f"{k_p}::{clean_v}")
                 detalle_pesos_str = " ;; ".join(serial_pesos)
 
-                # Mapeo exacto: Columnas A hasta AO (41 columnas)
                 fila_maestra = [
                     st.session_state.emb_id,                       # A: ID_EMBARQUE
                     str(st.session_state.cont_val).strip(),        # B: CONTENEDOR
