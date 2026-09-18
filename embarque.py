@@ -288,7 +288,7 @@ def obtener_hoja_distribuciones(get_gspread_client):
 
 def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila):
     ws = obtener_hoja_distribuciones(get_gspread_client)
-    contenedores_col = ws.col_values(2)  # Columna B: CONTENEDOR[cite: 18]
+    contenedores_col = ws.col_values(2)  # Columna B: CONTENEDOR
     num_cont = str(datos_fila[1]).strip()
 
     fila_idx = None
@@ -369,11 +369,11 @@ def render_module(user, get_gspread_client):
         modo_operacion = st.radio(
             "Modo de Trabajo:",
             ["Nuevo Contenedor", "Cargar / Editar Contenedor Existente"],
-            horizontal=True[cite: 22]
+            horizontal=True
         )
 
         if modo_operacion == "Cargar / Editar Contenedor Existente" and conts_existentes:
-            cont_seleccionado = st.selectbox("Seleccionar Contenedor registrado en Sheets:", conts_existentes)[cite: 22]
+            cont_seleccionado = st.selectbox("Seleccionar Contenedor registrado en Sheets:", conts_existentes)
             
             if st.button("📥 Cargar Datos de este Contenedor"):
                 fila_encontrada = None
@@ -383,7 +383,6 @@ def render_module(user, get_gspread_client):
                         break
 
                 if fila_encontrada:
-                    # Inyección forzada directa a Session State
                     st.session_state.emb_id = fila_encontrada[0]
                     st.session_state.cont_emb = fila_encontrada[1]
                     st.session_state.mes_emb = fila_encontrada[2] if len(fila_encontrada) > 2 and fila_encontrada[2] else "SETIEMBRE"
@@ -404,7 +403,6 @@ def render_module(user, get_gspread_client):
                     except Exception:
                         st.session_state.pay_emb = 30400.0
 
-                    # Parsear presentaciones de columnas K hasta Z (indices 10 a 25)
                     cargadas_pres = []
                     for p_i in range(10, 26, 2):
                         if len(fila_encontrada) > p_i + 1:
@@ -418,14 +416,12 @@ def render_module(user, get_gspread_client):
                     if cargadas_pres:
                         st.session_state.pres_items = cargadas_pres
 
-                    # Parsear Lotes de columna AI (indice 34)
                     if len(fila_encontrada) > 34 and fila_encontrada[34].strip():
                         det_lotes_str = fila_encontrada[34].strip()
                         partes_l = det_lotes_str.split(" | ")
                         nuevos_lotes = []
                         for pl in partes_l:
                             try:
-                                # Formato guardado: LT 026.207 (26/07/2026): 40b
                                 cod_lote = pl.split(" (")[0].strip()
                                 rest = pl.split(" (")[1]
                                 fec_str = rest.split("): ")[0].strip()
@@ -437,7 +433,6 @@ def render_module(user, get_gspread_client):
                         if nuevos_lotes:
                             st.session_state.lotes_items = nuevos_lotes
 
-                    # Resetear editor de congelado para que se sincronice con el contenedor cargado
                     if "df_congelado_edit" in st.session_state:
                         del st.session_state["df_congelado_edit"]
 
@@ -464,29 +459,29 @@ def render_module(user, get_gspread_client):
             st.rerun()
 
     # --- CAMPOS DE CABECERA VINCULADOS A SESSION_STATE ---
-    with st.expander("⚙️ Datos Principales del Contenedor", expanded=True)[cite: 22]:
-        cp1, cp2, cp3, cp4 = st.columns(4)[cite: 22]
+    with st.expander("⚙️ Datos Principales del Contenedor", expanded=True):
+        cp1, cp2, cp3, cp4 = st.columns(4)
         with cp1:
-            st.date_input("Fecha:", key="fec_emb")[cite: 22]
-            st.text_input("N° Contenedor:", key="cont_emb")[cite: 22]
+            st.date_input("Fecha:", key="fec_emb")
+            st.text_input("N° Contenedor:", key="cont_emb")
             mes_idx = list(MESES_ESP.values()).index(st.session_state.mes_emb) if st.session_state.mes_emb in MESES_ESP.values() else 8
-            st.selectbox("Mes:", list(MESES_ESP.values()), index=mes_idx, key="mes_emb")[cite: 22]
+            st.selectbox("Mes:", list(MESES_ESP.values()), index=mes_idx, key="mes_emb")
         with cp2:
-            st.text_input("Booking:", key="bk_emb")[cite: 22]
-            st.text_input("N° P.I. (Pedido):", key="pi_emb")[cite: 22]
+            st.text_input("Booking:", key="bk_emb")
+            st.text_input("N° P.I. (Pedido):", key="pi_emb")
         with cp3:
-            st.text_input("Cliente:", key="cli_emb")[cite: 22]
-            st.text_input("Destino (Puerto):", key="dest_emb")[cite: 22]
+            st.text_input("Cliente:", key="cli_emb")
+            st.text_input("Destino (Puerto):", key="dest_emb")
         with cp4:
-            st.text_input("País:", key="pais_emb")[cite: 22]
-            st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=34000.0, step=100.0, key="pay_emb")[cite: 22]
+            st.text_input("País:", key="pais_emb")
+            st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=34000.0, step=100.0, key="pay_emb")
 
     tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos = st.tabs([
         "📅 1. Plano Estiba (Lotes)",
         "📦 2. Plano Estiba (Presentaciones)",
         "❄️ 3. Placas / Túnel / IQF",
         "⚖️ 4. Control de Pesos (Balanza)"
-    ])[cite: 22]
+    ])
 
     caps_filas_maestro = [int(st.session_state.capg_emb)] * int(st.session_state.nfil_emb)
     caps_filas_maestro[0] = int(st.session_state.capf1_emb)
@@ -592,7 +587,7 @@ def render_module(user, get_gspread_client):
             pass
 
     # =========================================================================
-    # TAB 3: PLACAS / TÚNEL / IQF (DISTRIBUCIÓN FILA POR FILA Y MANUAL)
+    # TAB 3: PLACAS / TÚNEL / IQF
     # =========================================================================
     with tab_placa_tunel:
         st.markdown("#### Configuración de Sistema de Congelación")
@@ -603,7 +598,6 @@ def render_module(user, get_gspread_client):
             horizontal=True
         )
 
-        # Inicialización del DataFrame editable en memoria para no resetearlo
         if "df_congelado_edit" not in st.session_state:
             filas_sist = []
             for f_idx in range(len(caps_filas_maestro)):
@@ -620,7 +614,6 @@ def render_module(user, get_gspread_client):
 
         df_editor_source = st.session_state.df_congelado_edit.copy()
 
-        # Automatización según radio
         if modo_cong_opc == "Solo Placas (100% de la carga)":
             for idx in range(len(df_editor_source)):
                 cap_f = caps_filas_maestro[idx]
@@ -646,7 +639,6 @@ def render_module(user, get_gspread_client):
             height=320,
             key="grid_congelado_live"
         )
-        # Recalcular totales
         df_congelado_resultado["TOTAL"] = df_congelado_resultado["PLACAS"] + df_congelado_resultado["TUNEL"] + df_congelado_resultado["IQF"]
         df_congelado_resultado["TM"] = round((df_congelado_resultado["TOTAL"] * float(st.session_state.wstd_emb)) / 1000.0, 4)
         st.session_state.df_congelado_edit = df_congelado_resultado
@@ -755,28 +747,27 @@ def render_module(user, get_gspread_client):
 
                 detalle_lotes_str = " | ".join([f"{l['lote_txt']} ({l['fecha_txt']}): {l['cantidad']}b" for l in lista_lotes_calc if l['cantidad'] > 0])
 
-                # Mapeo exacto de columnas de A hasta AI[cite: 18, 19, 20, 21]
                 fila_maestra = [
-                    st.session_state.emb_id,                      # A: ID_EMBARQUE[cite: 18]
-                    str(st.session_state.cont_emb).strip(),       # B: CONTENEDOR[cite: 18]
-                    str(st.session_state.mes_emb),                # C: MES[cite: 18]
-                    str(st.session_state.fec_emb),               # D: FECHA[cite: 18]
-                    str(st.session_state.pi_emb).strip(),         # E: N°_PI[cite: 18]
-                    str(st.session_state.bk_emb).strip(),         # F: BOOKING[cite: 18]
-                    str(st.session_state.cli_emb).strip(),        # G: CLIENTE[cite: 18]
-                    str(st.session_state.dest_emb).strip(),       # H: Destino[cite: 18]
-                    str(st.session_state.pais_emb).strip(),       # I: PAIS[cite: 18]
-                    str(nombre_user),                             # J: supervisor[cite: 18]
-                    *pres_cols,                                   # K a Z: PRESENTACION_1..8 y BULTOS_1..8[cite: 18, 19, 20]
-                    float(st.session_state.pay_emb),              # AA: payload_contenedor[cite: 20]
-                    int(tot_b_gral),                              # AB: total_bultos[cite: 20]
-                    float(round(peso_tot_gral, 2)),              # AC: peso_bruto[cite: 20]
-                    float(round(peso_a_favor, 2)),               # AD: margen_a_favor[cite: 20]
-                    float(round(prom_global, 3)),                # AE: promedio_global[cite: 20]
-                    int(tot_placas_sum),                          # AF: placas[cite: 20]
-                    int(tot_tunel_sum),                           # AG: tunel[cite: 21]
-                    int(tot_iqf_sum),                             # AH: iqf[cite: 21]
-                    detalle_lotes_str                             # AI: detalle_lotes_fechas[cite: 21]
+                    st.session_state.emb_id,
+                    str(st.session_state.cont_emb).strip(),
+                    str(st.session_state.mes_emb),
+                    str(st.session_state.fec_emb),
+                    str(st.session_state.pi_emb).strip(),
+                    str(st.session_state.bk_emb).strip(),
+                    str(st.session_state.cli_emb).strip(),
+                    str(st.session_state.dest_emb).strip(),
+                    str(st.session_state.pais_emb).strip(),
+                    str(nombre_user),
+                    *pres_cols,
+                    float(st.session_state.pay_emb),
+                    int(tot_b_gral),
+                    float(round(peso_tot_gral, 2)),
+                    float(round(peso_a_favor, 2)),
+                    float(round(prom_global, 3)),
+                    int(tot_placas_sum),
+                    int(tot_tunel_sum),
+                    int(tot_iqf_sum),
+                    detalle_lotes_str
                 ]
 
                 res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra)
