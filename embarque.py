@@ -82,7 +82,7 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # =========================================================================
-# REPORTES EN PDF
+# REPORTES EN PDF CON PARTICIÓN AUTOMÁTICA DE HOJAS
 # =========================================================================
 def generar_pdf_planos_estiba(cabecera, df_estiba_lotes, df_estiba_pres):
     buffer = io.BytesIO()
@@ -92,29 +92,43 @@ def generar_pdf_planos_estiba(cabecera, df_estiba_lotes, df_estiba_pres):
 
     titulo_style = ParagraphStyle('TitF', parent=styles['Heading1'], fontSize=10.5, leading=12, textColor=colors.HexColor("#0D3B66"), alignment=1)
     sub_style = ParagraphStyle('SubF', parent=styles['Heading2'], fontSize=7.5, leading=9.5, textColor=colors.HexColor("#2B6CB0"), alignment=1)
-    cell_head_style = ParagraphStyle('CH', parent=styles['Normal'], fontSize=5.5, leading=6.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
+    cell_head_style = ParagraphStyle('CH', parent=styles['Normal'], fontSize=5.5, leading=6.8, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
-    def agregar_tabla(df_in, titulo_tab, color_header):
-        if df_in is not None and not df_in.empty:
-            story.append(Paragraph(titulo_tab, titulo_style))
+    def agregar_bloques_tabla(df_in, titulo_tab, color_header):
+        if df_in is None or df_in.empty:
+            return
+
+        cols_totales = list(df_in.columns)
+        cols_fijas = ["N° FILA", "TM", "CANT/FILA"] if "CANT/FILA" in cols_totales else ["N° FILA", "TM ESTIMADO", "TOTAL BULTOS"]
+        cols_dinamicas = [c for c in cols_totales if c not in cols_fijas]
+
+        # Partir en bloques de máximo 4 columnas para que no se compriman en una sola hoja
+        tamano_bloque = 4
+        bloques = [cols_dinamicas[i:i + tamano_bloque] for i in range(0, len(cols_dinamicas), tamano_bloque)]
+        if not bloques:
+            bloques = [[]]
+
+        for num_b, bloque_cols in enumerate(bloques):
+            if num_b > 0:
+                story.append(PageBreak())
+
+            sub_sufijo = f" (PARTE {num_b + 1})" if len(bloques) > 1 else ""
+            story.append(Paragraph(titulo_tab + sub_sufijo, titulo_style))
             story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | FECHA: {cabecera['fecha']} | CLIENTE: {cabecera.get('cliente', '-')}", sub_style))
             story.append(Spacer(1, 5))
 
-            cols = list(df_in.columns)
-            num_cols = len(cols)
-            if num_cols > 3:
-                w_prim = [38, 50, 52]
-                w_resto = (576 - sum(w_prim)) / (num_cols - 3)
-                col_widths = w_prim + [w_resto] * (num_cols - 3)
-            else:
-                col_widths = [576 / num_cols] * num_cols
+            cols_actuales = cols_fijas + bloque_cols
+            w_fijas = [38, 52, 54]
+            num_din = len(bloque_cols)
+            w_resto = (576 - sum(w_fijas)) / max(num_din, 1)
+            col_widths = w_fijas + [w_resto] * num_din
 
-            header_row = [Paragraph(str(c).replace(" | ", "<br/>").replace("\n", "<br/>"), cell_head_style) for c in cols]
+            header_row = [Paragraph(str(c).replace(" | ", "<br/>").replace("\n", "<br/>"), cell_head_style) for c in cols_actuales]
             t_data = [header_row]
 
             for _, r in df_in.iterrows():
                 row_vals = []
-                for c in cols:
+                for c in cols_actuales:
                     val = r[c]
                     if isinstance(val, (int, float)):
                         row_vals.append(f"{val:.2f}" if ("TM" in c.upper()) else str(int(val)))
@@ -123,7 +137,7 @@ def generar_pdf_planos_estiba(cabecera, df_estiba_lotes, df_estiba_pres):
                 t_data.append(row_vals)
 
             tot_row = []
-            for idx_c, col_name in enumerate(cols):
+            for idx_c, col_name in enumerate(cols_actuales):
                 if idx_c == 0:
                     tot_row.append("TOTAL")
                 else:
@@ -134,7 +148,7 @@ def generar_pdf_planos_estiba(cabecera, df_estiba_lotes, df_estiba_pres):
                         tot_row.append("-")
             t_data.append(tot_row)
 
-            f_size = 5.2 if num_cols > 6 else (5.8 if num_cols > 4 else 6.2)
+            f_size = 5.2 if len(cols_actuales) > 6 else 6.0
             t_pdf = Table(t_data, colWidths=col_widths)
             t_pdf.setStyle(TableStyle([
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -151,9 +165,11 @@ def generar_pdf_planos_estiba(cabecera, df_estiba_lotes, df_estiba_pres):
             ]))
             story.append(t_pdf)
 
-    agregar_tabla(df_estiba_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0")
+    # Lotes (se particiona automáticamente si son más de 4 lotes)
+    agregar_bloques_tabla(df_estiba_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0")
     story.append(PageBreak())
-    agregar_tabla(df_estiba_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A")
+    # Presentaciones
+    agregar_bloques_tabla(df_estiba_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A")
 
     doc.build(story)
     buffer.seek(0)
@@ -246,7 +262,8 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     story.append(t_cab)
     story.append(Spacer(1, 8))
 
-    headers = [Paragraph(f"<b>{p['nombre'][:20]}</b>", ParagraphStyle('PNH', parent=cell_head_style, fontSize=6)) for p in presentaciones_data]
+    # Títulos completos multilínea sin truncar nombres
+    headers = [Paragraph(f"<b>{p['nombre'].strip()}</b>", cell_head_style) for p in presentaciones_data]
     matrix_pesos = [headers]
     for r in range(20):
         fila = [f"{p['pesos'][r]:.2f}" if r < len(p['pesos']) and p['pesos'][r] > 0 else "-" for p in presentaciones_data]
@@ -260,7 +277,7 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     t_muestreo = Table(matrix_pesos, colWidths=[ancho_col] * len(presentaciones_data))
     t_muestreo.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 1), (-1, -1), 6.5),
+        ('FONTSIZE', (0, 0), (-1, -1), 6.5),
         ('TOPPADDING', (0, 0), (-1, -1), 1.5),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -276,7 +293,7 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     return buffer
 
 # =========================================================================
-# LÓGICA DE SHEETS (CON PERSISTENCIA Y ANTI-DUPLICADOS)
+# LÓGICA DE SHEETS
 # =========================================================================
 def obtener_hoja_distribuciones(get_gspread_client):
     client = get_gspread_client()
@@ -551,7 +568,7 @@ def render_module(user, get_gspread_client):
     ])
 
     # =========================================================================
-    # TAB 1: LOTES (EDICIÓN ÚNICA EN 'CANT/FILA' CON CÁLCULO AUTOMÁTICO DEL RESTO)
+    # TAB 1: LOTES (EDICIÓN ÚNICA EN CANT/FILA)
     # =========================================================================
     with tab_estiba_lotes:
         st.markdown("#### Configuración de Filas y Capacidad")
@@ -566,12 +583,10 @@ def render_module(user, get_gspread_client):
             st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {st.session_state.nfil_val}:", min_value=20, max_value=100, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
             st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
 
-        # Capacidades base por defecto
         caps_filas_default = [int(st.session_state.capg_val)] * int(st.session_state.nfil_val)
         caps_filas_default[0] = int(st.session_state.capf1_val)
         caps_filas_default[-1] = int(st.session_state.capfu_val)
 
-        # Si el usuario ya modificó CANT/FILA se respeta su lista; de lo contrario se usa la base
         if "caps_filas_override" not in st.session_state or len(st.session_state.caps_filas_override) != int(st.session_state.nfil_val):
             st.session_state.caps_filas_override = caps_filas_default.copy()
 
@@ -596,7 +611,6 @@ def render_module(user, get_gspread_client):
 
         headers_l = [f"{l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_calc]
 
-        # Cálculo automático de la matriz de estiba según los valores actuales de CANT/FILA
         caps_para_matriz = [int(x) for x in st.session_state.caps_filas_override]
         matriz_lotes_auto = calcular_matriz_estiba(caps_para_matriz, lista_lotes_calc)
 
@@ -610,11 +624,9 @@ def render_module(user, get_gspread_client):
             data_filas_tabla.append(r_dict)
 
         df_lotes_mostrar = pd.DataFrame(data_filas_tabla)
-
-        # TODAS LAS COLUMNAS BLOQUEADAS EXCEPTO 'CANT/FILA'
         cols_bloqueadas = ["N° FILA", "TM"] + headers_l
 
-        st.info("💡 Solo edita el número en la columna **CANT/FILA** (ej. poner 76 o 74). La distribución de lotes y toneladas se calcula automáticamente.")
+        st.info("💡 Solo edita el número en **CANT/FILA**. La distribución de lotes y toneladas se calcula automáticamente.")
 
         df_lotes_editado = st.data_editor(
             df_lotes_mostrar,
@@ -625,14 +637,12 @@ def render_module(user, get_gspread_client):
             key=f"editor_cantfila_only_{v}_{st.session_state.nfil_val}"
         )
 
-        # Detectar si el usuario modificó algún número en CANT/FILA y actualizar estado
         nuevas_capacidades = df_lotes_editado["CANT/FILA"].astype(int).tolist()
         if nuevas_capacidades != st.session_state.caps_filas_override:
             st.session_state.caps_filas_override = nuevas_capacidades
             st.rerun()
 
         caps_filas_reales = st.session_state.caps_filas_override
-
         tot_b_cargados = sum(caps_filas_reales)
         tot_tm_cargados = (tot_b_cargados * float(st.session_state.wstd_val)) / 1000.0
 
@@ -641,7 +651,7 @@ def render_module(user, get_gspread_client):
         m2.metric("Tonelaje Total", f"{tot_tm_cargados:.3f} TM")
 
     # =========================================================================
-    # TAB 2: PRESENTACIONES (ALIMENTADA AUTOMÁTICAMENTE DE CANT/FILA)
+    # TAB 2: PRESENTACIONES (DISTRIBUCIÓN REAL)
     # =========================================================================
     with tab_estiba_pres:
         st.markdown("#### Presentaciones a Embarcar (Hasta 8 según la hoja)")
@@ -692,7 +702,7 @@ def render_module(user, get_gspread_client):
             pass
 
     # =========================================================================
-    # TAB 3: PLACAS / TÚNEL / IQF (ALIMENTADA AUTOMÁTICAMENTE DE CANT/FILA)
+    # TAB 3: PLACAS / TÚNEL / IQF
     # =========================================================================
     with tab_placa_tunel:
         st.markdown("#### Configuración de Sistema de Congelación")
@@ -786,7 +796,7 @@ def render_module(user, get_gspread_client):
             pass
 
     # =========================================================================
-    # TAB 4: CONTROL DE PESOS
+    # TAB 4: CONTROL DE PESOS (TEXTO COMPLETO MULTILÍNEA)
     # =========================================================================
     with tab_pesos:
         st.markdown("#### Pesos de Balanza")
@@ -795,7 +805,9 @@ def render_module(user, get_gspread_client):
 
         for i, col in enumerate(cols_w):
             with col:
-                st.markdown(f"**{lista_pres_calc[i]['nombre'][:20]}**")
+                # Nombre completo en pantalla sin cortes
+                nom_completo = lista_pres_calc[i]['nombre'].strip()
+                st.markdown(f"**{nom_completo}**")
                 val_mem = st.session_state.txt_pesos_mem.get(str(i), "20.00, 20.05, 19.98")
                 txt_p = st.text_area(f"Pesos balanza ({i+1}):", value=val_mem, height=90, key=f"pw_box_{i}_{v}")
                 st.session_state.txt_pesos_mem[str(i)] = txt_p
@@ -813,7 +825,7 @@ def render_module(user, get_gspread_client):
                 tot_k = prom_u * lista_pres_calc[i]["cantidad"]
                 st.caption(f"Prom: **{prom_u:.3f} kg** | Subtotal: **{tot_k:,.1f} kg**")
                 presentaciones_data.append({
-                    "nombre": lista_pres_calc[i]["nombre"],
+                    "nombre": nom_completo,
                     "bultos": lista_pres_calc[i]["cantidad"],
                     "pesos": pesos_clean,
                     "promedio": prom_u,
