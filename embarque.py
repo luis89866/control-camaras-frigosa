@@ -2,12 +2,17 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 import io
+from PIL import Image as PILImage
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 
 ID_SPREADSHEET_PRODUCCION = "1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg"
+# Opcional: Si tienes el ID de una carpeta específica de Drive para embarques puedes ponerlo aquí, sino se guarda en el Drive principal de la cuenta
+ID_CARPETA_DRIVE_EMBARQUES = None 
 
 LISTA_PRESENTACIONES_FRIGOSA = [
     "AF 300 - 500 g/pza",
@@ -82,7 +87,38 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # =========================================================================
-# FUNCIÓN REUTILIZABLE PARA TABLAS DE ESTIBA EN PDF (COMPACTA Y DINÁMICA)
+# SUBIDA DE ADJUNTOS A GOOGLE DRIVE
+# =========================================================================
+def subir_archivo_drive(get_gspread_client, archivo_subido, nombre_archivo, mime_type):
+    """Sube un archivo a Google Drive y devuelve su enlace público/compartible."""
+    try:
+        client = get_gspread_client()
+        credentials = client.auth
+        drive_service = build('drive', 'v3', credentials=credentials)
+
+        file_metadata = {'name': nombre_archivo}
+        if ID_CARPETA_DRIVE_EMBARQUES:
+            file_metadata['parents'] = [ID_CARPETA_DRIVE_EMBARQUES]
+
+        media = MediaIoBaseUpload(io.BytesIO(archivo_subido.getvalue()), mimetype=mime_type, resumable=True)
+        archivo = drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
+
+        # Conceder permiso de lectura para que se pueda abrir con el link
+        try:
+            drive_service.permissions().create(
+                fileId=archivo.get('id'),
+                body={'type': 'anyone', 'role': 'reader'}
+            ).execute()
+        except Exception:
+            pass
+
+        return archivo.get('webViewLink', f"https://drive.google.com/file/d/{archivo.get('id')}/view")
+    except Exception as e:
+        st.warning(f"Nota en subida a Drive: {e}")
+        return ""
+
+# =========================================================================
+# FUNCIÓN COMPACTA DE TABLAS PARA REPORTES
 # =========================================================================
 def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, styles):
     elementos = []
@@ -97,7 +133,6 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     cols_dinamicas = [c for c in cols_totales if c not in cols_fijas]
     num_lotes = len(cols_dinamicas)
 
-    # Si hay hasta 8 lotes se colocan todos en una sola hoja elegante
     tamano_bloque = 8 if num_lotes <= 8 else 5
     bloques = [cols_dinamicas[i:i + tamano_bloque] for i in range(0, len(cols_dinamicas), tamano_bloque)]
     if not bloques:
@@ -115,7 +150,6 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
         cols_actuales = cols_fijas + bloque_cols
         total_cols = len(cols_actuales)
 
-        # Fuente y anchos dinámicos según columnas
         if total_cols > 9:
             f_size = 4.8
             leading_h = 5.8
@@ -179,9 +213,9 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     return elementos
 
 # =========================================================================
-# DOSSIER COMPLETO UNIFICADO (EXPEDIENTE TOTAL DEL CONTENEDOR)
+# DOSSIER UNIFICADO (CON SUSTENTO FOTOGRÁFICO DE TEMPERATURA Y BALANZA)
 # =========================================================================
-def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen):
+def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_temp_bytes=None, fotos_pesos_bytes=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=18, rightMargin=18, topMargin=18, bottomMargin=18)
     story = []
@@ -191,7 +225,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     sub_style = ParagraphStyle('SubD', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
     cell_head_style = ParagraphStyle('CHD', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
-    # 1. PÁGINA 1: FICHA LOGÍSTICA, MUESTREO DE BALANZA Y LIQUIDACIÓN
+    # 1. PÁGINA 1: CONTROL DE PESOS Y DATOS GENERALES
     story.append(Paragraph("EXPEDIENTE TÉCNICO Y CONTROL DE EMBARQUE - FRIGOSA SAC", titulo_style))
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
     story.append(Spacer(1, 5))
@@ -202,9 +236,9 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
         ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
-        ["ENCARGADO DE EMBARQUE:", "LUIS ENRIQUE FIESTAS ECA", "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
+        ["SUPERVISOR DE EMBARQUE:", "LUIS ENRIQUE FIESTAS ECA", "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
     ]
-    t_cab = Table(data_cab, colWidths=[135, 145, 115, 177])
+    t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
     t_cab.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, -1), 6.5),
@@ -244,17 +278,17 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_muestreo)
 
-    # 2. PÁGINA 2: PLANO DE ESTIBA POR LOTES (1 SOLA HOJA HASTA 8 LOTES)
+    # 2. PÁGINA 2: PLANO DE LOTES (UNA SOLA HOJA COMPACTA)
     if df_lotes is not None and not df_lotes.empty:
         story.append(PageBreak())
         story.extend(construir_flowables_tabla_estiba(df_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
 
-    # 3. PÁGINA 3: PLANO DE ESTIBA POR PRESENTACIONES
+    # 3. PÁGINA 3: PLANO DE PRESENTACIONES
     if df_pres is not None and not df_pres.empty:
         story.append(PageBreak())
         story.extend(construir_flowables_tabla_estiba(df_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A", cabecera, styles))
 
-    # 4. PÁGINA 4: DISTRIBUCIÓN POR SISTEMA PLACAS / TÚNEL / IQF
+    # 4. PÁGINA 4: DISTRIBUCIÓN POR SISTEMA
     if df_sistema is not None and not df_sistema.empty:
         story.append(PageBreak())
         story.append(Paragraph("DISTRIBUCIÓN POR SISTEMA: PLACAS / TÚNEL / IQF", titulo_style))
@@ -292,6 +326,58 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_s_pdf)
 
+    # 5. PÁGINA 5: ANEXO FOTOGRÁFICO DE TEMPERATURA Y BALANZA (SI SE ADJUNTARON FOTOS)
+    lista_fotos_anexo = []
+    if foto_temp_bytes:
+        lista_fotos_anexo.append(("CONTROL DE TEMPERATURA / TERMOKING", foto_temp_bytes))
+    if fotos_pesos_bytes:
+        for idx_fp, fp_bytes in enumerate(fotos_pesos_bytes):
+            lista_fotos_anexo.append((f"MUESTREO DE PESOS EN BALANZA #{idx_fp+1}", fp_bytes))
+
+    if lista_fotos_anexo:
+        story.append(PageBreak())
+        story.append(Paragraph("ANEXO: PANEL FOTOGRÁFICO DE TEMPERATURA Y BALANZA", titulo_style))
+        story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | SUPERVISOR DE EMBARQUE: LUIS ENRIQUE FIESTAS ECA", sub_style))
+        story.append(Spacer(1, 8))
+
+        filas_foto_tabla = []
+        for rotulo, img_bytes in lista_fotos_anexo:
+            try:
+                img_io = io.BytesIO(img_bytes)
+                rl_img = RLImage(img_io, width=260, height=195)
+                lbl = Paragraph(f"<b>{rotulo}</b>", ParagraphStyle('Lbl', parent=styles['Normal'], fontSize=7.5, leading=9, alignment=1, textColor=colors.HexColor("#1A365D")))
+                filas_foto_tabla.append([rl_img, lbl])
+            except Exception:
+                pass
+
+        if filas_foto_tabla:
+            # Organizar de 2 en 2 en cuadrícula
+            celdas_grid = []
+            row_temp = []
+            for item_f in filas_foto_tabla:
+                bloque_celda = Table([[item_f[0]], [item_f[1]]], colWidths=[270])
+                bloque_celda.setStyle(TableStyle([
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+                    ('TOPPADDING', (0,0), (-1,-1), 2),
+                ]))
+                row_temp.append(bloque_celda)
+                if len(row_temp) == 2:
+                    celdas_grid.append(row_temp)
+                    row_temp = []
+            if row_temp:
+                row_temp.append("")
+                celdas_grid.append(row_temp)
+
+            t_grid_fotos = Table(celdas_grid, colWidths=[285, 285])
+            t_grid_fotos.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('TOPPADDING', (0,0), (-1,-1), 4),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ]))
+            story.append(t_grid_fotos)
+
     doc.build(story)
     buffer.seek(0)
     return buffer
@@ -322,7 +408,8 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
         return False, f"El contenedor '{num_cont}' ya existe en la fila {fila_idx}. Cambie al modo 'Cargar / Editar' para modificarlo."
 
     if fila_idx:
-        rango = f"A{fila_idx}:AO{fila_idx}"
+        # Abarca desde Columna A hasta AR (44 columnas)
+        rango = f"A{fila_idx}:AR{fila_idx}"
         ws.update(rango, [datos_fila])
         return True, f"Actualizado exitosamente (Fila {fila_idx})"
     else:
@@ -330,7 +417,7 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
         return True, "Registrado como nuevo registro"
 
 # =========================================================================
-# MÓDULO PRINCIPAL
+# MÓDULO PRINCIPAL STREAMLIT
 # =========================================================================
 def render_module(user, get_gspread_client):
     st.subheader("🚢 Módulo 4: Despachos, Estiba y Embarques")
@@ -383,10 +470,24 @@ def render_module(user, get_gspread_client):
     if "txt_pesos_mem" not in st.session_state:
         st.session_state.txt_pesos_mem = {}
 
+    # Enlaces de Drive
+    if "link_pdf_ir" not in st.session_state:
+        st.session_state.link_pdf_ir = ""
+    if "link_foto_temp" not in st.session_state:
+        st.session_state.link_foto_temp = ""
+    if "link_fotos_pesos" not in st.session_state:
+        st.session_state.link_fotos_pesos = ""
+
+    # Bytes de fotos en memoria para adjuntar al PDF
+    if "bytes_foto_temp" not in st.session_state:
+        st.session_state.bytes_foto_temp = None
+    if "bytes_fotos_pesos" not in st.session_state:
+        st.session_state.bytes_fotos_pesos = []
+
     v = st.session_state.form_version
 
     # =========================================================================
-    # BARRA SUPERIOR: MODO DE OPERACIÓN Y BÚSQUEDA
+    # BARRA SUPERIOR: SELECCIÓN Y BÚSQUEDA
     # =========================================================================
     col_sel1, col_sel2 = st.columns([3, 1])
     with col_sel1:
@@ -428,7 +529,6 @@ def render_module(user, get_gspread_client):
                     st.info("No hay contenedores en la fecha seleccionada.")
                     cont_seleccionado = None
 
-            # BOTONES SUPERIORES AL FILTRAR
             c_btn_c1, c_btn_c2 = st.columns([1.5, 2])
             with c_btn_c1:
                 btn_cargar_datos = st.button("📥 Cargar en Pantalla", use_container_width=True) if cont_seleccionado else False
@@ -513,6 +613,11 @@ def render_module(user, get_gspread_client):
                                 p_idx, p_vals = item_p.split("::", 1)
                                 st.session_state.txt_pesos_mem[p_idx.strip()] = p_vals.strip()
 
+                    # Links de Drive
+                    st.session_state.link_pdf_ir = fila_encontrada[41].strip() if len(fila_encontrada) > 41 else ""
+                    st.session_state.link_foto_temp = fila_encontrada[42].strip() if len(fila_encontrada) > 42 else ""
+                    st.session_state.link_fotos_pesos = fila_encontrada[43].strip() if len(fila_encontrada) > 43 else ""
+
                     if "df_congelado_edit" in st.session_state:
                         del st.session_state["df_congelado_edit"]
                     if "caps_filas_override" in st.session_state:
@@ -542,6 +647,11 @@ def render_module(user, get_gspread_client):
             st.session_state.pres_items = [{"nombre": LISTA_PRESENTACIONES_FRIGOSA[0], "bultos": 0, "peso": 20.0}]
             st.session_state.lotes_items = [{"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0}]
             st.session_state.txt_pesos_mem = {}
+            st.session_state.link_pdf_ir = ""
+            st.session_state.link_foto_temp = ""
+            st.session_state.link_fotos_pesos = ""
+            st.session_state.bytes_foto_temp = None
+            st.session_state.bytes_fotos_pesos = []
             if "df_congelado_edit" in st.session_state:
                 del st.session_state["df_congelado_edit"]
             if "caps_filas_override" in st.session_state:
@@ -549,7 +659,7 @@ def render_module(user, get_gspread_client):
             st.session_state.form_version += 1
             st.rerun()
 
-    # --- DATOS DE CABECERA ---
+    # --- CABECERA ---
     with st.expander("⚙️ Datos Principales del Contenedor", expanded=True):
         cp1, cp2, cp3, cp4 = st.columns(4)
         with cp1:
@@ -568,7 +678,7 @@ def render_module(user, get_gspread_client):
             st.session_state.pay_val = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=34000.0, value=float(st.session_state.pay_val), step=100.0, key=f"pay_emb_{v}")
 
     # =========================================================================
-    # PREPARACIÓN DE LAS MATRICES Y TABLAS DEL CONTENEDOR
+    # PREPARACIÓN DE MATRICES Y TABLAS
     # =========================================================================
     caps_filas_default = [int(st.session_state.capg_val)] * int(st.session_state.nfil_val)
     caps_filas_default[0] = int(st.session_state.capf1_val)
@@ -579,7 +689,7 @@ def render_module(user, get_gspread_client):
 
     caps_reales_actuales = [int(x) for x in st.session_state.caps_filas_override]
 
-    # 1. Matriz de Lotes
+    # Matriz Lotes
     lista_lotes_mem = [{"fecha_txt": l["fecha"].strftime('%d/%m/%Y'), "lote_txt": l["lote"].strip(), "cantidad": int(l["bultos"])} for l in st.session_state.lotes_items]
     headers_l = [f"{l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_mem]
     matriz_lotes_auto = calcular_matriz_estiba(caps_reales_actuales, lista_lotes_mem)
@@ -594,7 +704,7 @@ def render_module(user, get_gspread_client):
         data_filas_tabla.append(r_dict)
     df_lotes_global = pd.DataFrame(data_filas_tabla)
 
-    # 2. Matriz de Presentaciones
+    # Matriz Presentaciones
     lista_pres_mem = [{"nombre": p["nombre"], "cantidad": int(p["bultos"]), "peso_unit": float(p.get("peso", st.session_state.wstd_val))} for p in st.session_state.pres_items]
     matriz_pres_auto = calcular_matriz_estiba(caps_reales_actuales, lista_pres_mem)
     headers_pres = [f"{p['nombre']} (P{idx+1})" for idx, p in enumerate(lista_pres_mem)]
@@ -608,7 +718,7 @@ def render_module(user, get_gspread_client):
         data_pres_tabla.append(r_d)
     df_pres_global = pd.DataFrame(data_pres_tabla)
 
-    # 3. Matriz de Congelación
+    # Matriz Congelado
     if "df_congelado_edit" not in st.session_state or len(st.session_state.df_congelado_edit) != len(caps_reales_actuales):
         filas_sist_init = []
         for f_idx in range(len(caps_reales_actuales)):
@@ -623,7 +733,7 @@ def render_module(user, get_gspread_client):
             })
         st.session_state.df_congelado_edit = pd.DataFrame(filas_sist_init)
 
-    # 4. Datos de Balanza y Pesos
+    # Pesos
     presentaciones_data_global = []
     for i, p_item in enumerate(lista_pres_mem):
         val_mem = st.session_state.txt_pesos_mem.get(str(i), "20.00, 20.05, 19.98")
@@ -668,9 +778,7 @@ def render_module(user, get_gspread_client):
         "peso_a_favor": peso_a_favor
     }
 
-    # =========================================================================
-    # BOTÓN DIRECTO EN LA BARRA SUPERIOR PARA DESCARGAR EL DOSSIER COMPLETO
-    # =========================================================================
+    # Botón directo superior
     if modo_operacion == "Cargar / Editar Contenedor Existente" and st.session_state.cont_val:
         with c_btn_c2:
             try:
@@ -680,10 +788,12 @@ def render_module(user, get_gspread_client):
                     df_pres_global,
                     st.session_state.df_congelado_edit,
                     presentaciones_data_global,
-                    resumen_pdf_maestro
+                    resumen_pdf_maestro,
+                    st.session_state.bytes_foto_temp,
+                    st.session_state.bytes_fotos_pesos
                 )
                 st.download_button(
-                    label=f"📦 Descargar Dossier PDF Unificado ({st.session_state.cont_val})",
+                    label=f"📦 Descargar Dossier PDF ({st.session_state.cont_val})",
                     data=pdf_dossier_top,
                     file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
                     mime="application/pdf",
@@ -693,13 +803,14 @@ def render_module(user, get_gspread_client):
                 st.caption(f"Generando PDF: {e_pdf}")
 
     # =========================================================================
-    # PESTAÑAS DETALLADAS DEL MÓDULO
+    # PESTAÑAS
     # =========================================================================
-    tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos = st.tabs([
+    tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos = st.tabs([
         "📅 1. Plano Estiba (Lotes)",
         "📦 2. Plano Estiba (Presentaciones)",
         "❄️ 3. Placas / Túnel / IQF",
-        "⚖️ 4. Control de Pesos (Balanza)"
+        "⚖️ 4. Control de Pesos (Balanza)",
+        "📎 5. IR & Fotos (Termoking / Balanza)"
     ])
 
     # ------------------ TAB 1: LOTES ------------------
@@ -869,7 +980,6 @@ def render_module(user, get_gspread_client):
         r3.metric("Peso Bruto", f"{peso_tot_gral:,.2f} kg")
         r4.metric("Margen a Favor", f"{peso_a_favor:,.2f} kg")
 
-        # DESCARGA DEL DOSSIER TAMBIÉN DISPONIBLE EN EL PIE DE PÁGINA
         st.markdown("---")
         try:
             pdf_dossier_bytes = generar_dossier_unificado(
@@ -878,10 +988,12 @@ def render_module(user, get_gspread_client):
                 df_pres_global,
                 st.session_state.df_congelado_edit,
                 presentaciones_data_global,
-                resumen_pdf_maestro
+                resumen_pdf_maestro,
+                st.session_state.bytes_foto_temp,
+                st.session_state.bytes_fotos_pesos
             )
             st.download_button(
-                "📦 Descargar Dossier Completo Unificado (Distribuciones + Pesos + Congelado)",
+                "📦 Descargar Dossier Completo Unificado (Con Panel Fotográfico si hay)",
                 data=pdf_dossier_bytes,
                 file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
                 mime="application/pdf",
@@ -889,6 +1001,63 @@ def render_module(user, get_gspread_client):
             )
         except Exception as ex:
             st.warning(f"Nota en Dossier: {ex}")
+
+    # ------------------ TAB 5: ADJUNTOS IR & FOTOS (TERMOKING / BALANZA) ------------------
+    with tab_adjuntos:
+        st.markdown("#### 📎 Documentación del Contenedor y Sustento Fotográfico")
+        st.caption("Los archivos se respaldan en Google Drive y se vinculan a la hoja 'DISTRIBUCIONES'. Las fotos se insertan directo al PDF Dossier.")
+
+        ca1, ca2 = st.columns(2)
+
+        with ca1:
+            st.markdown("##### 📄 Reporte de Inspección (IR / EIR)")
+            archivo_ir = st.file_uploader("Subir PDF del IR (Condiciones externas/internas):", type=["pdf"], key=f"up_ir_{v}")
+            if archivo_ir:
+                if st.button("☁️ Subir PDF del IR a Google Drive"):
+                    with st.spinner("Subiendo PDF a Google Drive..."):
+                        nom_ir = f"IR_{st.session_state.cont_val or 'CONT'}_{date.today().strftime('%Y%m%d')}.pdf"
+                        link_ir = subir_archivo_drive(get_gspread_client, archivo_ir, nom_ir, "application/pdf")
+                        if link_ir:
+                            st.session_state.link_pdf_ir = link_ir
+                            st.success("✅ PDF del IR subido correctamente.")
+            if st.session_state.link_pdf_ir:
+                st.markdown(f"🔗 [Abrir PDF del IR en Google Drive]({st.session_state.link_pdf_ir})")
+
+            st.markdown("---")
+            st.markdown("##### ❄️ Foto de Temperatura (Termoking / Seteo)")
+            foto_temp = st.file_uploader("Subir Foto de Temperatura / Display Termoking:", type=["jpg", "jpeg", "png"], key=f"up_temp_{v}")
+            if foto_temp:
+                st.session_state.bytes_foto_temp = foto_temp.getvalue()
+                st.image(foto_temp, caption="Foto de Temperatura Seleccionada", use_column_width=True)
+                if st.button("☁️ Respaldar Foto de Temperatura en Drive"):
+                    with st.spinner("Subiendo foto a Google Drive..."):
+                        nom_foto_t = f"TEMP_{st.session_state.cont_val or 'CONT'}_{date.today().strftime('%Y%m%d%H%M')}.jpg"
+                        link_temp = subir_archivo_drive(get_gspread_client, foto_temp, nom_foto_t, "image/jpeg")
+                        if link_temp:
+                            st.session_state.link_foto_temp = link_temp
+                            st.success("✅ Foto de temperatura respaldada en Drive.")
+            if st.session_state.link_foto_temp:
+                st.markdown(f"🔗 [Abrir Foto de Temperatura en Google Drive]({st.session_state.link_foto_temp})")
+
+        with ca2:
+            st.markdown("##### ⚖️ Fotos de Pesos / Balanza (Opcional)")
+            fotos_pesos_up = st.file_uploader("Subir Fotos de Pesadas / Balanza (Múltiples):", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key=f"up_pesos_{v}")
+            if fotos_pesos_up:
+                st.session_state.bytes_fotos_pesos = [f.getvalue() for f in fotos_pesos_up]
+                st.info(f"📸 {len(fotos_pesos_up)} foto(s) de balanza lista(s) para el Anexo del Dossier PDF.")
+                if st.button("☁️ Respaldar Fotos de Pesaje en Drive"):
+                    with st.spinner("Subiendo fotos a Google Drive..."):
+                        links_p_list = []
+                        for idx_f, f_p in enumerate(fotos_pesos_up):
+                            nom_fp = f"BALANZA_{st.session_state.cont_val or 'CONT'}_{idx_f+1}_{date.today().strftime('%Y%m%d')}.jpg"
+                            l_p = subir_archivo_drive(get_gspread_client, f_p, nom_fp, "image/jpeg")
+                            if l_p:
+                                links_p_list.append(l_p)
+                        if links_p_list:
+                            st.session_state.link_fotos_pesos = " | ".join(links_p_list)
+                            st.success("✅ Fotos de balanza respaldadas en Drive.")
+            if st.session_state.link_fotos_pesos:
+                st.caption(f"Enlaces de fotos de balanza: {st.session_state.link_fotos_pesos}")
 
     # =========================================================================
     # GUARDADO / ACTUALIZACIÓN CENTRALIZADO EN GOOGLE SHEETS
@@ -926,7 +1095,7 @@ def render_module(user, get_gspread_client):
                     str(st.session_state.cli_val).strip(),         # G: CLIENTE
                     str(st.session_state.dest_val).strip(),        # H: Destino
                     str(st.session_state.pais_val).strip(),        # I: PAIS
-                    "LUIS ENRIQUE FIESTAS ECA",                    # J: encargado de embarque
+                    "LUIS ENRIQUE FIESTAS ECA",                    # J: supervisor
                     *pres_cols,                                    # K a Z: PRESENTACION_1..8 y BULTOS_1..8
                     float(st.session_state.pay_val),               # AA: payload_contenedor
                     int(tot_b_gral),                               # AB: total_bultos
@@ -942,14 +1111,17 @@ def render_module(user, get_gspread_client):
                     int(st.session_state.capf1_val),               # AL: cap_fila_1
                     int(st.session_state.capfu_val),               # AM: cap_fila_puerta
                     float(st.session_state.wstd_val),              # AN: peso_std_bulto
-                    detalle_pesos_str                              # AO: detalle_pesos_balanza
+                    detalle_pesos_str,                             # AO: detalle_pesos_balanza
+                    str(st.session_state.link_pdf_ir),             # AP: link_pdf_ir
+                    str(st.session_state.link_foto_temp),          # AQ: link_foto_temperatura
+                    str(st.session_state.link_fotos_pesos)         # AR: link_fotos_pesos
                 ]
 
                 es_modo_nuevo = (modo_operacion == "Nuevo Contenedor")
                 ok, res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra, forzar_nuevo=es_modo_nuevo)
 
                 if ok:
-                    st.success(f"✅ Contenedor {st.session_state.cont_val} {res_msg} en 'DISTRIBUCIONES'.")
+                    st.success(f"✅ Contenedor {st.session_state.cont_val} {res_msg} en 'DISTRIBUCIONES' con sus adjuntos y fotos vinculadas.")
                 else:
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
