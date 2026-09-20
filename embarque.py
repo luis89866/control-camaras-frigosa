@@ -786,7 +786,7 @@ def render_module(user, get_gspread_client):
                     st.session_state.bytes_pdf_ir
                 )
                 st.download_button(
-                    label=f"📦 Descargar Dossier PDF ({st.session_state.cont_val})",
+                    label=f"📦 Descargar Dossier PDF Completo ({st.session_state.cont_val})",
                     data=pdf_dossier_top,
                     file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
                     mime="application/pdf",
@@ -1001,7 +1001,7 @@ def render_module(user, get_gspread_client):
             foto_temp = st.file_uploader("Subir Foto del Display de Temperatura:", type=["jpg", "jpeg", "png"], key=f"up_temp_{v}")
             if foto_temp:
                 st.session_state.bytes_foto_temp = foto_temp.getvalue()
-                st.image(foto_temp, caption="Display de Temperatura", use_column_width=True)
+                st.image(foto_temp, caption="Display de Temperatura", use_container_width=True)
                 if st.button("☁️ Respaldar Foto de Temperatura en Drive"):
                     with st.spinner("Subiendo foto a Google Drive..."):
                         nom_foto_t = f"TEMP_{st.session_state.cont_val or 'CONT'}_{date.today().strftime('%Y%m%d%H%M')}.jpg"
