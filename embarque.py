@@ -9,7 +9,12 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
-import pypdf
+
+# Importación segura para evitar caídas si no está en requirements.txt
+try:
+    import pypdf
+except ImportError:
+    pypdf = None
 
 ID_SPREADSHEET_PRODUCCION = "1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg"
 ID_CARPETA_DRIVE_EMBARQUES = None 
@@ -220,7 +225,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     return elementos
 
 # =========================================================================
-# GENERADOR Y FUSIONADOR DEL DOSSIER UNIFICADO (CON FOTO Y PDF DEL IR)
+# GENERADOR Y FUSIONADOR DEL DOSSIER UNIFICADO
 # =========================================================================
 def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_temp_bytes=None, pdf_ir_bytes=None):
     buffer_dossier = io.BytesIO()
@@ -285,7 +290,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_muestreo)
 
-    # 2. PÁGINA 2: PLANO DE LOTES (UNA SOLA HOJA HASTA 8 LOTES)
+    # 2. PÁGINA 2: PLANO DE LOTES
     if df_lotes is not None and not df_lotes.empty:
         story.append(PageBreak())
         story.extend(construir_flowables_tabla_estiba(df_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
@@ -361,10 +366,8 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     doc.build(story)
     buffer_dossier.seek(0)
 
-    # =========================================================================
-    # FUSIÓN DIRECTA (MERGE) CON EL PDF DEL IR SI SE SUBIÓ
-    # =========================================================================
-    if pdf_ir_bytes:
+    # Fusión con el PDF del IR si pypdf está disponible
+    if pdf_ir_bytes and pypdf is not None:
         try:
             merger = pypdf.PdfMerger()
             merger.append(buffer_dossier)
@@ -406,7 +409,6 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
         return False, f"El contenedor '{num_cont}' ya existe en la fila {fila_idx}. Cambie al modo 'Cargar / Editar' para modificarlo."
 
     if fila_idx:
-        # Abarca Columnas A hasta AQ (43 columnas)
         rango = f"A{fila_idx}:AQ{fila_idx}"
         ws.update(rango, [datos_fila])
         return True, f"Actualizado exitosamente (Fila {fila_idx})"
@@ -468,13 +470,11 @@ def render_module(user, get_gspread_client):
     if "txt_pesos_mem" not in st.session_state:
         st.session_state.txt_pesos_mem = {}
 
-    # Enlaces de Drive
     if "link_pdf_ir" not in st.session_state:
         st.session_state.link_pdf_ir = ""
     if "link_foto_temp" not in st.session_state:
         st.session_state.link_foto_temp = ""
 
-    # Bytes en memoria para incrustar al PDF final
     if "bytes_foto_temp" not in st.session_state:
         st.session_state.bytes_foto_temp = None
     if "bytes_pdf_ir" not in st.session_state:
@@ -483,7 +483,7 @@ def render_module(user, get_gspread_client):
     v = st.session_state.form_version
 
     # =========================================================================
-    # BARRA SUPERIOR: SELECCIÓN Y BÚSQUEDA
+    # BARRA SUPERIOR
     # =========================================================================
     col_sel1, col_sel2 = st.columns([3, 1])
     with col_sel1:
@@ -771,9 +771,7 @@ def render_module(user, get_gspread_client):
         "peso_a_favor": peso_a_favor
     }
 
-    # =========================================================================
-    # BOTÓN SUPERIOR DIRECTO: DESCARGAR DOSSIER UNIFICADO (TODO EN UN PDF)
-    # =========================================================================
+    # Botón directo superior
     if modo_operacion == "Cargar / Editar Contenedor Existente" and st.session_state.cont_val:
         with c_btn_c2:
             try:
@@ -788,7 +786,7 @@ def render_module(user, get_gspread_client):
                     st.session_state.bytes_pdf_ir
                 )
                 st.download_button(
-                    label=f"📦 Descargar Dossier PDF Completo ({st.session_state.cont_val})",
+                    label=f"📦 Descargar Dossier PDF ({st.session_state.cont_val})",
                     data=pdf_dossier_top,
                     file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
                     mime="application/pdf",
@@ -987,7 +985,7 @@ def render_module(user, get_gspread_client):
             archivo_ir = st.file_uploader("Subir PDF del IR (Inspección física):", type=["pdf"], key=f"up_ir_{v}")
             if archivo_ir:
                 st.session_state.bytes_pdf_ir = archivo_ir.getvalue()
-                st.success("✅ PDF del IR cargado y listo para fusionarse al final del Dossier.")
+                st.success("✅ PDF del IR cargado en memoria.")
                 if st.button("☁️ Respaldar PDF del IR en Google Drive"):
                     with st.spinner("Subiendo PDF a Google Drive..."):
                         nom_ir = f"IR_{st.session_state.cont_val or 'CONT'}_{date.today().strftime('%Y%m%d')}.pdf"
