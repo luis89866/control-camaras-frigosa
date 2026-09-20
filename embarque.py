@@ -82,7 +82,7 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # =========================================================================
-# FUNCIÓN REUTILIZABLE PARA CONSTRUIR TABLAS DE ESTIBA (AJUSTE DINÁMICO)
+# FUNCIÓN REUTILIZABLE PARA TABLAS DE ESTIBA EN PDF (COMPACTA Y DINÁMICA)
 # =========================================================================
 def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, styles):
     elementos = []
@@ -97,8 +97,8 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     cols_dinamicas = [c for c in cols_totales if c not in cols_fijas]
     num_lotes = len(cols_dinamicas)
 
-    # Si entran hasta 8 lotes, se compacta para que entre en una sola página elegante
-    tamano_bloque = 8 if num_lotes <= 8 else 4
+    # Si hay hasta 8 lotes se colocan todos en una sola hoja elegante
+    tamano_bloque = 8 if num_lotes <= 8 else 5
     bloques = [cols_dinamicas[i:i + tamano_bloque] for i in range(0, len(cols_dinamicas), tamano_bloque)]
     if not bloques:
         bloques = [[]]
@@ -115,7 +115,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
         cols_actuales = cols_fijas + bloque_cols
         total_cols = len(cols_actuales)
 
-        # Configuración adaptable de fuentes según cantidad de columnas
+        # Fuente y anchos dinámicos según columnas
         if total_cols > 9:
             f_size = 4.8
             leading_h = 5.8
@@ -158,7 +158,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
                     tot_row.append(f"{sum_val:,.2f}" if "TM" in col_name.upper() else f"{int(sum_val):,}")
                 except Exception:
                     tot_row.append("-")
-        t_data.append(tot_row)
+            t_data.append(tot_row)
 
         t_pdf = Table(t_data, colWidths=col_widths)
         t_pdf.setStyle(TableStyle([
@@ -179,148 +179,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     return elementos
 
 # =========================================================================
-# 1. PDF PLANOS DE ESTIBA (LOTES Y PRESENTACIONES)
-# =========================================================================
-def generar_pdf_planos_estiba(cabecera, df_estiba_lotes, df_estiba_pres):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=18, rightMargin=18, topMargin=18, bottomMargin=18)
-    story = []
-    styles = getSampleStyleSheet()
-
-    # Página 1: Lotes
-    story.extend(construir_flowables_tabla_estiba(df_estiba_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
-    story.append(PageBreak())
-    # Página 2: Presentaciones
-    story.extend(construir_flowables_tabla_estiba(df_estiba_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A", cabecera, styles))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
-# =========================================================================
-# 2. PDF TIPO DE CONGELADO (PLACAS / TÚNEL / IQF)
-# =========================================================================
-def generar_pdf_congelado(cabecera, df_estiba_sistema):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=20, rightMargin=20, topMargin=20, bottomMargin=20)
-    story = []
-    styles = getSampleStyleSheet()
-
-    titulo_style = ParagraphStyle('TitF', parent=styles['Heading1'], fontSize=11, leading=13, textColor=colors.HexColor("#0D3B66"), alignment=1)
-    sub_style = ParagraphStyle('SubF', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
-    cell_head_style = ParagraphStyle('CH', parent=styles['Normal'], fontSize=6.5, leading=8.0, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
-
-    story.append(Paragraph("DISTRIBUCIÓN POR SISTEMA: PLACAS / TÚNEL / IQF", titulo_style))
-    story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | FECHA: {cabecera['fecha']} | CLIENTE: {cabecera.get('cliente', '-')}", sub_style))
-    story.append(Spacer(1, 8))
-
-    cols = list(df_estiba_sistema.columns)
-    w_col = 572 / len(cols)
-    header_row = [Paragraph(str(c), cell_head_style) for c in cols]
-    t_data = [header_row]
-
-    for _, r in df_estiba_sistema.iterrows():
-        t_data.append([str(r[c]) for c in cols])
-
-    tot_row = ["TOTAL"]
-    for c in cols[1:]:
-        try:
-            val_s = df_estiba_sistema[c].astype(float).sum()
-            tot_row.append(f"{val_s:,.2f}" if "TM" in c.upper() else f"{int(val_s):,}")
-        except Exception:
-            tot_row.append("-")
-    t_data.append(tot_row)
-
-    t_pdf = Table(t_data, colWidths=[w_col] * len(cols))
-    t_pdf.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 1), (-1, -1), 6.5),
-        ('TOPPADDING', (0, 0), (-1, -1), 1.8),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.8),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#D69E2E")),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#FEFCBF")),
-        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor("#F7FAFC")]),
-    ]))
-    story.append(t_pdf)
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
-# =========================================================================
-# 3. PDF CONTROL DE PESOS (INDIVIDUAL)
-# =========================================================================
-def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=20, rightMargin=20, topMargin=20, bottomMargin=20)
-    story = []
-    styles = getSampleStyleSheet()
-
-    titulo_style = ParagraphStyle('TitF', parent=styles['Heading1'], fontSize=11, leading=13, textColor=colors.HexColor("#0D3B66"), alignment=1)
-    sub_style = ParagraphStyle('SubF', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
-    cell_head_style = ParagraphStyle('CH', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
-
-    story.append(Paragraph("SEGUIMIENTO DE CONTROL DE PESO Y BALANZA - FRIGOSA SAC", titulo_style))
-    story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
-    story.append(Spacer(1, 6))
-
-    data_cab = [
-        ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
-        ["CLIENTE:", cabecera.get('cliente', '-'), "DESTINO:", cabecera.get('destino', '-')],
-        ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
-        ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
-        ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
-        ["ENCARGADO DE EMBARQUE:", "LUIS ENRIQUE FIESTAS ECA", "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
-    ]
-    t_cab = Table(data_cab, colWidths=[130, 150, 115, 177])
-    t_cab.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 6.5),
-        ('TOPPADDING', (0, 0), (-1, -1), 1.8),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.8),
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F4F6F9")),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-        ('ALIGN', (1, 0), (1, -1), 'CENTER'),
-        ('ALIGN', (3, 0), (3, -1), 'CENTER'),
-    ]))
-    story.append(t_cab)
-    story.append(Spacer(1, 8))
-
-    headers = [Paragraph(f"<b>{p['nombre'].strip()}</b>", cell_head_style) for p in presentaciones_data]
-    matrix_pesos = [headers]
-    for r in range(20):
-        fila = [f"{p['pesos'][r]:.2f}" if r < len(p['pesos']) and p['pesos'][r] > 0 else "-" for p in presentaciones_data]
-        matrix_pesos.append(fila)
-
-    matrix_pesos.append([f"Bultos: {p['bultos']}" for p in presentaciones_data])
-    matrix_pesos.append([f"Prom: {p['promedio']:.3f}" for p in presentaciones_data])
-    matrix_pesos.append([f"Total: {p['total_kg']:,.1f} kg" for p in presentaciones_data])
-
-    ancho_col = 572 / max(len(presentaciones_data), 1)
-    t_muestreo = Table(matrix_pesos, colWidths=[ancho_col] * len(presentaciones_data))
-    t_muestreo.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 1), (-1, -1), 6.5),
-        ('TOPPADDING', (0, 0), (-1, -1), 1.5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1A365D")),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-        ('BACKGROUND', (0, -3), (-1, -1), colors.HexColor("#EDF2F7")),
-        ('FONTNAME', (0, -3), (-1, -1), 'Helvetica-Bold'),
-    ]))
-    story.append(t_muestreo)
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
-# =========================================================================
-# 4. DOSSIER / EXPEDIENTE COMPLETO UNIFICADO (TODO EN UN SOLO PDF)
+# DOSSIER COMPLETO UNIFICADO (EXPEDIENTE TOTAL DEL CONTENEDOR)
 # =========================================================================
 def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen):
     buffer = io.BytesIO()
@@ -332,7 +191,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     sub_style = ParagraphStyle('SubD', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
     cell_head_style = ParagraphStyle('CHD', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
-    # 1. CARÁTULA Y CONTROL DE PESOS / LIQUIDACIÓN (PÁGINA 1)
+    # 1. PÁGINA 1: FICHA LOGÍSTICA, MUESTREO DE BALANZA Y LIQUIDACIÓN
     story.append(Paragraph("EXPEDIENTE TÉCNICO Y CONTROL DE EMBARQUE - FRIGOSA SAC", titulo_style))
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
     story.append(Spacer(1, 5))
@@ -345,7 +204,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
         ["ENCARGADO DE EMBARQUE:", "LUIS ENRIQUE FIESTAS ECA", "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
     ]
-    t_cab = Table(data_cab, colWidths=[130, 150, 115, 177])
+    t_cab = Table(data_cab, colWidths=[135, 145, 115, 177])
     t_cab.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, -1), 6.5),
@@ -359,41 +218,43 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     story.append(t_cab)
     story.append(Spacer(1, 6))
 
-    # Matriz de pesos
-    headers_w = [Paragraph(f"<b>{p['nombre'].strip()}</b>", cell_head_style) for p in presentaciones_data]
-    matrix_pesos = [headers_w]
-    for r in range(20):
-        fila = [f"{p['pesos'][r]:.2f}" if r < len(p['pesos']) and p['pesos'][r] > 0 else "-" for p in presentaciones_data]
-        matrix_pesos.append(fila)
+    if presentaciones_data:
+        headers_w = [Paragraph(f"<b>{p['nombre'].strip()}</b>", cell_head_style) for p in presentaciones_data]
+        matrix_pesos = [headers_w]
+        for r in range(20):
+            fila = [f"{p['pesos'][r]:.2f}" if r < len(p['pesos']) and p['pesos'][r] > 0 else "-" for p in presentaciones_data]
+            matrix_pesos.append(fila)
 
-    matrix_pesos.append([f"Bultos: {p['bultos']}" for p in presentaciones_data])
-    matrix_pesos.append([f"Prom: {p['promedio']:.3f}" for p in presentaciones_data])
-    matrix_pesos.append([f"Total: {p['total_kg']:,.1f} kg" for p in presentaciones_data])
+        matrix_pesos.append([f"Bultos: {p['bultos']}" for p in presentaciones_data])
+        matrix_pesos.append([f"Prom: {p['promedio']:.3f}" for p in presentaciones_data])
+        matrix_pesos.append([f"Total: {p['total_kg']:,.1f} kg" for p in presentaciones_data])
 
-    ancho_col = 572 / max(len(presentaciones_data), 1)
-    t_muestreo = Table(matrix_pesos, colWidths=[ancho_col] * len(presentaciones_data))
-    t_muestreo.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 1), (-1, -1), 6.5),
-        ('TOPPADDING', (0, 0), (-1, -1), 1.5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1A365D")),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-        ('BACKGROUND', (0, -3), (-1, -1), colors.HexColor("#EDF2F7")),
-        ('FONTNAME', (0, -3), (-1, -1), 'Helvetica-Bold'),
-    ]))
-    story.append(t_muestreo)
+        ancho_col = 572 / max(len(presentaciones_data), 1)
+        t_muestreo = Table(matrix_pesos, colWidths=[ancho_col] * len(presentaciones_data))
+        t_muestreo.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 1), (-1, -1), 6.5),
+            ('TOPPADDING', (0, 0), (-1, -1), 1.5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1A365D")),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
+            ('BACKGROUND', (0, -3), (-1, -1), colors.HexColor("#EDF2F7")),
+            ('FONTNAME', (0, -3), (-1, -1), 'Helvetica-Bold'),
+        ]))
+        story.append(t_muestreo)
 
-    # 2. PLANO DE ESTIBA POR LOTES (PÁGINA 2)
-    story.append(PageBreak())
-    story.extend(construir_flowables_tabla_estiba(df_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
+    # 2. PÁGINA 2: PLANO DE ESTIBA POR LOTES (1 SOLA HOJA HASTA 8 LOTES)
+    if df_lotes is not None and not df_lotes.empty:
+        story.append(PageBreak())
+        story.extend(construir_flowables_tabla_estiba(df_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
 
-    # 3. PLANO DE ESTIBA POR PRESENTACIONES (PÁGINA 3)
-    story.append(PageBreak())
-    story.extend(construir_flowables_tabla_estiba(df_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A", cabecera, styles))
+    # 3. PÁGINA 3: PLANO DE ESTIBA POR PRESENTACIONES
+    if df_pres is not None and not df_pres.empty:
+        story.append(PageBreak())
+        story.extend(construir_flowables_tabla_estiba(df_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A", cabecera, styles))
 
-    # 4. DISTRIBUCIÓN POR SISTEMA PLACAS / TÚNEL / IQF (PÁGINA 4)
+    # 4. PÁGINA 4: DISTRIBUCIÓN POR SISTEMA PLACAS / TÚNEL / IQF
     if df_sistema is not None and not df_sistema.empty:
         story.append(PageBreak())
         story.append(Paragraph("DISTRIBUCIÓN POR SISTEMA: PLACAS / TÚNEL / IQF", titulo_style))
@@ -524,6 +385,9 @@ def render_module(user, get_gspread_client):
 
     v = st.session_state.form_version
 
+    # =========================================================================
+    # BARRA SUPERIOR: MODO DE OPERACIÓN Y BÚSQUEDA
+    # =========================================================================
     col_sel1, col_sel2 = st.columns([3, 1])
     with col_sel1:
         try:
@@ -544,7 +408,7 @@ def render_module(user, get_gspread_client):
             with c_f1:
                 ver_todos = st.checkbox("Ver todo el histórico", value=False)
                 if not ver_todos:
-                    fecha_filtro = st.date_input("Filtrar por Fecha de Despacho:", value=date.today(), key="f_filtro_cont")
+                    fecha_filtro = st.date_input("Filtrar por Fecha:", value=date.today(), key="f_filtro_cont")
             
             opciones_conts = []
             for r in registros[1:]:
@@ -552,25 +416,22 @@ def render_module(user, get_gspread_client):
                     c_num = r[1].strip()
                     c_fec = r[3].strip()
                     c_cli = r[6].strip() if len(r) > 6 else ""
-                    
-                    if ver_todos:
+                    if ver_todos or c_fec == str(fecha_filtro):
                         opciones_conts.append((c_num, f"{c_num} | {c_fec} | {c_cli}"))
-                    else:
-                        if c_fec == str(fecha_filtro):
-                            opciones_conts.append((c_num, f"{c_num} | {c_fec} | {c_cli}"))
 
             with c_f2:
                 if opciones_conts:
                     map_display = {disp: c_id for c_id, disp in opciones_conts}
-                    sel_display = st.selectbox("Seleccionar Contenedor encontrado:", list(map_display.keys()))
+                    sel_display = st.selectbox("Seleccionar Contenedor:", list(map_display.keys()))
                     cont_seleccionado = map_display[sel_display]
                 else:
-                    st.info("No hay contenedores registrados en la fecha elegida.")
+                    st.info("No hay contenedores en la fecha seleccionada.")
                     cont_seleccionado = None
 
+            # BOTONES SUPERIORES AL FILTRAR
             c_btn_c1, c_btn_c2 = st.columns([1.5, 2])
             with c_btn_c1:
-                btn_cargar_datos = st.button("📥 Cargar Datos de este Contenedor", use_container_width=True) if cont_seleccionado else False
+                btn_cargar_datos = st.button("📥 Cargar en Pantalla", use_container_width=True) if cont_seleccionado else False
 
             if btn_cargar_datos:
                 fila_encontrada = None
@@ -688,7 +549,7 @@ def render_module(user, get_gspread_client):
             st.session_state.form_version += 1
             st.rerun()
 
-    # --- CABECERA ---
+    # --- DATOS DE CABECERA ---
     with st.expander("⚙️ Datos Principales del Contenedor", expanded=True):
         cp1, cp2, cp3, cp4 = st.columns(4)
         with cp1:
@@ -706,6 +567,134 @@ def render_module(user, get_gspread_client):
             st.session_state.pais_val = st.text_input("País:", value=st.session_state.pais_val, key=f"pais_emb_{v}").strip().upper()
             st.session_state.pay_val = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=34000.0, value=float(st.session_state.pay_val), step=100.0, key=f"pay_emb_{v}")
 
+    # =========================================================================
+    # PREPARACIÓN DE LAS MATRICES Y TABLAS DEL CONTENEDOR
+    # =========================================================================
+    caps_filas_default = [int(st.session_state.capg_val)] * int(st.session_state.nfil_val)
+    caps_filas_default[0] = int(st.session_state.capf1_val)
+    caps_filas_default[-1] = int(st.session_state.capfu_val)
+
+    if "caps_filas_override" not in st.session_state or len(st.session_state.caps_filas_override) != int(st.session_state.nfil_val):
+        st.session_state.caps_filas_override = caps_filas_default.copy()
+
+    caps_reales_actuales = [int(x) for x in st.session_state.caps_filas_override]
+
+    # 1. Matriz de Lotes
+    lista_lotes_mem = [{"fecha_txt": l["fecha"].strftime('%d/%m/%Y'), "lote_txt": l["lote"].strip(), "cantidad": int(l["bultos"])} for l in st.session_state.lotes_items]
+    headers_l = [f"{l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_mem]
+    matriz_lotes_auto = calcular_matriz_estiba(caps_reales_actuales, lista_lotes_mem)
+
+    data_filas_tabla = []
+    for f_idx in range(int(st.session_state.nfil_val)):
+        b_f = caps_reales_actuales[f_idx]
+        tm_f = round((b_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+        r_dict = {"N° FILA": f_idx + 1, "TM": tm_f, "CANT/FILA": b_f}
+        for l_i in range(len(lista_lotes_mem)):
+            r_dict[headers_l[l_i]] = matriz_lotes_auto[f_idx][l_i]
+        data_filas_tabla.append(r_dict)
+    df_lotes_global = pd.DataFrame(data_filas_tabla)
+
+    # 2. Matriz de Presentaciones
+    lista_pres_mem = [{"nombre": p["nombre"], "cantidad": int(p["bultos"]), "peso_unit": float(p.get("peso", st.session_state.wstd_val))} for p in st.session_state.pres_items]
+    matriz_pres_auto = calcular_matriz_estiba(caps_reales_actuales, lista_pres_mem)
+    headers_pres = [f"{p['nombre']} (P{idx+1})" for idx, p in enumerate(lista_pres_mem)]
+    data_pres_tabla = []
+    for f_idx in range(len(caps_reales_actuales)):
+        b_f = sum(matriz_pres_auto[f_idx])
+        tm_f = sum(matriz_pres_auto[f_idx][p_i] * lista_pres_mem[p_i]['peso_unit'] for p_i in range(len(lista_pres_mem))) / 1000.0
+        r_d = {"N° FILA": f_idx + 1, "TM ESTIMADO": round(tm_f, 4), "TOTAL BULTOS": b_f}
+        for p_i in range(len(lista_pres_mem)):
+            r_d[headers_pres[p_i]] = matriz_pres_auto[f_idx][p_i]
+        data_pres_tabla.append(r_d)
+    df_pres_global = pd.DataFrame(data_pres_tabla)
+
+    # 3. Matriz de Congelación
+    if "df_congelado_edit" not in st.session_state or len(st.session_state.df_congelado_edit) != len(caps_reales_actuales):
+        filas_sist_init = []
+        for f_idx in range(len(caps_reales_actuales)):
+            cap_f = caps_reales_actuales[f_idx]
+            filas_sist_init.append({
+                "N° FILA": f_idx + 1,
+                "TM": round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4),
+                "PLACAS": cap_f,
+                "TUNEL": 0,
+                "IQF": 0,
+                "TOTAL": cap_f
+            })
+        st.session_state.df_congelado_edit = pd.DataFrame(filas_sist_init)
+
+    # 4. Datos de Balanza y Pesos
+    presentaciones_data_global = []
+    for i, p_item in enumerate(lista_pres_mem):
+        val_mem = st.session_state.txt_pesos_mem.get(str(i), "20.00, 20.05, 19.98")
+        pesos_clean = []
+        for p in val_mem.replace("\n", ",").split(","):
+            try:
+                val_num = float(p.strip())
+                if val_num > 0:
+                    pesos_clean.append(val_num)
+            except Exception:
+                pass
+        pesos_clean = pesos_clean[:20]
+        prom_u = (sum(pesos_clean) / len(pesos_clean)) if pesos_clean else float(st.session_state.wstd_val)
+        tot_k = prom_u * p_item["cantidad"]
+        presentaciones_data_global.append({
+            "nombre": p_item["nombre"],
+            "bultos": p_item["cantidad"],
+            "pesos": pesos_clean,
+            "promedio": prom_u,
+            "total_kg": tot_k
+        })
+
+    tot_b_gral = sum(p['bultos'] for p in presentaciones_data_global)
+    peso_tot_gral = sum(p['total_kg'] for p in presentaciones_data_global)
+    prom_global = (peso_tot_gral / tot_b_gral) if tot_b_gral > 0 else 0.0
+    peso_a_favor = float(st.session_state.pay_val) - peso_tot_gral
+
+    cabecera_pdf_maestra = {
+        "fecha": str(st.session_state.fec_val),
+        "contenedor": st.session_state.cont_val,
+        "payload": float(st.session_state.pay_val),
+        "responsable": "LUIS ENRIQUE FIESTAS ECA",
+        "pi": st.session_state.pi_val,
+        "booking": st.session_state.bk_val,
+        "cliente": st.session_state.cli_val,
+        "destino": st.session_state.dest_val
+    }
+    resumen_pdf_maestro = {
+        "total_bultos": tot_b_gral,
+        "peso_total": peso_tot_gral,
+        "promedio_global": prom_global,
+        "peso_a_favor": peso_a_favor
+    }
+
+    # =========================================================================
+    # BOTÓN DIRECTO EN LA BARRA SUPERIOR PARA DESCARGAR EL DOSSIER COMPLETO
+    # =========================================================================
+    if modo_operacion == "Cargar / Editar Contenedor Existente" and st.session_state.cont_val:
+        with c_btn_c2:
+            try:
+                pdf_dossier_top = generar_dossier_unificado(
+                    cabecera_pdf_maestra,
+                    df_lotes_global,
+                    df_pres_global,
+                    st.session_state.df_congelado_edit,
+                    presentaciones_data_global,
+                    resumen_pdf_maestro
+                )
+                st.download_button(
+                    label=f"📦 Descargar Dossier PDF Unificado ({st.session_state.cont_val})",
+                    data=pdf_dossier_top,
+                    file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            except Exception as e_pdf:
+                st.caption(f"Generando PDF: {e_pdf}")
+
+    # =========================================================================
+    # PESTAÑAS DETALLADAS DEL MÓDULO
+    # =========================================================================
     tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos = st.tabs([
         "📅 1. Plano Estiba (Lotes)",
         "📦 2. Plano Estiba (Presentaciones)",
@@ -713,9 +702,7 @@ def render_module(user, get_gspread_client):
         "⚖️ 4. Control de Pesos (Balanza)"
     ])
 
-    # =========================================================================
-    # TAB 1: LOTES (EDICIÓN ÚNICA EN CANT/FILA)
-    # =========================================================================
+    # ------------------ TAB 1: LOTES ------------------
     with tab_estiba_lotes:
         st.markdown("#### Configuración de Filas y Capacidad")
         cf1, cf2, cf3, cf4 = st.columns(4)
@@ -728,13 +715,6 @@ def render_module(user, get_gspread_client):
         with cf4:
             st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {st.session_state.nfil_val}:", min_value=20, max_value=100, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
             st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
-
-        caps_filas_default = [int(st.session_state.capg_val)] * int(st.session_state.nfil_val)
-        caps_filas_default[0] = int(st.session_state.capf1_val)
-        caps_filas_default[-1] = int(st.session_state.capfu_val)
-
-        if "caps_filas_override" not in st.session_state or len(st.session_state.caps_filas_override) != int(st.session_state.nfil_val):
-            st.session_state.caps_filas_override = caps_filas_default.copy()
 
         n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=12, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
         while len(st.session_state.lotes_items) < n_lotes:
@@ -756,27 +736,11 @@ def render_module(user, get_gspread_client):
                 item_l["bultos"] = int(bl)
                 lista_lotes_calc.append({"fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt.strip(), "cantidad": int(bl)})
 
-        headers_l = [f"{l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_calc]
-
-        caps_para_matriz = [int(x) for x in st.session_state.caps_filas_override]
-        matriz_lotes_auto = calcular_matriz_estiba(caps_para_matriz, lista_lotes_calc)
-
-        data_filas_tabla = []
-        for f_idx in range(int(st.session_state.nfil_val)):
-            b_f = caps_para_matriz[f_idx]
-            tm_f = round((b_f * float(st.session_state.wstd_val)) / 1000.0, 4)
-            r_dict = {"N° FILA": f_idx + 1, "TM": tm_f, "CANT/FILA": b_f}
-            for l_i in range(len(lista_lotes_calc)):
-                r_dict[headers_l[l_i]] = matriz_lotes_auto[f_idx][l_i]
-            data_filas_tabla.append(r_dict)
-
-        df_lotes_mostrar = pd.DataFrame(data_filas_tabla)
         cols_bloqueadas = ["N° FILA", "TM"] + headers_l
-
-        st.info("💡 Solo edita el número en **CANT/FILA**. La distribución de lotes y toneladas se calcula automáticamente.")
+        st.info("💡 Solo edita el número en **CANT/FILA** si deseas balancear. El resto se calcula automáticamente.")
 
         df_lotes_editado = st.data_editor(
-            df_lotes_mostrar,
+            df_lotes_global,
             disabled=cols_bloqueadas,
             hide_index=True,
             use_container_width=True,
@@ -789,17 +753,14 @@ def render_module(user, get_gspread_client):
             st.session_state.caps_filas_override = nuevas_capacidades
             st.rerun()
 
-        caps_filas_reales = st.session_state.caps_filas_override
-        tot_b_cargados = sum(caps_filas_reales)
+        tot_b_cargados = sum(caps_reales_actuales)
         tot_tm_cargados = (tot_b_cargados * float(st.session_state.wstd_val)) / 1000.0
 
         m1, m2 = st.columns(2)
         m1.metric("Total Bultos Cargados (Lotes)", f"{tot_b_cargados:,} bultos")
         m2.metric("Tonelaje Total", f"{tot_tm_cargados:.3f} TM")
 
-    # =========================================================================
-    # TAB 2: PRESENTACIONES (DISTRIBUCIÓN REAL)
-    # =========================================================================
+    # ------------------ TAB 2: PRESENTACIONES ------------------
     with tab_estiba_pres:
         st.markdown("#### Presentaciones a Embarcar (Hasta 8 según la hoja)")
         np_m = st.number_input("Número de Presentaciones:", min_value=1, max_value=8, value=max(len(st.session_state.pres_items), 1), key=f"npres_c_{v}")
@@ -809,7 +770,6 @@ def render_module(user, get_gspread_client):
             st.session_state.pres_items.pop()
 
         cols_p = st.columns(min(int(np_m), 4))
-        lista_pres_calc = []
         for i in range(int(np_m)):
             col_target_p = cols_p[i % 4]
             p_item = st.session_state.pres_items[i]
@@ -820,54 +780,21 @@ def render_module(user, get_gspread_client):
                 cant_b = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(p_item["bultos"]), step=10, key=f"bp_{i}_{v}")
                 p_item["nombre"] = sel_nom
                 p_item["bultos"] = int(cant_b)
-                lista_pres_calc.append({"nombre": sel_nom, "cantidad": int(cant_b), "peso_unit": float(p_item.get("peso", st.session_state.wstd_val))})
 
-        matriz_pres = calcular_matriz_estiba(caps_filas_reales, lista_pres_calc)
-        headers_pres = [f"{p['nombre']} (P{idx+1})" for idx, p in enumerate(lista_pres_calc)]
-        data_pres = []
-        for f_idx in range(len(caps_filas_reales)):
-            b_f = sum(matriz_pres[f_idx])
-            tm_f = sum(matriz_pres[f_idx][p_i] * lista_pres_calc[p_i]['peso_unit'] for p_i in range(len(lista_pres_calc))) / 1000.0
-            r_d = {"N° FILA": f_idx + 1, "TM ESTIMADO": round(tm_f, 4), "TOTAL BULTOS": b_f}
-            for p_i in range(len(lista_pres_calc)):
-                r_d[headers_pres[p_i]] = matriz_pres[f_idx][p_i]
-            data_pres.append(r_d)
+        st.dataframe(df_pres_global, hide_index=True, use_container_width=True, height=280)
 
-        df_pres = pd.DataFrame(data_pres)
-        st.dataframe(df_pres, hide_index=True, use_container_width=True, height=280)
-
-        cabecera_estiba = {
-            "contenedor": st.session_state.cont_val,
-            "booking": st.session_state.bk_val,
-            "pi": st.session_state.pi_val,
-            "cliente": st.session_state.cli_val,
-            "fecha": str(st.session_state.fec_val)
-        }
-        try:
-            pdf_planos = generar_pdf_planos_estiba(cabecera_estiba, df_lotes_editado, df_pres)
-            st.download_button("📄 Descargar PDF Distribución (Lotes + Pres)", data=pdf_planos, file_name=f"Distribucion_{st.session_state.cont_val}.pdf", mime="application/pdf")
-        except Exception:
-            pass
-
-    # =========================================================================
-    # TAB 3: PLACAS / TÚNEL / IQF
-    # =========================================================================
+    # ------------------ TAB 3: PLACAS / TÚNEL / IQF ------------------
     with tab_placa_tunel:
         st.markdown("#### Configuración de Sistema de Congelación")
 
         def on_change_modo_cong():
             opc = st.session_state.get(f"rad_cong_{v}")
-            num_f = len(caps_filas_reales)
+            num_f = len(caps_reales_actuales)
             if opc == "Mixto (Ingreso Manual Fila por Fila)":
                 filas_clean = []
                 for f_idx in range(num_f):
                     filas_clean.append({
-                        "N° FILA": f_idx + 1,
-                        "TM": 0.0,
-                        "PLACAS": 0,
-                        "TUNEL": 0,
-                        "IQF": 0,
-                        "TOTAL": 0
+                        "N° FILA": f_idx + 1, "TM": 0.0, "PLACAS": 0, "TUNEL": 0, "IQF": 0, "TOTAL": 0
                     })
                 st.session_state.df_congelado_edit = pd.DataFrame(filas_clean)
 
@@ -879,34 +806,19 @@ def render_module(user, get_gspread_client):
             on_change=on_change_modo_cong
         )
 
-        num_filas_actual = len(caps_filas_reales)
-
-        if "df_congelado_edit" not in st.session_state or len(st.session_state.df_congelado_edit) != num_filas_actual:
-            filas_sist = []
-            for f_idx in range(num_filas_actual):
-                cap_f = caps_filas_reales[f_idx]
-                filas_sist.append({
-                    "N° FILA": f_idx + 1,
-                    "TM": round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4),
-                    "PLACAS": cap_f,
-                    "TUNEL": 0,
-                    "IQF": 0,
-                    "TOTAL": cap_f
-                })
-            st.session_state.df_congelado_edit = pd.DataFrame(filas_sist)
-
+        num_filas_actual = len(caps_reales_actuales)
         df_editor_source = st.session_state.df_congelado_edit.copy()
 
         if modo_cong_opc == "Solo Placas (100% de la carga)":
             for idx in range(num_filas_actual):
-                cap_f = caps_filas_reales[idx]
+                cap_f = caps_reales_actuales[idx]
                 df_editor_source.at[idx, "PLACAS"] = cap_f
                 df_editor_source.at[idx, "TUNEL"] = 0
                 df_editor_source.at[idx, "IQF"] = 0
                 df_editor_source.at[idx, "TOTAL"] = cap_f
         elif modo_cong_opc == "Solo Túnel (100% de la carga)":
             for idx in range(num_filas_actual):
-                cap_f = caps_filas_reales[idx]
+                cap_f = caps_reales_actuales[idx]
                 df_editor_source.at[idx, "PLACAS"] = 0
                 df_editor_source.at[idx, "TUNEL"] = cap_f
                 df_editor_source.at[idx, "IQF"] = 0
@@ -937,52 +849,18 @@ def render_module(user, get_gspread_client):
         s3.metric("Total IQF", f"{tot_iqf_sum:,} b")
         s4.metric("Total Congelado", f"{tot_placas_sum + tot_tunel_sum + tot_iqf_sum:,} b")
 
-        try:
-            pdf_cong = generar_pdf_congelado(cabecera_estiba, df_congelado_resultado)
-            st.download_button("📄 Descargar PDF Placas / Túnel / IQF", data=pdf_cong, file_name=f"Congelacion_{st.session_state.cont_val}.pdf", mime="application/pdf")
-        except Exception:
-            pass
-
-    # =========================================================================
-    # TAB 4: CONTROL DE PESOS
-    # =========================================================================
+    # ------------------ TAB 4: CONTROL DE PESOS ------------------
     with tab_pesos:
         st.markdown("#### Pesos de Balanza")
-        cols_w = st.columns(max(len(lista_pres_calc), 1))
-        presentaciones_data = []
+        cols_w = st.columns(max(len(lista_pres_mem), 1))
 
         for i, col in enumerate(cols_w):
             with col:
-                nom_completo = lista_pres_calc[i]['nombre'].strip()
+                nom_completo = lista_pres_mem[i]['nombre'].strip()
                 st.markdown(f"**{nom_completo}**")
                 val_mem = st.session_state.txt_pesos_mem.get(str(i), "20.00, 20.05, 19.98")
                 txt_p = st.text_area(f"Pesos balanza ({i+1}):", value=val_mem, height=90, key=f"pw_box_{i}_{v}")
                 st.session_state.txt_pesos_mem[str(i)] = txt_p
-
-                pesos_clean = []
-                for p in txt_p.replace("\n", ",").split(","):
-                    try:
-                        val_num = float(p.strip())
-                        if val_num > 0:
-                            pesos_clean.append(val_num)
-                    except Exception:
-                        pass
-                pesos_clean = pesos_clean[:20]
-                prom_u = (sum(pesos_clean) / len(pesos_clean)) if pesos_clean else float(st.session_state.wstd_val)
-                tot_k = prom_u * lista_pres_calc[i]["cantidad"]
-                st.caption(f"Prom: **{prom_u:.3f} kg** | Subtotal: **{tot_k:,.1f} kg**")
-                presentaciones_data.append({
-                    "nombre": nom_completo,
-                    "bultos": lista_pres_calc[i]["cantidad"],
-                    "pesos": pesos_clean,
-                    "promedio": prom_u,
-                    "total_kg": tot_k
-                })
-
-        tot_b_gral = sum(p['bultos'] for p in presentaciones_data)
-        peso_tot_gral = sum(p['total_kg'] for p in presentaciones_data)
-        prom_global = (peso_tot_gral / tot_b_gral) if tot_b_gral > 0 else 0.0
-        peso_a_favor = float(st.session_state.pay_val) - peso_tot_gral
 
         st.markdown("---")
         r1, r2, r3, r4 = st.columns(4)
@@ -991,54 +869,29 @@ def render_module(user, get_gspread_client):
         r3.metric("Peso Bruto", f"{peso_tot_gral:,.2f} kg")
         r4.metric("Margen a Favor", f"{peso_a_favor:,.2f} kg")
 
-        cabecera_pdf_pesos = {
-            "fecha": str(st.session_state.fec_val),
-            "contenedor": st.session_state.cont_val,
-            "payload": float(st.session_state.pay_val),
-            "responsable": "LUIS ENRIQUE FIESTAS ECA",
-            "pi": st.session_state.pi_val,
-            "booking": st.session_state.bk_val,
-            "cliente": st.session_state.cli_val,
-            "destino": st.session_state.dest_val
-        }
-        resumen_pdf_pesos = {
-            "total_bultos": tot_b_gral,
-            "peso_total": peso_tot_gral,
-            "promedio_global": prom_global,
-            "peso_a_favor": peso_a_favor
-        }
-
-        # BOTONES DE DESCARGA: PESOS INDIVIDUAL Y DOSSIER COMPLETO UNIFICADO
-        col_dw1, col_dw2 = st.columns(2)
-        with col_dw1:
-            try:
-                pdf_pesos_bytes = generar_pdf_pesos_solos(cabecera_pdf_pesos, presentaciones_data, resumen_pdf_pesos)
-                st.download_button("📄 Descargar PDF Pesos y Balanza", data=pdf_pesos_bytes, file_name=f"Pesos_{st.session_state.cont_val}.pdf", mime="application/pdf", use_container_width=True)
-            except Exception:
-                pass
-
-        with col_dw2:
-            try:
-                pdf_dossier_bytes = generar_dossier_unificado(
-                    cabecera_pdf_pesos,
-                    df_lotes_editado,
-                    df_pres,
-                    st.session_state.df_congelado_edit,
-                    presentaciones_data,
-                    resumen_pdf_pesos
-                )
-                st.download_button(
-                    "📦 Descargar Dossier Completo Unificado (Todo el Contenedor)",
-                    data=pdf_dossier_bytes,
-                    file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-            except Exception as ex:
-                st.warning(f"Nota en Dossier: {ex}")
+        # DESCARGA DEL DOSSIER TAMBIÉN DISPONIBLE EN EL PIE DE PÁGINA
+        st.markdown("---")
+        try:
+            pdf_dossier_bytes = generar_dossier_unificado(
+                cabecera_pdf_maestra,
+                df_lotes_global,
+                df_pres_global,
+                st.session_state.df_congelado_edit,
+                presentaciones_data_global,
+                resumen_pdf_maestro
+            )
+            st.download_button(
+                "📦 Descargar Dossier Completo Unificado (Distribuciones + Pesos + Congelado)",
+                data=pdf_dossier_bytes,
+                file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+        except Exception as ex:
+            st.warning(f"Nota en Dossier: {ex}")
 
     # =========================================================================
-    # GUARDADO / ACTUALIZACIÓN CENTRALIZADO (ANTI-DUPLICADOS)
+    # GUARDADO / ACTUALIZACIÓN CENTRALIZADO EN GOOGLE SHEETS
     # =========================================================================
     st.markdown("---")
     btn_label = f"💾 Guardar / Actualizar Información de {st.session_state.cont_val or 'Contenedor'} en Sheets"
@@ -1049,12 +902,12 @@ def render_module(user, get_gspread_client):
             try:
                 pres_cols = []
                 for idx in range(8):
-                    if idx < len(lista_pres_calc):
-                        pres_cols.extend([lista_pres_calc[idx]["nombre"], int(lista_pres_calc[idx]["cantidad"])])
+                    if idx < len(lista_pres_mem):
+                        pres_cols.extend([lista_pres_mem[idx]["nombre"], int(lista_pres_mem[idx]["cantidad"])])
                     else:
                         pres_cols.extend(["", ""])
 
-                detalle_lotes_str = " | ".join([f"{l['lote_txt']} ({l['fecha_txt']}): {l['cantidad']}b" for l in lista_lotes_calc if l['cantidad'] > 0])
+                detalle_lotes_str = " | ".join([f"{l['lote_txt']} ({l['fecha_txt']}): {l['cantidad']}b" for l in lista_lotes_mem if l['cantidad'] > 0])
 
                 serial_pesos = []
                 for k_p, v_p in st.session_state.txt_pesos_mem.items():
