@@ -9,6 +9,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+import pypdf
 
 ID_SPREADSHEET_PRODUCCION = "1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg"
 ID_CARPETA_DRIVE_EMBARQUES = None 
@@ -86,10 +87,9 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # =========================================================================
-# SUBIDA DE ADJUNTOS A GOOGLE DRIVE VÍA API REST NATIVA (SIN LIBRERÍAS RARAS)
+# SUBIDA DE ADJUNTOS A GOOGLE DRIVE VÍA API REST
 # =========================================================================
 def subir_archivo_drive(get_gspread_client, archivo_subido, nombre_archivo, mime_type):
-    """Sube un archivo directamente a Google Drive usando requests y el token OAuth2."""
     try:
         client = get_gspread_client()
         credentials = client.auth
@@ -114,20 +114,14 @@ def subir_archivo_drive(get_gspread_client, archivo_subido, nombre_archivo, mime
         if response.status_code in [200, 201]:
             res_json = response.json()
             file_id = res_json.get("id")
-            
-            # Dar permiso de lectura pública al enlace
             try:
                 perm_url = f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions"
                 requests.post(perm_url, headers=headers, json={"type": "anyone", "role": "reader"})
             except Exception:
                 pass
-                
             return res_json.get("webViewLink", f"https://drive.google.com/file/d/{file_id}/view")
-        else:
-            st.warning(f"Respuesta de Drive API: {response.text}")
-            return ""
-    except Exception as e:
-        st.warning(f"Nota al subir a Drive: {e}")
+        return ""
+    except Exception:
         return ""
 
 # =========================================================================
@@ -146,7 +140,6 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     cols_dinamicas = [c for c in cols_totales if c not in cols_fijas]
     num_lotes = len(cols_dinamicas)
 
-    # Hasta 8 lotes se mantienen en una sola página compacta
     tamano_bloque = 8 if num_lotes <= 8 else 5
     bloques = [cols_dinamicas[i:i + tamano_bloque] for i in range(0, len(cols_dinamicas), tamano_bloque)]
     if not bloques:
@@ -227,11 +220,11 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     return elementos
 
 # =========================================================================
-# DOSSIER UNIFICADO CON ANEXO FOTOGRÁFICO
+# GENERADOR Y FUSIONADOR DEL DOSSIER UNIFICADO (CON FOTO Y PDF DEL IR)
 # =========================================================================
-def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_temp_bytes=None, fotos_pesos_bytes=None):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=18, rightMargin=18, topMargin=18, bottomMargin=18)
+def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_temp_bytes=None, pdf_ir_bytes=None):
+    buffer_dossier = io.BytesIO()
+    doc = SimpleDocTemplate(buffer_dossier, pagesize=letter, leftMargin=18, rightMargin=18, topMargin=18, bottomMargin=18)
     story = []
     styles = getSampleStyleSheet()
 
@@ -292,7 +285,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_muestreo)
 
-    # 2. PÁGINA 2: PLANO DE LOTES
+    # 2. PÁGINA 2: PLANO DE LOTES (UNA SOLA HOJA HASTA 8 LOTES)
     if df_lotes is not None and not df_lotes.empty:
         story.append(PageBreak())
         story.extend(construir_flowables_tabla_estiba(df_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
@@ -340,60 +333,52 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_s_pdf)
 
-    # 5. PÁGINA 5: PANEL FOTOGRÁFICO DE TEMPERATURA Y BALANZA
-    lista_fotos_anexo = []
+    # 5. PÁGINA 5: ANEXO FOTOGRÁFICO DE TEMPERATURA
     if foto_temp_bytes:
-        lista_fotos_anexo.append(("CONTROL DE TEMPERATURA / TERMOKING", foto_temp_bytes))
-    if fotos_pesos_bytes:
-        for idx_fp, fp_bytes in enumerate(fotos_pesos_bytes):
-            lista_fotos_anexo.append((f"MUESTREO DE PESOS EN BALANZA #{idx_fp+1}", fp_bytes))
-
-    if lista_fotos_anexo:
         story.append(PageBreak())
-        story.append(Paragraph("ANEXO: PANEL FOTOGRÁFICO DE TEMPERATURA Y BALANZA", titulo_style))
-        story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | SUPERVISOR DE EMBARQUE: LUIS ENRIQUE FIESTAS ECA", sub_style))
-        story.append(Spacer(1, 8))
+        story.append(Paragraph("ANEXO: SUSTENTO DE TEMPERATURA / TERMOKING", titulo_style))
+        story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | SUPERVISOR: LUIS ENRIQUE FIESTAS ECA", sub_style))
+        story.append(Spacer(1, 15))
 
-        filas_foto_tabla = []
-        for rotulo, img_bytes in lista_fotos_anexo:
-            try:
-                img_io = io.BytesIO(img_bytes)
-                rl_img = RLImage(img_io, width=260, height=195)
-                lbl = Paragraph(f"<b>{rotulo}</b>", ParagraphStyle('Lbl', parent=styles['Normal'], fontSize=7.5, leading=9, alignment=1, textColor=colors.HexColor("#1A365D")))
-                filas_foto_tabla.append([rl_img, lbl])
-            except Exception:
-                pass
-
-        if filas_foto_tabla:
-            celdas_grid = []
-            row_temp = []
-            for item_f in filas_foto_tabla:
-                bloque_celda = Table([[item_f[0]], [item_f[1]]], colWidths=[270])
-                bloque_celda.setStyle(TableStyle([
-                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-                    ('TOPPADDING', (0,0), (-1,-1), 2),
-                ]))
-                row_temp.append(bloque_celda)
-                if len(row_temp) == 2:
-                    celdas_grid.append(row_temp)
-                    row_temp = []
-            if row_temp:
-                row_temp.append("")
-                celdas_grid.append(row_temp)
-
-            t_grid_fotos = Table(celdas_grid, colWidths=[285, 285])
-            t_grid_fotos.setStyle(TableStyle([
+        try:
+            img_io = io.BytesIO(foto_temp_bytes)
+            rl_img = RLImage(img_io, width=440, height=330)
+            lbl = Paragraph("<b>REGISTRO VISUAL DEL DISPLAY / SETEO DE TEMPERATURA</b>", ParagraphStyle('LblT', parent=styles['Normal'], fontSize=8.5, leading=10, alignment=1, textColor=colors.HexColor("#1A365D")))
+            
+            t_foto = Table([[rl_img], [lbl]], colWidths=[450])
+            t_foto.setStyle(TableStyle([
                 ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('TOPPADDING', (0,0), (-1,-1), 4),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#CBD5E0")),
+                ('BACKGROUND', (0,1), (-1,1), colors.HexColor("#F7FAFC")),
+                ('TOPPADDING', (0,0), (-1,-1), 6),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
             ]))
-            story.append(t_grid_fotos)
+            story.append(t_foto)
+        except Exception:
+            pass
 
     doc.build(story)
-    buffer.seek(0)
-    return buffer
+    buffer_dossier.seek(0)
+
+    # =========================================================================
+    # FUSIÓN DIRECTA (MERGE) CON EL PDF DEL IR SI SE SUBIÓ
+    # =========================================================================
+    if pdf_ir_bytes:
+        try:
+            merger = pypdf.PdfMerger()
+            merger.append(buffer_dossier)
+            merger.append(io.BytesIO(pdf_ir_bytes))
+            
+            buffer_final = io.BytesIO()
+            merger.write(buffer_final)
+            merger.close()
+            buffer_final.seek(0)
+            return buffer_final
+        except Exception:
+            return buffer_dossier
+
+    return buffer_dossier
 
 # =========================================================================
 # LÓGICA DE SHEETS
@@ -421,8 +406,8 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
         return False, f"El contenedor '{num_cont}' ya existe en la fila {fila_idx}. Cambie al modo 'Cargar / Editar' para modificarlo."
 
     if fila_idx:
-        # Columnas A hasta AR
-        rango = f"A{fila_idx}:AR{fila_idx}"
+        # Abarca Columnas A hasta AQ (43 columnas)
+        rango = f"A{fila_idx}:AQ{fila_idx}"
         ws.update(rango, [datos_fila])
         return True, f"Actualizado exitosamente (Fila {fila_idx})"
     else:
@@ -488,14 +473,12 @@ def render_module(user, get_gspread_client):
         st.session_state.link_pdf_ir = ""
     if "link_foto_temp" not in st.session_state:
         st.session_state.link_foto_temp = ""
-    if "link_fotos_pesos" not in st.session_state:
-        st.session_state.link_fotos_pesos = ""
 
-    # Bytes de fotos en memoria
+    # Bytes en memoria para incrustar al PDF final
     if "bytes_foto_temp" not in st.session_state:
         st.session_state.bytes_foto_temp = None
-    if "bytes_fotos_pesos" not in st.session_state:
-        st.session_state.bytes_fotos_pesos = []
+    if "bytes_pdf_ir" not in st.session_state:
+        st.session_state.bytes_pdf_ir = None
 
     v = st.session_state.form_version
 
@@ -628,7 +611,6 @@ def render_module(user, get_gspread_client):
 
                     st.session_state.link_pdf_ir = fila_encontrada[41].strip() if len(fila_encontrada) > 41 else ""
                     st.session_state.link_foto_temp = fila_encontrada[42].strip() if len(fila_encontrada) > 42 else ""
-                    st.session_state.link_fotos_pesos = fila_encontrada[43].strip() if len(fila_encontrada) > 43 else ""
 
                     if "df_congelado_edit" in st.session_state:
                         del st.session_state["df_congelado_edit"]
@@ -661,9 +643,8 @@ def render_module(user, get_gspread_client):
             st.session_state.txt_pesos_mem = {}
             st.session_state.link_pdf_ir = ""
             st.session_state.link_foto_temp = ""
-            st.session_state.link_fotos_pesos = ""
             st.session_state.bytes_foto_temp = None
-            st.session_state.bytes_fotos_pesos = []
+            st.session_state.bytes_pdf_ir = None
             if "df_congelado_edit" in st.session_state:
                 del st.session_state["df_congelado_edit"]
             if "caps_filas_override" in st.session_state:
@@ -790,7 +771,9 @@ def render_module(user, get_gspread_client):
         "peso_a_favor": peso_a_favor
     }
 
-    # Botón directo superior
+    # =========================================================================
+    # BOTÓN SUPERIOR DIRECTO: DESCARGAR DOSSIER UNIFICADO (TODO EN UN PDF)
+    # =========================================================================
     if modo_operacion == "Cargar / Editar Contenedor Existente" and st.session_state.cont_val:
         with c_btn_c2:
             try:
@@ -802,10 +785,10 @@ def render_module(user, get_gspread_client):
                     presentaciones_data_global,
                     resumen_pdf_maestro,
                     st.session_state.bytes_foto_temp,
-                    st.session_state.bytes_fotos_pesos
+                    st.session_state.bytes_pdf_ir
                 )
                 st.download_button(
-                    label=f"📦 Descargar Dossier PDF ({st.session_state.cont_val})",
+                    label=f"📦 Descargar Dossier PDF Completo ({st.session_state.cont_val})",
                     data=pdf_dossier_top,
                     file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
                     mime="application/pdf",
@@ -822,7 +805,7 @@ def render_module(user, get_gspread_client):
         "📦 2. Plano Estiba (Presentaciones)",
         "❄️ 3. Placas / Túnel / IQF",
         "⚖️ 4. Control de Pesos (Balanza)",
-        "📎 5. IR & Fotos (Termoking / Balanza)"
+        "📎 5. IR & Temperatura"
     ])
 
     # ------------------ TAB 1: LOTES ------------------
@@ -860,7 +843,7 @@ def render_module(user, get_gspread_client):
                 lista_lotes_calc.append({"fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt.strip(), "cantidad": int(bl)})
 
         cols_bloqueadas = ["N° FILA", "TM"] + headers_l
-        st.info("💡 Solo edita el número en **CANT/FILA** si deseas balancear. El resto se calcula automáticamente.")
+        st.info("💡 Solo edita el número en **CANT/FILA** si deseas balancear (+1, -1). El resto se recalcula solo.")
 
         df_lotes_editado = st.data_editor(
             df_lotes_global,
@@ -992,84 +975,44 @@ def render_module(user, get_gspread_client):
         r3.metric("Peso Bruto", f"{peso_tot_gral:,.2f} kg")
         r4.metric("Margen a Favor", f"{peso_a_favor:,.2f} kg")
 
-        st.markdown("---")
-        try:
-            pdf_dossier_bytes = generar_dossier_unificado(
-                cabecera_pdf_maestra,
-                df_lotes_global,
-                df_pres_global,
-                st.session_state.df_congelado_edit,
-                presentaciones_data_global,
-                resumen_pdf_maestro,
-                st.session_state.bytes_foto_temp,
-                st.session_state.bytes_fotos_pesos
-            )
-            st.download_button(
-                "📦 Descargar Dossier Completo Unificado (Con Panel Fotográfico si hay)",
-                data=pdf_dossier_bytes,
-                file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
-        except Exception as ex:
-            st.warning(f"Nota en Dossier: {ex}")
-
-    # ------------------ TAB 5: ADJUNTOS IR & FOTOS ------------------
+    # ------------------ TAB 5: SOLO DOS ARCHIVOS (IR & FOTO TEMPERATURA) ------------------
     with tab_adjuntos:
-        st.markdown("#### 📎 Documentación del Contenedor y Sustento Fotográfico")
-        st.caption("Los archivos se respaldan en Google Drive y se vinculan a la hoja 'DISTRIBUCIONES'. Las fotos se insertan directo al PDF Dossier.")
+        st.markdown("#### 📎 Documentación del Contenedor (IR y Control Térmico)")
+        st.caption("Solo se requieren dos archivos: el reporte técnico del IR en PDF y la foto del display del termoking.")
 
         ca1, ca2 = st.columns(2)
 
         with ca1:
-            st.markdown("##### 📄 Reporte de Inspección (IR / EIR)")
-            archivo_ir = st.file_uploader("Subir PDF del IR (Condiciones externas/internas):", type=["pdf"], key=f"up_ir_{v}")
+            st.markdown("##### 📄 1. Reporte de Inspección (IR / EIR)")
+            archivo_ir = st.file_uploader("Subir PDF del IR (Inspección física):", type=["pdf"], key=f"up_ir_{v}")
             if archivo_ir:
-                if st.button("☁️ Subir PDF del IR a Google Drive"):
+                st.session_state.bytes_pdf_ir = archivo_ir.getvalue()
+                st.success("✅ PDF del IR cargado y listo para fusionarse al final del Dossier.")
+                if st.button("☁️ Respaldar PDF del IR en Google Drive"):
                     with st.spinner("Subiendo PDF a Google Drive..."):
                         nom_ir = f"IR_{st.session_state.cont_val or 'CONT'}_{date.today().strftime('%Y%m%d')}.pdf"
                         link_ir = subir_archivo_drive(get_gspread_client, archivo_ir, nom_ir, "application/pdf")
                         if link_ir:
                             st.session_state.link_pdf_ir = link_ir
-                            st.success("✅ PDF del IR subido correctamente.")
+                            st.success("✅ PDF respaldado en Drive.")
             if st.session_state.link_pdf_ir:
                 st.markdown(f"🔗 [Abrir PDF del IR en Google Drive]({st.session_state.link_pdf_ir})")
 
-            st.markdown("---")
-            st.markdown("##### ❄️ Foto de Temperatura (Termoking / Seteo)")
-            foto_temp = st.file_uploader("Subir Foto de Temperatura / Display Termoking:", type=["jpg", "jpeg", "png"], key=f"up_temp_{v}")
+        with ca2:
+            st.markdown("##### ❄️ 2. Foto de Temperatura (Termoking / Seteo)")
+            foto_temp = st.file_uploader("Subir Foto del Display de Temperatura:", type=["jpg", "jpeg", "png"], key=f"up_temp_{v}")
             if foto_temp:
                 st.session_state.bytes_foto_temp = foto_temp.getvalue()
-                st.image(foto_temp, caption="Foto de Temperatura Seleccionada", use_column_width=True)
+                st.image(foto_temp, caption="Display de Temperatura", use_column_width=True)
                 if st.button("☁️ Respaldar Foto de Temperatura en Drive"):
                     with st.spinner("Subiendo foto a Google Drive..."):
                         nom_foto_t = f"TEMP_{st.session_state.cont_val or 'CONT'}_{date.today().strftime('%Y%m%d%H%M')}.jpg"
                         link_temp = subir_archivo_drive(get_gspread_client, foto_temp, nom_foto_t, "image/jpeg")
                         if link_temp:
                             st.session_state.link_foto_temp = link_temp
-                            st.success("✅ Foto de temperatura respaldada en Drive.")
+                            st.success("✅ Foto respaldada en Drive.")
             if st.session_state.link_foto_temp:
                 st.markdown(f"🔗 [Abrir Foto de Temperatura en Google Drive]({st.session_state.link_foto_temp})")
-
-        with ca2:
-            st.markdown("##### ⚖️ Fotos de Pesos / Balanza (Opcional)")
-            fotos_pesos_up = st.file_uploader("Subir Fotos de Pesadas / Balanza (Múltiples):", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key=f"up_pesos_{v}")
-            if fotos_pesos_up:
-                st.session_state.bytes_fotos_pesos = [f.getvalue() for f in fotos_pesos_up]
-                st.info(f"📸 {len(fotos_pesos_up)} foto(s) de balanza lista(s) para el Anexo del Dossier PDF.")
-                if st.button("☁️ Respaldar Fotos de Pesaje en Drive"):
-                    with st.spinner("Subiendo fotos a Google Drive..."):
-                        links_p_list = []
-                        for idx_f, f_p in enumerate(fotos_pesos_up):
-                            nom_fp = f"BALANZA_{st.session_state.cont_val or 'CONT'}_{idx_f+1}_{date.today().strftime('%Y%m%d')}.jpg"
-                            l_p = subir_archivo_drive(get_gspread_client, f_p, nom_fp, "image/jpeg")
-                            if l_p:
-                                links_p_list.append(l_p)
-                        if links_p_list:
-                            st.session_state.link_fotos_pesos = " | ".join(links_p_list)
-                            st.success("✅ Fotos de balanza respaldadas en Drive.")
-            if st.session_state.link_fotos_pesos:
-                st.caption(f"Enlaces de fotos de balanza: {st.session_state.link_fotos_pesos}")
 
     # =========================================================================
     # GUARDADO / ACTUALIZACIÓN CENTRALIZADO EN GOOGLE SHEETS
@@ -1125,15 +1068,14 @@ def render_module(user, get_gspread_client):
                     float(st.session_state.wstd_val),              # AN: peso_std_bulto
                     detalle_pesos_str,                             # AO: detalle_pesos_balanza
                     str(st.session_state.link_pdf_ir),             # AP: link_pdf_ir
-                    str(st.session_state.link_foto_temp),          # AQ: link_foto_temperatura
-                    str(st.session_state.link_fotos_pesos)         # AR: link_fotos_pesos
+                    str(st.session_state.link_foto_temp)           # AQ: link_foto_temperatura
                 ]
 
                 es_modo_nuevo = (modo_operacion == "Nuevo Contenedor")
                 ok, res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra, forzar_nuevo=es_modo_nuevo)
 
                 if ok:
-                    st.success(f"✅ Contenedor {st.session_state.cont_val} {res_msg} en 'DISTRIBUCIONES' con sus adjuntos y fotos vinculadas.")
+                    st.success(f"✅ Contenedor {st.session_state.cont_val} {res_msg} en 'DISTRIBUCIONES' con IR y Temperatura.")
                 else:
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
