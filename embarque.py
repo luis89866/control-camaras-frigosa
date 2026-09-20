@@ -2,16 +2,15 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 import io
+import json
+import requests
 from PIL import Image as PILImage
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 
 ID_SPREADSHEET_PRODUCCION = "1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg"
-# Opcional: Si tienes el ID de una carpeta específica de Drive para embarques puedes ponerlo aquí, sino se guarda en el Drive principal de la cuenta
 ID_CARPETA_DRIVE_EMBARQUES = None 
 
 LISTA_PRESENTACIONES_FRIGOSA = [
@@ -87,38 +86,52 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # =========================================================================
-# SUBIDA DE ADJUNTOS A GOOGLE DRIVE
+# SUBIDA DE ADJUNTOS A GOOGLE DRIVE VÍA API REST NATIVA (SIN LIBRERÍAS RARAS)
 # =========================================================================
 def subir_archivo_drive(get_gspread_client, archivo_subido, nombre_archivo, mime_type):
-    """Sube un archivo a Google Drive y devuelve su enlace público/compartible."""
+    """Sube un archivo directamente a Google Drive usando requests y el token OAuth2."""
     try:
         client = get_gspread_client()
         credentials = client.auth
-        drive_service = build('drive', 'v3', credentials=credentials)
+        if hasattr(credentials, 'refresh') and (not credentials.token or credentials.expired):
+            from google.auth.transport.requests import Request
+            credentials.refresh(Request())
+        token = credentials.token
 
-        file_metadata = {'name': nombre_archivo}
+        headers = {"Authorization": f"Bearer {token}"}
+        metadata = {"name": nombre_archivo}
         if ID_CARPETA_DRIVE_EMBARQUES:
-            file_metadata['parents'] = [ID_CARPETA_DRIVE_EMBARQUES]
+            metadata["parents"] = [ID_CARPETA_DRIVE_EMBARQUES]
 
-        media = MediaIoBaseUpload(io.BytesIO(archivo_subido.getvalue()), mimetype=mime_type, resumable=True)
-        archivo = drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
+        files = {
+            "data": ("metadata", json.dumps(metadata), "application/json; charset=UTF-8"),
+            "file": (nombre_archivo, archivo_subido.getvalue(), mime_type)
+        }
 
-        # Conceder permiso de lectura para que se pueda abrir con el link
-        try:
-            drive_service.permissions().create(
-                fileId=archivo.get('id'),
-                body={'type': 'anyone', 'role': 'reader'}
-            ).execute()
-        except Exception:
-            pass
-
-        return archivo.get('webViewLink', f"https://drive.google.com/file/d/{archivo.get('id')}/view")
+        url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink"
+        response = requests.post(url, headers=headers, files=files)
+        
+        if response.status_code in [200, 201]:
+            res_json = response.json()
+            file_id = res_json.get("id")
+            
+            # Dar permiso de lectura pública al enlace
+            try:
+                perm_url = f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions"
+                requests.post(perm_url, headers=headers, json={"type": "anyone", "role": "reader"})
+            except Exception:
+                pass
+                
+            return res_json.get("webViewLink", f"https://drive.google.com/file/d/{file_id}/view")
+        else:
+            st.warning(f"Respuesta de Drive API: {response.text}")
+            return ""
     except Exception as e:
-        st.warning(f"Nota en subida a Drive: {e}")
+        st.warning(f"Nota al subir a Drive: {e}")
         return ""
 
 # =========================================================================
-# FUNCIÓN COMPACTA DE TABLAS PARA REPORTES
+# CONSTRUCCIÓN DE TABLAS DE ESTIBA EN PDF
 # =========================================================================
 def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, styles):
     elementos = []
@@ -133,6 +146,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     cols_dinamicas = [c for c in cols_totales if c not in cols_fijas]
     num_lotes = len(cols_dinamicas)
 
+    # Hasta 8 lotes se mantienen en una sola página compacta
     tamano_bloque = 8 if num_lotes <= 8 else 5
     bloques = [cols_dinamicas[i:i + tamano_bloque] for i in range(0, len(cols_dinamicas), tamano_bloque)]
     if not bloques:
@@ -213,7 +227,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     return elementos
 
 # =========================================================================
-# DOSSIER UNIFICADO (CON SUSTENTO FOTOGRÁFICO DE TEMPERATURA Y BALANZA)
+# DOSSIER UNIFICADO CON ANEXO FOTOGRÁFICO
 # =========================================================================
 def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_temp_bytes=None, fotos_pesos_bytes=None):
     buffer = io.BytesIO()
@@ -225,7 +239,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     sub_style = ParagraphStyle('SubD', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
     cell_head_style = ParagraphStyle('CHD', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
-    # 1. PÁGINA 1: CONTROL DE PESOS Y DATOS GENERALES
+    # 1. PÁGINA 1: FICHA Y CONTROL DE PESOS
     story.append(Paragraph("EXPEDIENTE TÉCNICO Y CONTROL DE EMBARQUE - FRIGOSA SAC", titulo_style))
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
     story.append(Spacer(1, 5))
@@ -278,7 +292,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_muestreo)
 
-    # 2. PÁGINA 2: PLANO DE LOTES (UNA SOLA HOJA COMPACTA)
+    # 2. PÁGINA 2: PLANO DE LOTES
     if df_lotes is not None and not df_lotes.empty:
         story.append(PageBreak())
         story.extend(construir_flowables_tabla_estiba(df_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
@@ -326,7 +340,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_s_pdf)
 
-    # 5. PÁGINA 5: ANEXO FOTOGRÁFICO DE TEMPERATURA Y BALANZA (SI SE ADJUNTARON FOTOS)
+    # 5. PÁGINA 5: PANEL FOTOGRÁFICO DE TEMPERATURA Y BALANZA
     lista_fotos_anexo = []
     if foto_temp_bytes:
         lista_fotos_anexo.append(("CONTROL DE TEMPERATURA / TERMOKING", foto_temp_bytes))
@@ -351,7 +365,6 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
                 pass
 
         if filas_foto_tabla:
-            # Organizar de 2 en 2 en cuadrícula
             celdas_grid = []
             row_temp = []
             for item_f in filas_foto_tabla:
@@ -408,7 +421,7 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
         return False, f"El contenedor '{num_cont}' ya existe en la fila {fila_idx}. Cambie al modo 'Cargar / Editar' para modificarlo."
 
     if fila_idx:
-        # Abarca desde Columna A hasta AR (44 columnas)
+        # Columnas A hasta AR
         rango = f"A{fila_idx}:AR{fila_idx}"
         ws.update(rango, [datos_fila])
         return True, f"Actualizado exitosamente (Fila {fila_idx})"
@@ -478,7 +491,7 @@ def render_module(user, get_gspread_client):
     if "link_fotos_pesos" not in st.session_state:
         st.session_state.link_fotos_pesos = ""
 
-    # Bytes de fotos en memoria para adjuntar al PDF
+    # Bytes de fotos en memoria
     if "bytes_foto_temp" not in st.session_state:
         st.session_state.bytes_foto_temp = None
     if "bytes_fotos_pesos" not in st.session_state:
@@ -613,7 +626,6 @@ def render_module(user, get_gspread_client):
                                 p_idx, p_vals = item_p.split("::", 1)
                                 st.session_state.txt_pesos_mem[p_idx.strip()] = p_vals.strip()
 
-                    # Links de Drive
                     st.session_state.link_pdf_ir = fila_encontrada[41].strip() if len(fila_encontrada) > 41 else ""
                     st.session_state.link_foto_temp = fila_encontrada[42].strip() if len(fila_encontrada) > 42 else ""
                     st.session_state.link_fotos_pesos = fila_encontrada[43].strip() if len(fila_encontrada) > 43 else ""
@@ -1002,7 +1014,7 @@ def render_module(user, get_gspread_client):
         except Exception as ex:
             st.warning(f"Nota en Dossier: {ex}")
 
-    # ------------------ TAB 5: ADJUNTOS IR & FOTOS (TERMOKING / BALANZA) ------------------
+    # ------------------ TAB 5: ADJUNTOS IR & FOTOS ------------------
     with tab_adjuntos:
         st.markdown("#### 📎 Documentación del Contenedor y Sustento Fotográfico")
         st.caption("Los archivos se respaldan en Google Drive y se vinculan a la hoja 'DISTRIBUCIONES'. Las fotos se insertan directo al PDF Dossier.")
