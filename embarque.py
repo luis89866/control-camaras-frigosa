@@ -2,10 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 import io
-import json
-import re
 import base64
-import requests
 from PIL import Image as PILImage, ImageOps
 import streamlit.components.v1 as components
 from reportlab.lib.pagesizes import letter
@@ -14,7 +11,6 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
 ID_SPREADSHEET_PRODUCCION = "1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg"
-ID_CARPETA_DRIVE_EMBARQUES = None 
 
 LISTA_PRESENTACIONES_FRIGOSA = [
     "AF 300 - 500 g/pza",
@@ -58,8 +54,8 @@ LISTA_PRESENTACIONES_FRIGOSA = [
 MESES_ESP = {1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO",
              7: "JULIO", 8: "AGOSTO", 9: "SETIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"}
 
-def optimizar_bytes_imagen(b_in, max_side=1280, calidad=80):
-    """Comprime y ajusta la orientación de fotos móviles para evitar la saturación del navegador."""
+def optimizar_bytes_imagen(b_in, max_side=1100, calidad=75):
+    """Comprime la imagen para que sea ligera y entre directo en base de datos."""
     if not b_in:
         return None
     try:
@@ -111,81 +107,80 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # =========================================================================
-# GESTIÓN DRIVE: TOKEN, SUBIDA Y DESCARGA
+# GESTIÓN DE FOTOS PERSISTENTES DIRECTO EN GOOGLE SHEETS
 # =========================================================================
-def obtener_token_drive(get_gspread_client):
+def obtener_hoja_adjuntos_fotos(get_gspread_client):
     client = get_gspread_client()
-    credentials = client.auth
-    if hasattr(credentials, 'refresh') and (not credentials.token or credentials.expired):
-        from google.auth.transport.requests import Request
-        credentials.refresh(Request())
-    return credentials.token
-
-def extraer_id_drive(url_o_id):
-    if not url_o_id:
-        return None
-    url_str = str(url_o_id).strip()
-    match = re.search(r'/d/([a-zA-Z0-9_-]+)', url_str)
-    if match:
-        return match.group(1)
-    match_id = re.search(r'id=([a-zA-Z0-9_-]+)', url_str)
-    if match_id:
-        return match_id.group(1)
-    if len(url_str) > 20 and "/" not in url_str:
-        return url_str
-    return None
-
-def subir_bytes_drive(get_gspread_client, b_data, nombre_archivo, mime_type="image/jpeg"):
-    if not b_data:
-        return ""
     try:
-        token = obtener_token_drive(get_gspread_client)
-        headers = {"Authorization": f"Bearer {token}"}
-        metadata = {"name": nombre_archivo}
-        if ID_CARPETA_DRIVE_EMBARQUES:
-            metadata["parents"] = [ID_CARPETA_DRIVE_EMBARQUES]
-
-        files = {
-            "data": ("metadata", json.dumps(metadata), "application/json; charset=UTF-8"),
-            "file": (nombre_archivo, b_data, mime_type)
-        }
-
-        url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink"
-        response = requests.post(url, headers=headers, files=files, timeout=25)
-        
-        if response.status_code in [200, 201]:
-            res_json = response.json()
-            file_id = res_json.get("id")
-            try:
-                perm_url = f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions"
-                requests.post(perm_url, headers=headers, json={"type": "anyone", "role": "reader"}, timeout=5)
-            except Exception:
-                pass
-            return res_json.get("webViewLink", f"https://drive.google.com/file/d/{file_id}/view")
-        return ""
+        sh = client.open_by_key(ID_SPREADSHEET_PRODUCCION)
     except Exception:
-        return ""
-
-def descargar_bytes_drive(get_gspread_client, url_drive):
-    file_id = extraer_id_drive(url_drive)
-    if not file_id:
-        return None
+        sh = client.open("BD_PRODUCCION_ARCHI_001")
+    
+    # Si la hoja no existe, la crea con sus encabezados automáticamente
     try:
-        token = obtener_token_drive(get_gspread_client)
-        headers = {"Authorization": f"Bearer {token}"}
-        url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-        res = requests.get(url, headers=headers, timeout=25)
-        if res.status_code == 200:
-            return res.content
-        return None
+        return sh.worksheet("ADJUNTOS_FOTOS")
     except Exception:
-        return None
+        ws = sh.add_worksheet(title="ADJUNTOS_FOTOS", rows=500, cols=5)
+        ws.append_row(["CONTENEDOR", "TIPO_FOTO", "FECHA_REGISTRO", "BASE64_DATA"])
+        return ws
+
+def guardar_foto_en_sheets(get_gspread_client, num_contenedor, tipo_foto, b_data):
+    if not b_data or not num_contenedor:
+        return
+    try:
+        ws = obtener_hoja_adjuntos_fotos(get_gspread_client)
+        registros = ws.get_all_values()
+        b64_str = base64.b64encode(b_data).decode('utf-8')
+        fec_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        num_c_clean = str(num_contenedor).strip().upper()
+        tipo_clean = str(tipo_foto).strip().upper()
+
+        fila_encontrada = None
+        for idx, r in enumerate(registros):
+            if len(r) > 1 and r[0].strip().upper() == num_c_clean and r[1].strip().upper() == tipo_clean and idx > 0:
+                fila_encontrada = idx + 1
+                break
+
+        if fila_encontrada:
+            ws.update(f"A{fila_encontrada}:D{fila_encontrada}", [[num_c_clean, tipo_clean, fec_actual, b64_str]])
+        else:
+            ws.append_row([num_c_clean, tipo_clean, fec_actual, b64_str])
+    except Exception as e:
+        st.warning(f"Nota en guardado de foto: {e}")
+
+def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
+    resultado = {"IR": None, "TEMP": None, "PACK": None}
+    if not num_contenedor:
+        return resultado
+    try:
+        ws = obtener_hoja_adjuntos_fotos(get_gspread_client)
+        registros = ws.get_all_values()
+        num_c_clean = str(num_contenedor).strip().upper()
+
+        for r in registros[1:]:
+            if len(r) > 3 and r[0].strip().upper() == num_c_clean:
+                t_f = r[1].strip().upper()
+                raw_b64 = r[3].strip()
+                if raw_b64:
+                    try:
+                        b_decoded = base64.b64decode(raw_b64)
+                        if t_f == "IR":
+                            resultado["IR"] = b_decoded
+                        elif t_f == "TEMP":
+                            resultado["TEMP"] = b_decoded
+                        elif t_f == "PACK":
+                            resultado["PACK"] = b_decoded
+                    except Exception:
+                        pass
+        return resultado
+    except Exception:
+        return resultado
 
 # =========================================================================
-# ESCALADO EXACTO: AJUSTE PERFECTO EN 1 SOLA HOJA
+# ESCALADO DE IMAGEN: 1 PÁGINA EXACTA POR FOTO
 # =========================================================================
-def crear_imagen_maximizada(b_data, max_w=540, max_h=520):
-    """Ajusta proporcionalmente la imagen para que nunca desborde la página."""
+def crear_imagen_maximizada(b_data, max_w=540, max_h=510):
     try:
         pil_img = PILImage.open(io.BytesIO(b_data))
         orig_w, orig_h = pil_img.size
@@ -294,7 +289,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     return elementos
 
 # =========================================================================
-# DOSSIER UNIFICADO (PÁGINAS COMPACTAS SIN SALTOS FANTASMAS)
+# DOSSIER UNIFICADO COMPLETO
 # =========================================================================
 def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_ir_bytes=None, foto_temp_bytes=None, foto_pack_bytes=None):
     buffer_dossier = io.BytesIO()
@@ -306,7 +301,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     sub_style = ParagraphStyle('SubD', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
     cell_head_style = ParagraphStyle('CHD', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
-    # 1. PÁGINA 1: FICHA LOGÍSTICA Y CONTROL DE PESOS
+    # PÁGINA 1: FICHA LOGÍSTICA Y CONTROL DE PESOS
     story.append(Paragraph("EXPEDIENTE TÉCNICO Y CONTROL DE EMBARQUE - FRIGOSA SAC", titulo_style))
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
     story.append(Spacer(1, 5))
@@ -359,17 +354,17 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_muestreo)
 
-    # 2. PÁGINA 2: PLANO DE LOTES (1 PÁGINA EXACTA)
+    # PÁGINA 2: PLANO DE LOTES (1 PÁGINA EXACTA)
     if df_lotes is not None and not df_lotes.empty:
         story.append(PageBreak())
         story.extend(construir_flowables_tabla_estiba(df_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
 
-    # 3. PÁGINA 3: PLANO DE PRESENTACIONES
+    # PÁGINA 3: PLANO DE PRESENTACIONES
     if df_pres is not None and not df_pres.empty:
         story.append(PageBreak())
         story.extend(construir_flowables_tabla_estiba(df_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A", cabecera, styles))
 
-    # 4. PÁGINA 4: DISTRIBUCIÓN POR SISTEMA
+    # PÁGINA 4: DISTRIBUCIÓN POR SISTEMA
     if df_sistema is not None and not df_sistema.empty:
         story.append(PageBreak())
         story.append(Paragraph("DISTRIBUCIÓN POR SISTEMA: PLACAS / TÚNEL / IQF", titulo_style))
@@ -407,7 +402,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_s_pdf)
 
-    # 5. PÁGINAS DE ANEXOS: 1 PÁGINA LIMPIA POR FOTO SIN DESBORDES
+    # ANEXOS FOTOGRÁFICOS: 1 PÁGINA LIMPIA POR FOTO
     fotos_anexo = [
         ("ANEXO: REPORTE DE INSPECCIÓN (IR / EIR)", "REGISTRO FOTOGRÁFICO DE INSPECCIÓN TÉCNICA DEL CONTENEDOR", foto_ir_bytes),
         ("ANEXO: CONTROL DE TEMPERATURA / TERMOKING", "REGISTRO VISUAL DEL DISPLAY DE TEMPERATURA DE SETEO / SALIDA", foto_temp_bytes),
@@ -440,7 +435,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     return buffer_dossier
 
 # =========================================================================
-# LÓGICA DE SHEETS
+# HOJA DISTRIBUCIONES (REGISTRO MAESTRO)
 # =========================================================================
 def obtener_hoja_distribuciones(get_gspread_client):
     client = get_gspread_client()
@@ -452,7 +447,7 @@ def obtener_hoja_distribuciones(get_gspread_client):
 
 def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo=False):
     ws = obtener_hoja_distribuciones(get_gspread_client)
-    contenedores_col = ws.col_values(2)  # Columna B: CONTENEDOR
+    contenedores_col = ws.col_values(2)
     num_cont = str(datos_fila[1]).strip().upper()
 
     fila_idx = None
@@ -532,7 +527,7 @@ def render_module(user, get_gspread_client):
     v = st.session_state.form_version
 
     # =========================================================================
-    # BARRA SUPERIOR: SELECCIÓN Y CARGA
+    # BARRA SUPERIOR
     # =========================================================================
     col_sel1, col_sel2 = st.columns([3, 1])
     with col_sel1:
@@ -659,26 +654,16 @@ def render_module(user, get_gspread_client):
                                 p_idx, p_vals = item_p.split("::", 1)
                                 st.session_state.txt_pesos_mem[p_idx.strip()] = p_vals.strip()
 
-                    link_ir_sheet = fila_encontrada[41].strip() if len(fila_encontrada) > 41 else ""
-                    link_temp_sheet = fila_encontrada[42].strip() if len(fila_encontrada) > 42 else ""
-                    link_pack_sheet = fila_encontrada[43].strip() if len(fila_encontrada) > 43 else ""
-
-                    if num_c_cargado not in st.session_state.fotos_contenedor_db:
-                        st.session_state.fotos_contenedor_db[num_c_cargado] = {}
-
-                    db_c = st.session_state.fotos_contenedor_db[num_c_cargado]
-                    db_c["link_ir"] = link_ir_sheet
-                    db_c["link_temp"] = link_temp_sheet
-                    db_c["link_pack"] = link_pack_sheet
-
-                    # Descarga segura de fotos de Drive a memoria
-                    with st.spinner("Sincronizando fotos de inspección y temperatura..."):
-                        if link_ir_sheet and not db_c.get("bytes_ir"):
-                            db_c["bytes_ir"] = descargar_bytes_drive(get_gspread_client, link_ir_sheet)
-                        if link_temp_sheet and not db_c.get("bytes_temp"):
-                            db_c["bytes_temp"] = descargar_bytes_drive(get_gspread_client, link_temp_sheet)
-                        if link_pack_sheet and not db_c.get("bytes_pack"):
-                            db_c["bytes_pack"] = descargar_bytes_drive(get_gspread_client, link_pack_sheet)
+                    # RECUPERACIÓN GARANTIZADA DE FOTOS DESDE LA HOJA ADJUNTOS_FOTOS
+                    with st.spinner("Recuperando fotos del contenedor desde la base de datos..."):
+                        fotos_recuperadas = recuperar_fotos_de_sheets(get_gspread_client, num_c_cargado)
+                        if num_c_cargado not in st.session_state.fotos_contenedor_db:
+                            st.session_state.fotos_contenedor_db[num_c_cargado] = {}
+                        
+                        db_c = st.session_state.fotos_contenedor_db[num_c_cargado]
+                        db_c["bytes_ir"] = fotos_recuperadas.get("IR")
+                        db_c["bytes_temp"] = fotos_recuperadas.get("TEMP")
+                        db_c["bytes_pack"] = fotos_recuperadas.get("PACK")
 
                     if "df_congelado_edit" in st.session_state:
                         del st.session_state["df_congelado_edit"]
@@ -686,7 +671,7 @@ def render_module(user, get_gspread_client):
                         del st.session_state["caps_filas_override"]
 
                     st.session_state.form_version += 1
-                    st.success(f"✅ ¡Contenedor {num_c_cargado} cargado con éxito!")
+                    st.success(f"✅ ¡Contenedor {num_c_cargado} cargado con sus fotos!")
                     st.rerun()
 
     with col_sel2:
@@ -845,40 +830,45 @@ def render_module(user, get_gspread_client):
         "peso_a_favor": peso_a_favor
     }
 
+    # Generación de bytes del Dossier para botón y lector
+    pdf_dossier_bytes_cache = None
+    if st.session_state.cont_val:
+        try:
+            pdf_dossier_bytes_cache = generar_dossier_unificado(
+                cabecera_pdf_maestra,
+                df_lotes_global,
+                df_pres_global,
+                st.session_state.df_congelado_edit,
+                presentaciones_data_global,
+                resumen_pdf_maestro,
+                bytes_ir_actual,
+                bytes_temp_actual,
+                bytes_pack_actual
+            ).getvalue()
+        except Exception:
+            pdf_dossier_bytes_cache = None
+
     # Botón directo superior
-    if modo_operacion == "Cargar / Editar Contenedor Existente" and st.session_state.cont_val:
+    if modo_operacion == "Cargar / Editar Contenedor Existente" and st.session_state.cont_val and pdf_dossier_bytes_cache:
         with c_btn_c2:
-            try:
-                pdf_dossier_top = generar_dossier_unificado(
-                    cabecera_pdf_maestra,
-                    df_lotes_global,
-                    df_pres_global,
-                    st.session_state.df_congelado_edit,
-                    presentaciones_data_global,
-                    resumen_pdf_maestro,
-                    bytes_ir_actual,
-                    bytes_temp_actual,
-                    bytes_pack_actual
-                )
-                st.download_button(
-                    label=f"📦 Descargar Dossier Completo ({st.session_state.cont_val})",
-                    data=pdf_dossier_top,
-                    file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-            except Exception as e_pdf:
-                st.caption(f"Generando PDF: {e_pdf}")
+            st.download_button(
+                label=f"📦 Descargar Dossier Completo ({st.session_state.cont_val})",
+                data=pdf_dossier_bytes_cache,
+                file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
 
     # =========================================================================
     # PESTAÑAS
     # =========================================================================
-    tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos = st.tabs([
+    tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos, tab_lector = st.tabs([
         "📅 1. Plano Estiba (Lotes)",
         "📦 2. Plano Estiba (Presentaciones)",
         "❄️ 3. Placas / Túnel / IQF",
         "⚖️ 4. Control de Pesos (Balanza)",
-        "📸 5. IR, Temperatura & Packing List"
+        "📸 5. IR, Temperatura & Packing List",
+        "👁️ 6. Visor Lector de PDF"
     ])
 
     # ------------------ TAB 1: LOTES ------------------
@@ -1048,10 +1038,10 @@ def render_module(user, get_gspread_client):
         r3.metric("Peso Bruto", f"{peso_tot_gral:,.2f} kg")
         r4.metric("Margen a Favor", f"{peso_a_favor:,.2f} kg")
 
-    # ------------------ TAB 5: ADJUNTOS EN FOTOS CON COMPRESIÓN MÓVIL ------------------
+    # ------------------ TAB 5: ADJUNTOS CON PERSISTENCIA DIRECTA EN BASE DE DATOS ------------------
     with tab_adjuntos:
-        st.markdown("#### 📸 Panel Documentario Fotográfico del Contenedor")
-        st.caption("Al subir una foto desde la PC o celular, se optimiza automáticamente en segundos para que la app responda con fluidez.")
+        st.markdown("#### 📸 Panel Documental Fotográfico del Contenedor")
+        st.caption("Las fotos quedan guardadas de forma permanente en la base de datos. Se visualizarán siempre en pantalla y en el PDF tanto en tu PC como en tu celular.")
 
         c_f1, c_f2, c_f3 = st.columns(3)
 
@@ -1064,10 +1054,7 @@ def render_module(user, get_gspread_client):
                 db_actual["bytes_ir"] = b_opt
                 st.image(b_opt, caption="Foto IR Cargada", use_container_width=True)
             elif db_actual.get("bytes_ir"):
-                st.image(db_actual["bytes_ir"], caption="Foto IR Activa", use_container_width=True)
-
-            if db_actual.get("link_ir"):
-                st.markdown(f"🔗 [Abrir Foto IR en Drive]({db_actual['link_ir']})")
+                st.image(db_actual["bytes_ir"], caption="Foto IR Guardada", use_container_width=True)
 
         # 2. FOTO DE TEMPERATURA
         with c_f2:
@@ -1078,27 +1065,38 @@ def render_module(user, get_gspread_client):
                 db_actual["bytes_temp"] = b_opt_t
                 st.image(b_opt_t, caption="Display Termoking Cargado", use_container_width=True)
             elif db_actual.get("bytes_temp"):
-                st.image(db_actual["bytes_temp"], caption="Display Termoking Activo", use_container_width=True)
-
-            if db_actual.get("link_temp"):
-                st.markdown(f"🔗 [Abrir Foto Temp en Drive]({db_actual['link_temp']})")
+                st.image(db_actual["bytes_temp"], caption="Display Termoking Guardado", use_container_width=True)
 
         # 3. FOTO DEL PACKING LIST
         with c_f3:
-            st.markdown("##### 📋 3. Foto de Packing List")
+            st.markdown("##### 📋 3. Foto de Lista de Empaque")
             foto_pack = st.file_uploader("Subir foto del Packing List:", type=["jpg", "jpeg", "png"], key=f"up_pack_{v}")
             if foto_pack:
                 b_opt_p = optimizar_bytes_imagen(foto_pack.getvalue())
                 db_actual["bytes_pack"] = b_opt_p
                 st.image(b_opt_p, caption="Packing List Cargado", use_container_width=True)
             elif db_actual.get("bytes_pack"):
-                st.image(db_actual["bytes_pack"], caption="Packing List Activo", use_container_width=True)
+                st.image(db_actual["bytes_pack"], caption="Packing List Guardado", use_container_width=True)
 
-            if db_actual.get("link_pack"):
-                st.markdown(f"🔗 [Abrir Foto Packing en Drive]({db_actual['link_pack']})")
+    # ------------------ TAB 6: LECTOR / VISOR DE PDF NATIVO ------------------
+    with tab_lector:
+        st.markdown("#### 👁️ Visor del Expediente Técnico Completo")
+        if pdf_dossier_bytes_cache:
+            st.caption(f"Documento consolidado de **{st.session_state.cont_val}** listo para inspección:")
+            base64_pdf = base64.b64encode(pdf_dossier_bytes_cache).decode('utf-8')
+            
+            # Visor embebido limpio compatible con Chrome PC y Móvil
+            html_visor = f"""
+            <object data="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="700px">
+                <p>Tu navegador móvil no tiene visor embebido. Puedes descargarlo directamente arriba o abrirlo en pantalla completa con el botón.</p>
+            </object>
+            """
+            components.html(html_visor, height=710)
+        else:
+            st.info("⚠️ Seleccione o ingrese un número de contenedor para activar el visor del PDF.")
 
     # =========================================================================
-    # GUARDADO CENTRALIZADO: REGISTRA DATOS Y SUBE FOTOS A DRIVE AUTOMÁTICAMENTE
+    # GUARDADO CENTRALIZADO: REGISTRA DATOS Y FOTOS EN SHEETS
     # =========================================================================
     st.markdown("---")
     btn_label = f"💾 Guardar / Actualizar Información de {st.session_state.cont_val or 'Contenedor'} en Sheets"
@@ -1107,21 +1105,17 @@ def render_module(user, get_gspread_client):
             st.warning("⚠️ Debe ingresar el N° de Contenedor antes de guardar.")
         else:
             try:
-                num_c_guardar = st.session_state.cont_val.strip()
+                num_c_guardar = st.session_state.cont_val.strip().upper()
                 db_c_guardar = st.session_state.fotos_contenedor_db.get(num_c_guardar, {})
 
-                with st.spinner("Subiendo fotos a Drive y guardando datos en Sheets..."):
-                    if db_c_guardar.get("bytes_ir") and not db_c_guardar.get("link_ir"):
-                        nom_ir = f"IR_{num_c_guardar}_{date.today().strftime('%Y%m%d%H%M')}.jpg"
-                        db_c_guardar["link_ir"] = subir_bytes_drive(get_gspread_client, db_c_guardar["bytes_ir"], nom_ir, "image/jpeg")
-
-                    if db_c_guardar.get("bytes_temp") and not db_c_guardar.get("link_temp"):
-                        nom_temp = f"TEMP_{num_c_guardar}_{date.today().strftime('%Y%m%d%H%M')}.jpg"
-                        db_c_guardar["link_temp"] = subir_bytes_drive(get_gspread_client, db_c_guardar["bytes_temp"], nom_temp, "image/jpeg")
-
-                    if db_c_guardar.get("bytes_pack") and not db_c_guardar.get("link_pack"):
-                        nom_pack = f"PACKING_{num_c_guardar}_{date.today().strftime('%Y%m%d%H%M')}.jpg"
-                        db_c_guardar["link_pack"] = subir_bytes_drive(get_gspread_client, db_c_guardar["bytes_pack"], nom_pack, "image/jpeg")
+                # GUARDADO DIRECTO Y PERMANENTE DE LAS FOTOS EN HOJA ADJUNTOS_FOTOS
+                with st.spinner("Guardando fotos de forma permanente en la base de datos..."):
+                    if db_c_guardar.get("bytes_ir"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "IR", db_c_guardar["bytes_ir"])
+                    if db_c_guardar.get("bytes_temp"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "TEMP", db_c_guardar["bytes_temp"])
+                    if db_c_guardar.get("bytes_pack"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "PACK", db_c_guardar["bytes_pack"])
 
                 pres_cols = []
                 for idx in range(8):
@@ -1139,9 +1133,9 @@ def render_module(user, get_gspread_client):
                         serial_pesos.append(f"{k_p}::{clean_v}")
                 detalle_pesos_str = " ;; ".join(serial_pesos)
 
-                link_ir_final = str(db_c_guardar.get("link_ir", "")).strip()
-                link_temp_final = str(db_c_guardar.get("link_temp", "")).strip()
-                link_pack_final = str(db_c_guardar.get("link_pack", "")).strip()
+                link_ir_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_ir") else ""
+                link_temp_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_temp") else ""
+                link_pack_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_pack") else ""
 
                 fila_maestra = [
                     st.session_state.emb_id,                       # A: ID_EMBARQUE
@@ -1179,7 +1173,7 @@ def render_module(user, get_gspread_client):
                 ok, res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra, forzar_nuevo=es_modo_nuevo)
 
                 if ok:
-                    st.success(f"✅ Contenedor {st.session_state.cont_val} {res_msg} en 'DISTRIBUCIONES'.")
+                    st.success(f"✅ Contenedor {st.session_state.cont_val} guardado con sus fotos en la base de datos.")
                 else:
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
