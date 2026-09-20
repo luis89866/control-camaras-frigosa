@@ -3,7 +3,6 @@ import pandas as pd
 from datetime import date, datetime
 import io
 import base64
-import urllib.parse
 from PIL import Image as PILImage, ImageOps
 import streamlit.components.v1 as components
 from reportlab.lib.pagesizes import letter
@@ -55,8 +54,7 @@ LISTA_PRESENTACIONES_FRIGOSA = [
 MESES_ESP = {1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO",
              7: "JULIO", 8: "AGOSTO", 9: "SETIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"}
 
-def optimizar_bytes_imagen(b_in, max_side=900, calidad=65):
-    """Comprime la imagen para garantizar almacenamiento eficiente sin desbordar celdas."""
+def optimizar_bytes_imagen(b_in, max_side=950, calidad=70):
     if not b_in:
         return None
     try:
@@ -108,7 +106,7 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # =========================================================================
-# GESTIÓN PERSISTENTE DE FOTOS EN SHEETS CON CHUNKING (SIN LÍMITE DE CELDA)
+# GESTIÓN PERSISTENTE DE FOTOS EN SHEETS
 # =========================================================================
 def obtener_hoja_adjuntos_fotos(get_gspread_client):
     client = get_gspread_client()
@@ -120,7 +118,7 @@ def obtener_hoja_adjuntos_fotos(get_gspread_client):
     try:
         return sh.worksheet("ADJUNTOS_FOTOS")
     except Exception:
-        ws = sh.add_worksheet(title="ADJUNTOS_FOTOS", rows=1000, cols=6)
+        ws = sh.add_worksheet(title="ADJUNTOS_FOTOS", rows=1200, cols=6)
         ws.append_row(["CONTENEDOR", "TIPO_FOTO", "PARTE", "FECHA_REGISTRO", "BASE64_DATA"])
         return ws
 
@@ -153,10 +151,10 @@ def guardar_foto_en_sheets(get_gspread_client, num_contenedor, tipo_foto, b_data
         if nuevas_filas:
             ws.append_rows(nuevas_filas)
     except Exception as e:
-        st.warning(f"Error al registrar foto en Sheets: {e}")
+        st.warning(f"Nota en guardado de foto: {e}")
 
 def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
-    resultado = {"IR": None, "TEMP": None, "PACK": None}
+    resultado = {"IR": None, "TEMP": None, "PACK": None, "INVOLUCRADO": None}
     if not num_contenedor:
         return resultado
     try:
@@ -164,7 +162,7 @@ def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
         registros = ws.get_all_values()
         num_c_clean = str(num_contenedor).strip().upper()
 
-        chunks_dict = {"IR": {}, "TEMP": {}, "PACK": {}}
+        chunks_dict = {"IR": {}, "TEMP": {}, "PACK": {}, "INVOLUCRADO": {}}
 
         for r in registros[1:]:
             if len(r) > 4 and r[0].strip().upper() == num_c_clean:
@@ -178,7 +176,7 @@ def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
                 if t_f in chunks_dict:
                     chunks_dict[t_f][num_parte] = trozo
 
-        for clave in ["IR", "TEMP", "PACK"]:
+        for clave in ["IR", "TEMP", "PACK", "INVOLUCRADO"]:
             partes_ord = chunks_dict[clave]
             if partes_ord:
                 b64_unido = "".join([partes_ord[k] for k in sorted(partes_ord.keys())])
@@ -192,7 +190,7 @@ def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
         return resultado
 
 # =========================================================================
-# ESCALADO DE IMAGEN: 1 PÁGINA EXACTA POR FOTO
+# ESCALADO DE IMAGEN PROPORCIONAL EXACTO
 # =========================================================================
 def crear_imagen_maximizada(b_data, max_w=540, max_h=510):
     try:
@@ -303,9 +301,9 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     return elementos
 
 # =========================================================================
-# DOSSIER UNIFICADO COMPLETO
+# DOSSIER UNIFICADO COMPLETO (CON CABECERA AJUSTADA Y FOTO DE INVOLUCRADO)
 # =========================================================================
-def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_ir_bytes=None, foto_temp_bytes=None, foto_pack_bytes=None):
+def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_ir_bytes=None, foto_temp_bytes=None, foto_pack_bytes=None, foto_invol_bytes=None):
     buffer_dossier = io.BytesIO()
     doc = SimpleDocTemplate(buffer_dossier, pagesize=letter, leftMargin=18, rightMargin=18, topMargin=18, bottomMargin=18)
     story = []
@@ -315,7 +313,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     sub_style = ParagraphStyle('SubD', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
     cell_head_style = ParagraphStyle('CHD', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
-    # PÁGINA 1: FICHA LOGÍSTICA Y CONTROL DE PESOS
+    # 1. PÁGINA 1: FICHA LOGÍSTICA (CON P.I. EN VEZ DE NOMBRE EN LA FILA DE ARRIBA)
     story.append(Paragraph("EXPEDIENTE TÉCNICO Y CONTROL DE EMBARQUE - FRIGOSA SAC", titulo_style))
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
     story.append(Spacer(1, 5))
@@ -326,7 +324,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
         ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
-        ["SUPERVISOR DE EMBARQUE:", "LUIS ENRIQUE FIESTAS ECA", "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
+        ["P.I. (PEDIDO ASIGNADO):", str(cabecera.get('pi', '-')), "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
     ]
     t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
     t_cab.setStyle(TableStyle([
@@ -416,18 +414,19 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_s_pdf)
 
-    # ANEXOS FOTOGRÁFICOS: 1 PÁGINA LIMPIA POR FOTO
+    # ANEXOS FOTOGRÁFICOS: 1 PÁGINA EXACTA POR FOTO
     fotos_anexo = [
         ("ANEXO: REPORTE DE INSPECCIÓN (IR / EIR)", "REGISTRO FOTOGRÁFICO DE INSPECCIÓN TÉCNICA DEL CONTENEDOR", foto_ir_bytes),
         ("ANEXO: CONTROL DE TEMPERATURA / TERMOKING", "REGISTRO VISUAL DEL DISPLAY DE TEMPERATURA DE SETEO / SALIDA", foto_temp_bytes),
-        ("ANEXO: PACKING LIST / GUÍA DE EMBARQUE", "REGISTRO FOTOGRÁFICO DEL PACKING LIST OFICIAL DE PLANTA", foto_pack_bytes)
+        ("ANEXO: PACKING LIST / GUÍA DE EMBARQUE", "REGISTRO FOTOGRÁFICO DEL PACKING LIST OFICIAL DE PLANTA", foto_pack_bytes),
+        ("ANEXO: CONSTANCIA FOTOGRÁFICA DE SUPERVISIÓN EN PLANTA", "EVIDENCIA DE CONTROL DIRECTO Y SUPERVISIÓN EN DESPACHO", foto_invol_bytes)
     ]
 
     for tit_anexo, sub_rotulo, b_img in fotos_anexo:
         if b_img:
             story.append(PageBreak())
             story.append(Paragraph(tit_anexo, titulo_style))
-            story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | SUPERVISOR: LUIS ENRIQUE FIESTAS ECA", sub_style))
+            story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')}", sub_style))
             story.append(Spacer(1, 4))
 
             rl_img = crear_imagen_maximizada(b_img, max_w=540, max_h=510)
@@ -474,7 +473,7 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
         return False, f"El contenedor '{num_cont}' ya existe en la fila {fila_idx}. Cambie al modo 'Cargar / Editar' para modificarlo."
 
     if fila_idx:
-        rango = f"A{fila_idx}:AR{fila_idx}"
+        rango = f"A{fila_idx}:AS{fila_idx}"
         ws.update(rango, [datos_fila])
         return True, f"Actualizado exitosamente (Fila {fila_idx})"
     else:
@@ -482,7 +481,7 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
         return True, "Registrado como nuevo registro"
 
 # =========================================================================
-# MÓDULO PRINCIPAL
+# MÓDULO PRINCIPAL STREAMLIT
 # =========================================================================
 def render_module(user, get_gspread_client):
     st.subheader("🚢 Módulo 4: Despachos, Estiba y Embarques")
@@ -668,6 +667,7 @@ def render_module(user, get_gspread_client):
                                 p_idx, p_vals = item_p.split("::", 1)
                                 st.session_state.txt_pesos_mem[p_idx.strip()] = p_vals.strip()
 
+                    # RECUPERACIÓN HISTÓRICA GARANTIZADA DE TODAS LAS FOTOS
                     with st.spinner("Sincronizando fotos guardadas desde la base de datos..."):
                         fotos_recuperadas = recuperar_fotos_de_sheets(get_gspread_client, num_c_cargado)
                         if num_c_cargado not in st.session_state.fotos_contenedor_db:
@@ -677,6 +677,7 @@ def render_module(user, get_gspread_client):
                         db_c["bytes_ir"] = fotos_recuperadas.get("IR")
                         db_c["bytes_temp"] = fotos_recuperadas.get("TEMP")
                         db_c["bytes_pack"] = fotos_recuperadas.get("PACK")
+                        db_c["bytes_invol"] = fotos_recuperadas.get("INVOLUCRADO")
 
                     if "df_congelado_edit" in st.session_state:
                         del st.session_state["df_congelado_edit"]
@@ -825,12 +826,12 @@ def render_module(user, get_gspread_client):
     bytes_ir_actual = db_actual.get("bytes_ir")
     bytes_temp_actual = db_actual.get("bytes_temp")
     bytes_pack_actual = db_actual.get("bytes_pack")
+    bytes_invol_actual = db_actual.get("bytes_invol")
 
     cabecera_pdf_maestra = {
         "fecha": str(st.session_state.fec_val),
         "contenedor": st.session_state.cont_val,
         "payload": float(st.session_state.pay_val),
-        "responsable": "LUIS ENRIQUE FIESTAS ECA",
         "pi": st.session_state.pi_val,
         "booking": st.session_state.bk_val,
         "cliente": st.session_state.cli_val,
@@ -856,7 +857,8 @@ def render_module(user, get_gspread_client):
                 resumen_pdf_maestro,
                 bytes_ir_actual,
                 bytes_temp_actual,
-                bytes_pack_actual
+                bytes_pack_actual,
+                bytes_invol_actual
             ).getvalue()
         except Exception:
             pdf_dossier_bytes_cache = None
@@ -880,7 +882,7 @@ def render_module(user, get_gspread_client):
         "📦 2. Plano Estiba (Presentaciones)",
         "❄️ 3. Placas / Túnel / IQF",
         "⚖️ 4. Control de Pesos (Balanza)",
-        "📸 5. IR, Temperatura & Packing List",
+        "📸 5. IR, Temp, Packing & Involucrado",
         "👁️ 6. Visor Lector de PDF"
     ])
 
@@ -1051,14 +1053,12 @@ def render_module(user, get_gspread_client):
         r3.metric("Peso Bruto", f"{peso_tot_gral:,.2f} kg")
         r4.metric("Margen a Favor", f"{peso_a_favor:,.2f} kg")
 
-    # ------------------ TAB 5: ADJUNTOS CON PERSISTENCIA DIRECTA EN GOOGLE SHEETS ------------------
+    # ------------------ TAB 5: ADJUNTOS CON PERSISTENCIA DIRECTA (4 FOTOS) ------------------
     with tab_adjuntos:
         st.markdown("#### 📸 Panel Documental Fotográfico del Contenedor")
-        st.caption("Al presionar el botón rojo de guardado inferior, las fotos se guardan directamente en la base de datos de Sheets. No se pierden nunca.")
+        st.caption("Las fotos quedan guardadas de forma permanente en la base de datos de Sheets. Se visualizarán siempre en pantalla y en el PDF.")
 
-        c_f1, c_f2, c_f3 = st.columns(3)
-
-        # 1. FOTO DEL IR
+        c_f1, c_f2 = st.columns(2)
         with c_f1:
             st.markdown("##### 📄 1. Foto de Inspección (IR / EIR)")
             foto_ir = st.file_uploader("Subir foto Reporte IR:", type=["jpg", "jpeg", "png"], key=f"up_ir_{v}")
@@ -1067,9 +1067,8 @@ def render_module(user, get_gspread_client):
                 db_actual["bytes_ir"] = b_opt
                 st.image(b_opt, caption="Foto IR Cargada", use_container_width=True)
             elif db_actual.get("bytes_ir"):
-                st.image(db_actual["bytes_ir"], caption="Foto IR Activa (Guardada)", use_container_width=True)
+                st.image(db_actual["bytes_ir"], caption="Foto IR Guardada", use_container_width=True)
 
-        # 2. FOTO DE TEMPERATURA
         with c_f2:
             st.markdown("##### ❄️ 2. Foto de Temperatura")
             foto_temp = st.file_uploader("Subir foto Display Termoking:", type=["jpg", "jpeg", "png"], key=f"up_temp_{v}")
@@ -1078,9 +1077,10 @@ def render_module(user, get_gspread_client):
                 db_actual["bytes_temp"] = b_opt_t
                 st.image(b_opt_t, caption="Display Termoking Cargado", use_container_width=True)
             elif db_actual.get("bytes_temp"):
-                st.image(db_actual["bytes_temp"], caption="Display Termoking Activo (Guardado)", use_container_width=True)
+                st.image(db_actual["bytes_temp"], caption="Display Termoking Guardado", use_container_width=True)
 
-        # 3. FOTO DEL PACKING LIST
+        st.markdown("---")
+        c_f3, c_f4 = st.columns(2)
         with c_f3:
             st.markdown("##### 📋 3. Foto de Lista de Empaque")
             foto_pack = st.file_uploader("Subir foto del Packing List:", type=["jpg", "jpeg", "png"], key=f"up_pack_{v}")
@@ -1089,40 +1089,47 @@ def render_module(user, get_gspread_client):
                 db_actual["bytes_pack"] = b_opt_p
                 st.image(b_opt_p, caption="Packing List Cargado", use_container_width=True)
             elif db_actual.get("bytes_pack"):
-                st.image(db_actual["bytes_pack"], caption="Packing List Activo (Guardado)", use_container_width=True)
+                st.image(db_actual["bytes_pack"], caption="Packing List Guardado", use_container_width=True)
 
-    # ------------------ TAB 6: VISOR LECTOR DE PDF NATIVO LIGERO ------------------
+        with c_f4:
+            st.markdown("##### 👤 4. Foto de Involucrado / Supervisor en Planta")
+            foto_invol = st.file_uploader("Subir foto del Involucrado/Supervisor en Operación:", type=["jpg", "jpeg", "png"], key=f"up_invol_{v}")
+            if foto_invol:
+                b_opt_i = optimizar_bytes_imagen(foto_invol.getvalue())
+                db_actual["bytes_invol"] = b_opt_i
+                st.image(b_opt_i, caption="Foto Involucrado Cargada", use_container_width=True)
+            elif db_actual.get("bytes_invol"):
+                st.image(db_actual["bytes_invol"], caption="Foto Involucrado Guardada", use_container_width=True)
+
+    # ------------------ TAB 6: VISOR LECTOR DE PDF NATIVO SIN ERRORES DE RED ------------------
     with tab_lector:
         st.markdown("#### 👁️ Visor del Expediente Técnico Completo")
         if pdf_dossier_bytes_cache:
             st.caption(f"Documento consolidado de **{st.session_state.cont_val}** listo para inspección:")
             
-            # Botón de apertura directa para visor nativo completo
             b64_pdf = base64.b64encode(pdf_dossier_bytes_cache).decode('utf-8')
+            
+            # Botón destacado de apertura en pestaña limpia o descarga
             btn_html = f"""
             <div style="margin-bottom: 12px;">
                 <a href="data:application/pdf;base64,{b64_pdf}" target="_blank" download="Dossier_Completo_{st.session_state.cont_val}.pdf"
                    style="background-color: #2B6CB0; color: white; padding: 10px 18px; text-decoration: none; border-radius: 6px; font-weight: bold; font-family: sans-serif; display: inline-block;">
-                   🔍 Abrir Documento en Pantalla Completa / Descargar
+                   🔍 Abrir Documento en Pantalla Completa / Descargar PDF
                 </a>
             </div>
             """
             st.markdown(btn_html, unsafe_allow_html=True)
 
-            # Visor embebido con motor PDF.js ligero
-            pdf_data_uri = f"data:application/pdf;base64,{b64_pdf}"
-            encoded_uri = urllib.parse.quote(pdf_data_uri)
-            visor_html = f"""
-            <iframe src="https://mozilla.github.io/pdf.js/web/viewer.html?file={encoded_uri}" 
-                    width="100%" height="700px" style="border: 1px solid #CBD5E0; border-radius: 8px;">
-            </iframe>
+            # Visor embebido nativo seguro que no genera I/O Error de Mozilla
+            html_visor_nativo = f"""
+            <embed src="data:application/pdf;base64,{b64_pdf}" type="application/pdf" width="100%" height="750px" style="border: 1px solid #CBD5E0; border-radius: 8px;">
             """
-            components.html(visor_html, height=720)
+            components.html(html_visor_nativo, height=760)
         else:
             st.info("⚠️ Seleccione o ingrese un número de contenedor para activar el visor del PDF.")
 
     # =========================================================================
-    # GUARDADO CENTRALIZADO: REGISTRA DATOS Y GUARDA FOTOS EN SHEETS
+    # GUARDADO CENTRALIZADO: REGISTRA DATOS Y FOTOS EN SHEETS
     # =========================================================================
     st.markdown("---")
     btn_label = f"💾 Guardar / Actualizar Información de {st.session_state.cont_val or 'Contenedor'} en Sheets"
@@ -1141,6 +1148,8 @@ def render_module(user, get_gspread_client):
                         guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "TEMP", db_c_guardar["bytes_temp"])
                     if db_c_guardar.get("bytes_pack"):
                         guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "PACK", db_c_guardar["bytes_pack"])
+                    if db_c_guardar.get("bytes_invol"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "INVOLUCRADO", db_c_guardar["bytes_invol"])
 
                 pres_cols = []
                 for idx in range(8):
@@ -1161,6 +1170,7 @@ def render_module(user, get_gspread_client):
                 link_ir_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_ir") else ""
                 link_temp_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_temp") else ""
                 link_pack_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_pack") else ""
+                link_invol_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_invol") else ""
 
                 fila_maestra = [
                     st.session_state.emb_id,                       # A: ID_EMBARQUE
@@ -1191,15 +1201,17 @@ def render_module(user, get_gspread_client):
                     detalle_pesos_str,                             # AO: detalle_pesos_balanza
                     link_ir_final,                                 # AP: link_foto_ir
                     link_temp_final,                               # AQ: link_foto_temperatura
-                    link_pack_final                                # AR: link_foto_packing
+                    link_pack_final,                               # AR: link_foto_packing
+                    link_invol_final                               # AS: link_foto_involucrado
                 ]
 
                 es_modo_nuevo = (modo_operacion == "Nuevo Contenedor")
                 ok, res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra, forzar_nuevo=es_modo_nuevo)
 
                 if ok:
-                    st.success(f"✅ Contenedor {st.session_state.cont_val} guardado con sus fotos en la base de datos.")
+                    st.success(f"✅ Contenedor {st.session_state.cont_val} guardado con sus 4 fotos en la base de datos.")
                 else:
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
                 st.error(f"Error al guardar en Sheets: {e}")
+               
