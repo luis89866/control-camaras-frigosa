@@ -82,7 +82,104 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # =========================================================================
-# REPORTES EN PDF CON PARTICIÓN AUTOMÁTICA DE HOJAS
+# FUNCIÓN REUTILIZABLE PARA CONSTRUIR TABLAS DE ESTIBA (AJUSTE DINÁMICO)
+# =========================================================================
+def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, styles):
+    elementos = []
+    if df_in is None or df_in.empty:
+        return elementos
+
+    titulo_style = ParagraphStyle('TitF', parent=styles['Heading1'], fontSize=10.5, leading=12, textColor=colors.HexColor("#0D3B66"), alignment=1)
+    sub_style = ParagraphStyle('SubF', parent=styles['Heading2'], fontSize=7.5, leading=9.5, textColor=colors.HexColor("#2B6CB0"), alignment=1)
+    
+    cols_totales = list(df_in.columns)
+    cols_fijas = ["N° FILA", "TM", "CANT/FILA"] if "CANT/FILA" in cols_totales else ["N° FILA", "TM ESTIMADO", "TOTAL BULTOS"]
+    cols_dinamicas = [c for c in cols_totales if c not in cols_fijas]
+    num_lotes = len(cols_dinamicas)
+
+    # Si entran hasta 8 lotes, se compacta para que entre en una sola página elegante
+    tamano_bloque = 8 if num_lotes <= 8 else 4
+    bloques = [cols_dinamicas[i:i + tamano_bloque] for i in range(0, len(cols_dinamicas), tamano_bloque)]
+    if not bloques:
+        bloques = [[]]
+
+    for num_b, bloque_cols in enumerate(bloques):
+        if num_b > 0:
+            elementos.append(PageBreak())
+
+        sub_sufijo = f" (PARTE {num_b + 1})" if len(bloques) > 1 else ""
+        elementos.append(Paragraph(titulo_tab + sub_sufijo, titulo_style))
+        elementos.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | FECHA: {cabecera['fecha']} | CLIENTE: {cabecera.get('cliente', '-')}", sub_style))
+        elementos.append(Spacer(1, 4))
+
+        cols_actuales = cols_fijas + bloque_cols
+        total_cols = len(cols_actuales)
+
+        # Configuración adaptable de fuentes según cantidad de columnas
+        if total_cols > 9:
+            f_size = 4.8
+            leading_h = 5.8
+            w_fijas = [28, 40, 42]
+        elif total_cols > 6:
+            f_size = 5.3
+            leading_h = 6.4
+            w_fijas = [32, 44, 46]
+        else:
+            f_size = 6.0
+            leading_h = 7.2
+            w_fijas = [38, 50, 52]
+
+        cell_head_style = ParagraphStyle('CH', parent=styles['Normal'], fontSize=f_size, leading=leading_h, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
+        
+        num_din = len(bloque_cols)
+        w_resto = (576 - sum(w_fijas)) / max(num_din, 1)
+        col_widths = w_fijas + [w_resto] * num_din
+
+        header_row = [Paragraph(str(c).replace(" | ", "<br/>").replace("\n", "<br/>"), cell_head_style) for c in cols_actuales]
+        t_data = [header_row]
+
+        for _, r in df_in.iterrows():
+            row_vals = []
+            for c in cols_actuales:
+                val = r[c]
+                if isinstance(val, (int, float)):
+                    row_vals.append(f"{val:.2f}" if ("TM" in c.upper()) else str(int(val)))
+                else:
+                    row_vals.append(str(val))
+            t_data.append(row_vals)
+
+        tot_row = []
+        for idx_c, col_name in enumerate(cols_actuales):
+            if idx_c == 0:
+                tot_row.append("TOTAL")
+            else:
+                try:
+                    sum_val = df_in[col_name].astype(float).sum()
+                    tot_row.append(f"{sum_val:,.2f}" if "TM" in col_name.upper() else f"{int(sum_val):,}")
+                except Exception:
+                    tot_row.append("-")
+        t_data.append(tot_row)
+
+        t_pdf = Table(t_data, colWidths=col_widths)
+        t_pdf.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 1), (-1, -1), f_size),
+            ('TOPPADDING', (0, 0), (-1, -1), 1.1),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1.1),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(color_header)),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#FEFCBF")),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor("#F7FAFC")]),
+        ]))
+        elementos.append(t_pdf)
+
+    return elementos
+
+# =========================================================================
+# 1. PDF PLANOS DE ESTIBA (LOTES Y PRESENTACIONES)
 # =========================================================================
 def generar_pdf_planos_estiba(cabecera, df_estiba_lotes, df_estiba_pres):
     buffer = io.BytesIO()
@@ -90,91 +187,19 @@ def generar_pdf_planos_estiba(cabecera, df_estiba_lotes, df_estiba_pres):
     story = []
     styles = getSampleStyleSheet()
 
-    titulo_style = ParagraphStyle('TitF', parent=styles['Heading1'], fontSize=10.5, leading=12, textColor=colors.HexColor("#0D3B66"), alignment=1)
-    sub_style = ParagraphStyle('SubF', parent=styles['Heading2'], fontSize=7.5, leading=9.5, textColor=colors.HexColor("#2B6CB0"), alignment=1)
-    cell_head_style = ParagraphStyle('CH', parent=styles['Normal'], fontSize=5.5, leading=6.8, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
-
-    def agregar_bloques_tabla(df_in, titulo_tab, color_header):
-        if df_in is None or df_in.empty:
-            return
-
-        cols_totales = list(df_in.columns)
-        cols_fijas = ["N° FILA", "TM", "CANT/FILA"] if "CANT/FILA" in cols_totales else ["N° FILA", "TM ESTIMADO", "TOTAL BULTOS"]
-        cols_dinamicas = [c for c in cols_totales if c not in cols_fijas]
-
-        # Partir en bloques de máximo 4 columnas para que no se compriman en una sola hoja
-        tamano_bloque = 4
-        bloques = [cols_dinamicas[i:i + tamano_bloque] for i in range(0, len(cols_dinamicas), tamano_bloque)]
-        if not bloques:
-            bloques = [[]]
-
-        for num_b, bloque_cols in enumerate(bloques):
-            if num_b > 0:
-                story.append(PageBreak())
-
-            sub_sufijo = f" (PARTE {num_b + 1})" if len(bloques) > 1 else ""
-            story.append(Paragraph(titulo_tab + sub_sufijo, titulo_style))
-            story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | FECHA: {cabecera['fecha']} | CLIENTE: {cabecera.get('cliente', '-')}", sub_style))
-            story.append(Spacer(1, 5))
-
-            cols_actuales = cols_fijas + bloque_cols
-            w_fijas = [38, 52, 54]
-            num_din = len(bloque_cols)
-            w_resto = (576 - sum(w_fijas)) / max(num_din, 1)
-            col_widths = w_fijas + [w_resto] * num_din
-
-            header_row = [Paragraph(str(c).replace(" | ", "<br/>").replace("\n", "<br/>"), cell_head_style) for c in cols_actuales]
-            t_data = [header_row]
-
-            for _, r in df_in.iterrows():
-                row_vals = []
-                for c in cols_actuales:
-                    val = r[c]
-                    if isinstance(val, (int, float)):
-                        row_vals.append(f"{val:.2f}" if ("TM" in c.upper()) else str(int(val)))
-                    else:
-                        row_vals.append(str(val))
-                t_data.append(row_vals)
-
-            tot_row = []
-            for idx_c, col_name in enumerate(cols_actuales):
-                if idx_c == 0:
-                    tot_row.append("TOTAL")
-                else:
-                    try:
-                        sum_val = df_in[col_name].astype(float).sum()
-                        tot_row.append(f"{sum_val:,.2f}" if "TM" in col_name.upper() else f"{int(sum_val):,}")
-                    except Exception:
-                        tot_row.append("-")
-            t_data.append(tot_row)
-
-            f_size = 5.2 if len(cols_actuales) > 6 else 6.0
-            t_pdf = Table(t_data, colWidths=col_widths)
-            t_pdf.setStyle(TableStyle([
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 1), (-1, -1), f_size),
-                ('TOPPADDING', (0, 0), (-1, -1), 1.2),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 1.2),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(color_header)),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-                ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#FEFCBF")),
-                ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor("#F7FAFC")]),
-            ]))
-            story.append(t_pdf)
-
-    # Lotes (se particiona automáticamente si son más de 4 lotes)
-    agregar_bloques_tabla(df_estiba_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0")
+    # Página 1: Lotes
+    story.extend(construir_flowables_tabla_estiba(df_estiba_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
     story.append(PageBreak())
-    # Presentaciones
-    agregar_bloques_tabla(df_estiba_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A")
+    # Página 2: Presentaciones
+    story.extend(construir_flowables_tabla_estiba(df_estiba_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A", cabecera, styles))
 
     doc.build(story)
     buffer.seek(0)
     return buffer
 
+# =========================================================================
+# 2. PDF TIPO DE CONGELADO (PLACAS / TÚNEL / IQF)
+# =========================================================================
 def generar_pdf_congelado(cabecera, df_estiba_sistema):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=20, rightMargin=20, topMargin=20, bottomMargin=20)
@@ -226,6 +251,9 @@ def generar_pdf_congelado(cabecera, df_estiba_sistema):
     buffer.seek(0)
     return buffer
 
+# =========================================================================
+# 3. PDF CONTROL DE PESOS (INDIVIDUAL)
+# =========================================================================
 def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=20, rightMargin=20, topMargin=20, bottomMargin=20)
@@ -246,9 +274,9 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
         ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
         ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
-        ["SUPERVISOR:", cabecera['responsable'], "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
+        ["ENCARGADO DE EMBARQUE:", "LUIS ENRIQUE FIESTAS ECA", "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
     ]
-    t_cab = Table(data_cab, colWidths=[105, 175, 115, 177])
+    t_cab = Table(data_cab, colWidths=[130, 150, 115, 177])
     t_cab.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, -1), 6.5),
@@ -262,7 +290,6 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     story.append(t_cab)
     story.append(Spacer(1, 8))
 
-    # Títulos completos multilínea sin truncar nombres
     headers = [Paragraph(f"<b>{p['nombre'].strip()}</b>", cell_head_style) for p in presentaciones_data]
     matrix_pesos = [headers]
     for r in range(20):
@@ -277,7 +304,7 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     t_muestreo = Table(matrix_pesos, colWidths=[ancho_col] * len(presentaciones_data))
     t_muestreo.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 6.5),
+        ('FONTSIZE', (0, 1), (-1, -1), 6.5),
         ('TOPPADDING', (0, 0), (-1, -1), 1.5),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -287,6 +314,122 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
         ('FONTNAME', (0, -3), (-1, -1), 'Helvetica-Bold'),
     ]))
     story.append(t_muestreo)
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+# =========================================================================
+# 4. DOSSIER / EXPEDIENTE COMPLETO UNIFICADO (TODO EN UN SOLO PDF)
+# =========================================================================
+def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=18, rightMargin=18, topMargin=18, bottomMargin=18)
+    story = []
+    styles = getSampleStyleSheet()
+
+    titulo_style = ParagraphStyle('TitD', parent=styles['Heading1'], fontSize=11, leading=13, textColor=colors.HexColor("#0D3B66"), alignment=1)
+    sub_style = ParagraphStyle('SubD', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
+    cell_head_style = ParagraphStyle('CHD', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
+
+    # 1. CARÁTULA Y CONTROL DE PESOS / LIQUIDACIÓN (PÁGINA 1)
+    story.append(Paragraph("EXPEDIENTE TÉCNICO Y CONTROL DE EMBARQUE - FRIGOSA SAC", titulo_style))
+    story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
+    story.append(Spacer(1, 5))
+
+    data_cab = [
+        ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
+        ["CLIENTE:", cabecera.get('cliente', '-'), "DESTINO:", cabecera.get('destino', '-')],
+        ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
+        ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
+        ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
+        ["ENCARGADO DE EMBARQUE:", "LUIS ENRIQUE FIESTAS ECA", "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
+    ]
+    t_cab = Table(data_cab, colWidths=[130, 150, 115, 177])
+    t_cab.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 6.5),
+        ('TOPPADDING', (0, 0), (-1, -1), 1.8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.8),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F4F6F9")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
+        ('ALIGN', (1, 0), (1, -1), 'CENTER'),
+        ('ALIGN', (3, 0), (3, -1), 'CENTER'),
+    ]))
+    story.append(t_cab)
+    story.append(Spacer(1, 6))
+
+    # Matriz de pesos
+    headers_w = [Paragraph(f"<b>{p['nombre'].strip()}</b>", cell_head_style) for p in presentaciones_data]
+    matrix_pesos = [headers_w]
+    for r in range(20):
+        fila = [f"{p['pesos'][r]:.2f}" if r < len(p['pesos']) and p['pesos'][r] > 0 else "-" for p in presentaciones_data]
+        matrix_pesos.append(fila)
+
+    matrix_pesos.append([f"Bultos: {p['bultos']}" for p in presentaciones_data])
+    matrix_pesos.append([f"Prom: {p['promedio']:.3f}" for p in presentaciones_data])
+    matrix_pesos.append([f"Total: {p['total_kg']:,.1f} kg" for p in presentaciones_data])
+
+    ancho_col = 572 / max(len(presentaciones_data), 1)
+    t_muestreo = Table(matrix_pesos, colWidths=[ancho_col] * len(presentaciones_data))
+    t_muestreo.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 1), (-1, -1), 6.5),
+        ('TOPPADDING', (0, 0), (-1, -1), 1.5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1A365D")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
+        ('BACKGROUND', (0, -3), (-1, -1), colors.HexColor("#EDF2F7")),
+        ('FONTNAME', (0, -3), (-1, -1), 'Helvetica-Bold'),
+    ]))
+    story.append(t_muestreo)
+
+    # 2. PLANO DE ESTIBA POR LOTES (PÁGINA 2)
+    story.append(PageBreak())
+    story.extend(construir_flowables_tabla_estiba(df_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
+
+    # 3. PLANO DE ESTIBA POR PRESENTACIONES (PÁGINA 3)
+    story.append(PageBreak())
+    story.extend(construir_flowables_tabla_estiba(df_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A", cabecera, styles))
+
+    # 4. DISTRIBUCIÓN POR SISTEMA PLACAS / TÚNEL / IQF (PÁGINA 4)
+    if df_sistema is not None and not df_sistema.empty:
+        story.append(PageBreak())
+        story.append(Paragraph("DISTRIBUCIÓN POR SISTEMA: PLACAS / TÚNEL / IQF", titulo_style))
+        story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | FECHA: {cabecera['fecha']} | CLIENTE: {cabecera.get('cliente', '-')}", sub_style))
+        story.append(Spacer(1, 6))
+
+        cols_s = list(df_sistema.columns)
+        w_s = 572 / len(cols_s)
+        h_s = [Paragraph(str(c), cell_head_style) for c in cols_s]
+        t_s_data = [h_s]
+        for _, r in df_sistema.iterrows():
+            t_s_data.append([str(r[c]) for c in cols_s])
+
+        tot_s = ["TOTAL"]
+        for c in cols_s[1:]:
+            try:
+                val_s = df_sistema[c].astype(float).sum()
+                tot_s.append(f"{val_s:,.2f}" if "TM" in c.upper() else f"{int(val_s):,}")
+            except Exception:
+                tot_s.append("-")
+        t_s_data.append(tot_s)
+
+        t_s_pdf = Table(t_s_data, colWidths=[w_s] * len(cols_s))
+        t_s_pdf.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 1), (-1, -1), 6.5),
+            ('TOPPADDING', (0, 0), (-1, -1), 1.5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#D69E2E")),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#FEFCBF")),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor("#F7FAFC")]),
+        ]))
+        story.append(t_s_pdf)
 
     doc.build(story)
     buffer.seek(0)
@@ -329,7 +472,6 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
 # MÓDULO PRINCIPAL
 # =========================================================================
 def render_module(user, get_gspread_client):
-    nombre_user = user.get("nombre_completo", user.get("usuario", "LUIS ENRIQUE FIESTAS ECA"))
     st.subheader("🚢 Módulo 4: Despachos, Estiba y Embarques")
 
     if "form_version" not in st.session_state:
@@ -426,7 +568,11 @@ def render_module(user, get_gspread_client):
                     st.info("No hay contenedores registrados en la fecha elegida.")
                     cont_seleccionado = None
 
-            if cont_seleccionado and st.button("📥 Cargar Datos de este Contenedor"):
+            c_btn_c1, c_btn_c2 = st.columns([1.5, 2])
+            with c_btn_c1:
+                btn_cargar_datos = st.button("📥 Cargar Datos de este Contenedor", use_container_width=True) if cont_seleccionado else False
+
+            if btn_cargar_datos:
                 fila_encontrada = None
                 for r in registros[1:]:
                     if len(r) > 1 and r[1].strip() == cont_seleccionado:
@@ -590,17 +736,18 @@ def render_module(user, get_gspread_client):
         if "caps_filas_override" not in st.session_state or len(st.session_state.caps_filas_override) != int(st.session_state.nfil_val):
             st.session_state.caps_filas_override = caps_filas_default.copy()
 
-        n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=10, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
+        n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=12, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
         while len(st.session_state.lotes_items) < n_lotes:
             st.session_state.lotes_items.append({"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0})
         while len(st.session_state.lotes_items) > n_lotes:
             st.session_state.lotes_items.pop()
 
-        cols_l = st.columns(int(n_lotes))
+        cols_l = st.columns(min(int(n_lotes), 4))
         lista_lotes_calc = []
-        for i, col in enumerate(cols_l):
+        for i in range(int(n_lotes)):
+            col_target = cols_l[i % 4]
             item_l = st.session_state.lotes_items[i]
-            with col:
+            with col_target:
                 fl = st.date_input(f"Fecha {i+1}:", value=item_l["fecha"], key=f"fl_{i}_{v}")
                 lot_txt = st.text_input(f"Lote {i+1}:", value=item_l["lote"], key=f"cl_{i}_{v}")
                 bl = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(item_l["bultos"]), step=10, key=f"bl_{i}_{v}")
@@ -661,11 +808,12 @@ def render_module(user, get_gspread_client):
         while len(st.session_state.pres_items) > np_m:
             st.session_state.pres_items.pop()
 
-        cols_p = st.columns(int(np_m))
+        cols_p = st.columns(min(int(np_m), 4))
         lista_pres_calc = []
-        for i, col in enumerate(cols_p):
+        for i in range(int(np_m)):
+            col_target_p = cols_p[i % 4]
             p_item = st.session_state.pres_items[i]
-            with col:
+            with col_target_p:
                 st.markdown(f"**Presentación {i+1}**")
                 idx_p_sel = LISTA_PRESENTACIONES_FRIGOSA.index(p_item["nombre"]) if p_item["nombre"] in LISTA_PRESENTACIONES_FRIGOSA else 0
                 sel_nom = st.selectbox(f"Corte {i+1}:", LISTA_PRESENTACIONES_FRIGOSA, index=idx_p_sel, key=f"sp_{i}_{v}")
@@ -796,7 +944,7 @@ def render_module(user, get_gspread_client):
             pass
 
     # =========================================================================
-    # TAB 4: CONTROL DE PESOS (TEXTO COMPLETO MULTILÍNEA)
+    # TAB 4: CONTROL DE PESOS
     # =========================================================================
     with tab_pesos:
         st.markdown("#### Pesos de Balanza")
@@ -805,7 +953,6 @@ def render_module(user, get_gspread_client):
 
         for i, col in enumerate(cols_w):
             with col:
-                # Nombre completo en pantalla sin cortes
                 nom_completo = lista_pres_calc[i]['nombre'].strip()
                 st.markdown(f"**{nom_completo}**")
                 val_mem = st.session_state.txt_pesos_mem.get(str(i), "20.00, 20.05, 19.98")
@@ -848,7 +995,7 @@ def render_module(user, get_gspread_client):
             "fecha": str(st.session_state.fec_val),
             "contenedor": st.session_state.cont_val,
             "payload": float(st.session_state.pay_val),
-            "responsable": nombre_user,
+            "responsable": "LUIS ENRIQUE FIESTAS ECA",
             "pi": st.session_state.pi_val,
             "booking": st.session_state.bk_val,
             "cliente": st.session_state.cli_val,
@@ -861,11 +1008,34 @@ def render_module(user, get_gspread_client):
             "peso_a_favor": peso_a_favor
         }
 
-        try:
-            pdf_pesos_bytes = generar_pdf_pesos_solos(cabecera_pdf_pesos, presentaciones_data, resumen_pdf_pesos)
-            st.download_button("📄 Descargar PDF Pesos y Balanza", data=pdf_pesos_bytes, file_name=f"Pesos_{st.session_state.cont_val}.pdf", mime="application/pdf")
-        except Exception:
-            pass
+        # BOTONES DE DESCARGA: PESOS INDIVIDUAL Y DOSSIER COMPLETO UNIFICADO
+        col_dw1, col_dw2 = st.columns(2)
+        with col_dw1:
+            try:
+                pdf_pesos_bytes = generar_pdf_pesos_solos(cabecera_pdf_pesos, presentaciones_data, resumen_pdf_pesos)
+                st.download_button("📄 Descargar PDF Pesos y Balanza", data=pdf_pesos_bytes, file_name=f"Pesos_{st.session_state.cont_val}.pdf", mime="application/pdf", use_container_width=True)
+            except Exception:
+                pass
+
+        with col_dw2:
+            try:
+                pdf_dossier_bytes = generar_dossier_unificado(
+                    cabecera_pdf_pesos,
+                    df_lotes_editado,
+                    df_pres,
+                    st.session_state.df_congelado_edit,
+                    presentaciones_data,
+                    resumen_pdf_pesos
+                )
+                st.download_button(
+                    "📦 Descargar Dossier Completo Unificado (Todo el Contenedor)",
+                    data=pdf_dossier_bytes,
+                    file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            except Exception as ex:
+                st.warning(f"Nota en Dossier: {ex}")
 
     # =========================================================================
     # GUARDADO / ACTUALIZACIÓN CENTRALIZADO (ANTI-DUPLICADOS)
@@ -903,7 +1073,7 @@ def render_module(user, get_gspread_client):
                     str(st.session_state.cli_val).strip(),         # G: CLIENTE
                     str(st.session_state.dest_val).strip(),        # H: Destino
                     str(st.session_state.pais_val).strip(),        # I: PAIS
-                    str(nombre_user),                              # J: supervisor
+                    "LUIS ENRIQUE FIESTAS ECA",                    # J: encargado de embarque
                     *pres_cols,                                    # K a Z: PRESENTACION_1..8 y BULTOS_1..8
                     float(st.session_state.pay_val),               # AA: payload_contenedor
                     int(tot_b_gral),                               # AB: total_bultos
