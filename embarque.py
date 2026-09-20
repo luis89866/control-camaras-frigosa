@@ -190,7 +190,7 @@ def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
         return resultado
 
 # =========================================================================
-# ESCALADO DE IMAGEN PROPORCIONAL EXACTO
+# ESCALADO DE IMAGEN PROPORCIONAL
 # =========================================================================
 def crear_imagen_maximizada(b_data, max_w=540, max_h=510):
     try:
@@ -301,7 +301,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     return elementos
 
 # =========================================================================
-# DOSSIER UNIFICADO COMPLETO (CON CABECERA AJUSTADA Y FOTO DE INVOLUCRADO)
+# DOSSIER UNIFICADO (CON CANTIDAD DE PESOS MUESTREADOS EN TABLA)
 # =========================================================================
 def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_ir_bytes=None, foto_temp_bytes=None, foto_pack_bytes=None, foto_invol_bytes=None):
     buffer_dossier = io.BytesIO()
@@ -313,7 +313,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     sub_style = ParagraphStyle('SubD', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
     cell_head_style = ParagraphStyle('CHD', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
-    # 1. PÁGINA 1: FICHA LOGÍSTICA (CON P.I. EN VEZ DE NOMBRE EN LA FILA DE ARRIBA)
+    # 1. PÁGINA 1: FICHA LOGÍSTICA CON P.I. ASIGNADO
     story.append(Paragraph("EXPEDIENTE TÉCNICO Y CONTROL DE EMBARQUE - FRIGOSA SAC", titulo_style))
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
     story.append(Spacer(1, 5))
@@ -347,6 +347,8 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
             fila = [f"{p['pesos'][r]:.2f}" if r < len(p['pesos']) and p['pesos'][r] > 0 else "-" for p in presentaciones_data]
             matrix_pesos.append(fila)
 
+        # Fila con la cantidad de pesos muestreados por presentación
+        matrix_pesos.append([f"Muestras: {p['cant_pesadas']} pesadas" for p in presentaciones_data])
         matrix_pesos.append([f"Bultos: {p['bultos']}" for p in presentaciones_data])
         matrix_pesos.append([f"Prom: {p['promedio']:.3f}" for p in presentaciones_data])
         matrix_pesos.append([f"Total: {p['total_kg']:,.1f} kg" for p in presentaciones_data])
@@ -356,13 +358,14 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         t_muestreo.setStyle(TableStyle([
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 1), (-1, -1), 6.5),
-            ('TOPPADDING', (0, 0), (-1, -1), 1.5),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+            ('TOPPADDING', (0, 0), (-1, -1), 1.4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1.4),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1A365D")),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-            ('BACKGROUND', (0, -3), (-1, -1), colors.HexColor("#EDF2F7")),
-            ('FONTNAME', (0, -3), (-1, -1), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, -4), (-1, -1), colors.HexColor("#EDF2F7")),
+            ('FONTNAME', (0, -4), (-1, -1), 'Helvetica-Bold'),
+            ('TEXTCOLOR', (0, -4), (-1, -4), colors.HexColor("#2B6CB0")), # Resaltado de muestras
         ]))
         story.append(t_muestreo)
 
@@ -667,7 +670,7 @@ def render_module(user, get_gspread_client):
                                 p_idx, p_vals = item_p.split("::", 1)
                                 st.session_state.txt_pesos_mem[p_idx.strip()] = p_vals.strip()
 
-                    # RECUPERACIÓN HISTÓRICA GARANTIZADA DE TODAS LAS FOTOS
+                    # Recuperación histórica de las fotos desde Sheets
                     with st.spinner("Sincronizando fotos guardadas desde la base de datos..."):
                         fotos_recuperadas = recuperar_fotos_de_sheets(get_gspread_client, num_c_cargado)
                         if num_c_cargado not in st.session_state.fotos_contenedor_db:
@@ -789,7 +792,7 @@ def render_module(user, get_gspread_client):
             })
         st.session_state.df_congelado_edit = pd.DataFrame(filas_sist_init)
 
-    # Pesos
+    # Pesos y contador de pesadas
     presentaciones_data_global = []
     for i, p_item in enumerate(lista_pres_mem):
         val_mem = st.session_state.txt_pesos_mem.get(str(i), "20.00, 20.05, 19.98")
@@ -808,6 +811,7 @@ def render_module(user, get_gspread_client):
             "nombre": p_item["nombre"],
             "bultos": p_item["cantidad"],
             "pesos": pesos_clean,
+            "cant_pesadas": len(pesos_clean),
             "promedio": prom_u,
             "total_kg": tot_k
         })
@@ -1046,6 +1050,10 @@ def render_module(user, get_gspread_client):
                 txt_p = st.text_area(f"Pesos balanza ({i+1}):", value=val_mem, height=90, key=f"pw_box_{i}_{v}")
                 st.session_state.txt_pesos_mem[str(i)] = txt_p
 
+                # Conteo en vivo de muestras
+                p_items_cant = len([x for x in txt_p.replace("\n", ",").split(",") if x.strip()])
+                st.caption(f"📏 **{p_items_cant} pesadas registradas**")
+
         st.markdown("---")
         r1, r2, r3, r4 = st.columns(4)
         r1.metric("Bultos Totales", f"{tot_b_gral:,}")
@@ -1101,7 +1109,7 @@ def render_module(user, get_gspread_client):
             elif db_actual.get("bytes_invol"):
                 st.image(db_actual["bytes_invol"], caption="Foto Involucrado Guardada", use_container_width=True)
 
-    # ------------------ TAB 6: VISOR LECTOR DE PDF NATIVO SIN ERRORES DE RED ------------------
+    # ------------------ TAB 6: VISOR LECTOR DE PDF EMBEBIDO NATIVO ------------------
     with tab_lector:
         st.markdown("#### 👁️ Visor del Expediente Técnico Completo")
         if pdf_dossier_bytes_cache:
@@ -1109,7 +1117,7 @@ def render_module(user, get_gspread_client):
             
             b64_pdf = base64.b64encode(pdf_dossier_bytes_cache).decode('utf-8')
             
-            # Botón destacado de apertura en pestaña limpia o descarga
+            # Botón de apertura en pestaña completa sin restricciones de red
             btn_html = f"""
             <div style="margin-bottom: 12px;">
                 <a href="data:application/pdf;base64,{b64_pdf}" target="_blank" download="Dossier_Completo_{st.session_state.cont_val}.pdf"
@@ -1120,9 +1128,10 @@ def render_module(user, get_gspread_client):
             """
             st.markdown(btn_html, unsafe_allow_html=True)
 
-            # Visor embebido nativo seguro que no genera I/O Error de Mozilla
+            # Visor nativo usando Base64 directo en iframe con sandbox local (evita I/O error)
             html_visor_nativo = f"""
-            <embed src="data:application/pdf;base64,{b64_pdf}" type="application/pdf" width="100%" height="750px" style="border: 1px solid #CBD5E0; border-radius: 8px;">
+            <iframe src="data:application/pdf;base64,{b64_pdf}#toolbar=1" width="100%" height="750px" style="border: 1px solid #CBD5E0; border-radius: 8px;">
+            </iframe>
             """
             components.html(html_visor_nativo, height=760)
         else:
@@ -1214,4 +1223,3 @@ def render_module(user, get_gspread_client):
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
                 st.error(f"Error al guardar en Sheets: {e}")
-               
