@@ -6,7 +6,7 @@ import json
 import re
 import base64
 import requests
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageOps
 import streamlit.components.v1 as components
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
@@ -58,6 +58,28 @@ LISTA_PRESENTACIONES_FRIGOSA = [
 MESES_ESP = {1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO",
              7: "JULIO", 8: "AGOSTO", 9: "SETIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"}
 
+def optimizar_bytes_imagen(b_in, max_side=1280, calidad=80):
+    """Comprime y ajusta la orientación de fotos móviles para evitar la saturación del navegador."""
+    if not b_in:
+        return None
+    try:
+        img = PILImage.open(io.BytesIO(b_in))
+        img = ImageOps.exif_transpose(img)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        orig_w, orig_h = img.size
+        if max(orig_w, orig_h) > max_side:
+            ratio = max_side / float(max(orig_w, orig_h))
+            nuevo_tamano = (int(orig_w * ratio), int(orig_h * ratio))
+            img = img.resize(nuevo_tamano, PILImage.LANCZOS)
+            
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=calidad, optimize=True)
+        return buf.getvalue()
+    except Exception:
+        return b_in
+
 def generar_lote_juliano(fecha_obj):
     try:
         yy = str(fecha_obj.year)[-2:]
@@ -89,7 +111,7 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # =========================================================================
-# GESTIÓN DRIVE: TOKEN, SUBIDA DIRECTA Y LECTURA
+# GESTIÓN DRIVE: TOKEN, SUBIDA Y DESCARGA
 # =========================================================================
 def obtener_token_drive(get_gspread_client):
     client = get_gspread_client()
@@ -129,7 +151,7 @@ def subir_bytes_drive(get_gspread_client, b_data, nombre_archivo, mime_type="ima
         }
 
         url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink"
-        response = requests.post(url, headers=headers, files=files, timeout=20)
+        response = requests.post(url, headers=headers, files=files, timeout=25)
         
         if response.status_code in [200, 201]:
             res_json = response.json()
@@ -152,7 +174,7 @@ def descargar_bytes_drive(get_gspread_client, url_drive):
         token = obtener_token_drive(get_gspread_client)
         headers = {"Authorization": f"Bearer {token}"}
         url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-        res = requests.get(url, headers=headers, timeout=20)
+        res = requests.get(url, headers=headers, timeout=25)
         if res.status_code == 200:
             return res.content
         return None
@@ -160,10 +182,10 @@ def descargar_bytes_drive(get_gspread_client, url_drive):
         return None
 
 # =========================================================================
-# ESCALADO INTELIGENTE DE FOTOS PARA REPORTLAB (AJUSTE MAXIMO A LA HOJA)
+# ESCALADO EXACTO: AJUSTE PERFECTO EN 1 SOLA HOJA
 # =========================================================================
-def crear_imagen_maximizada(b_data, max_w=540, max_h=660):
-    """Calcula la proporción exacta para llenar la hoja carta sin deformar."""
+def crear_imagen_maximizada(b_data, max_w=540, max_h=520):
+    """Ajusta proporcionalmente la imagen para que nunca desborde la página."""
     try:
         pil_img = PILImage.open(io.BytesIO(b_data))
         orig_w, orig_h = pil_img.size
@@ -272,7 +294,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     return elementos
 
 # =========================================================================
-# DOSSIER UNIFICADO COMPLETO (MAXIMIZADO Y FORMAL)
+# DOSSIER UNIFICADO (PÁGINAS COMPACTAS SIN SALTOS FANTASMAS)
 # =========================================================================
 def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_ir_bytes=None, foto_temp_bytes=None, foto_pack_bytes=None):
     buffer_dossier = io.BytesIO()
@@ -337,7 +359,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_muestreo)
 
-    # 2. PÁGINA 2: PLANO DE LOTES (UNA SOLA HOJA HASTA 8 LOTES)
+    # 2. PÁGINA 2: PLANO DE LOTES (1 PÁGINA EXACTA)
     if df_lotes is not None and not df_lotes.empty:
         story.append(PageBreak())
         story.extend(construir_flowables_tabla_estiba(df_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
@@ -385,9 +407,9 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_s_pdf)
 
-    # 5. ANEXOS FOTOGRÁFICOS ESCALADOS AL TAMAÑO COMPLETO DE LA PÁGINA
+    # 5. PÁGINAS DE ANEXOS: 1 PÁGINA LIMPIA POR FOTO SIN DESBORDES
     fotos_anexo = [
-        ("ANEXO: REPORTE DE INSPECCIÓN (IR / EIR)", "REGISTRO FOTOGRÁFICO DE INSPECCIÓN FÍSICA Y TÉCNICA DEL CONTENEDOR", foto_ir_bytes),
+        ("ANEXO: REPORTE DE INSPECCIÓN (IR / EIR)", "REGISTRO FOTOGRÁFICO DE INSPECCIÓN TÉCNICA DEL CONTENEDOR", foto_ir_bytes),
         ("ANEXO: CONTROL DE TEMPERATURA / TERMOKING", "REGISTRO VISUAL DEL DISPLAY DE TEMPERATURA DE SETEO / SALIDA", foto_temp_bytes),
         ("ANEXO: PACKING LIST / GUÍA DE EMBARQUE", "REGISTRO FOTOGRÁFICO DEL PACKING LIST OFICIAL DE PLANTA", foto_pack_bytes)
     ]
@@ -397,19 +419,19 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
             story.append(PageBreak())
             story.append(Paragraph(tit_anexo, titulo_style))
             story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | SUPERVISOR: LUIS ENRIQUE FIESTAS ECA", sub_style))
-            story.append(Spacer(1, 8))
+            story.append(Spacer(1, 4))
 
-            rl_img = crear_imagen_maximizada(b_img, max_w=560, max_h=670)
+            rl_img = crear_imagen_maximizada(b_img, max_w=540, max_h=510)
             if rl_img:
-                lbl = Paragraph(f"<b>{sub_rotulo}</b>", ParagraphStyle('LblT', parent=styles['Normal'], fontSize=8.0, leading=10, alignment=1, textColor=colors.HexColor("#1A365D")))
-                t_foto = Table([[rl_img], [lbl]], colWidths=[560])
+                lbl = Paragraph(f"<b>{sub_rotulo}</b>", ParagraphStyle('LblT', parent=styles['Normal'], fontSize=7.5, leading=9.5, alignment=1, textColor=colors.HexColor("#1A365D")))
+                t_foto = Table([[rl_img], [lbl]], colWidths=[540])
                 t_foto.setStyle(TableStyle([
                     ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                     ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                    ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#CBD5E0")),
+                    ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E0")),
                     ('BACKGROUND', (0,1), (-1,1), colors.HexColor("#F7FAFC")),
-                    ('TOPPADDING', (0,0), (-1,-1), 4),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                    ('TOPPADDING', (0,0), (-1,-1), 2),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 2),
                 ]))
                 story.append(t_foto)
 
@@ -418,7 +440,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     return buffer_dossier
 
 # =========================================================================
-# LÓGICA DE SHEETS (COLUMNAS AP, AQ, AR GARANTIZADAS)
+# LÓGICA DE SHEETS
 # =========================================================================
 def obtener_hoja_distribuciones(get_gspread_client):
     client = get_gspread_client()
@@ -443,25 +465,12 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
         return False, f"El contenedor '{num_cont}' ya existe en la fila {fila_idx}. Cambie al modo 'Cargar / Editar' para modificarlo."
 
     if fila_idx:
-        # Rango A hasta AR (44 columnas)
         rango = f"A{fila_idx}:AR{fila_idx}"
         ws.update(rango, [datos_fila])
         return True, f"Actualizado exitosamente (Fila {fila_idx})"
     else:
         ws.append_row(datos_fila)
         return True, "Registrado como nuevo registro"
-
-# =========================================================================
-# VISOR INTERACTIVO DE PDF EN STREAMLIT
-# =========================================================================
-def renderizar_visor_pdf(pdf_bytes, height=650):
-    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    pdf_display = f"""
-    <iframe src="data:application/pdf;base64,{base64_pdf}#toolbar=1&navpanes=1&scrollbar=1" 
-            width="100%" height="{height}px" type="application/pdf" style="border: 1px solid #CBD5E0; border-radius: 8px;">
-    </iframe>
-    """
-    components.html(pdf_display, height=height + 10)
 
 # =========================================================================
 # MÓDULO PRINCIPAL
@@ -517,14 +526,13 @@ def render_module(user, get_gspread_client):
     if "txt_pesos_mem" not in st.session_state:
         st.session_state.txt_pesos_mem = {}
 
-    # Memoria persistente de fotos indexada
     if "fotos_contenedor_db" not in st.session_state:
         st.session_state.fotos_contenedor_db = {}
 
     v = st.session_state.form_version
 
     # =========================================================================
-    # BARRA SUPERIOR: FILTRO, CARGA Y LECTURA
+    # BARRA SUPERIOR: SELECCIÓN Y CARGA
     # =========================================================================
     col_sel1, col_sel2 = st.columns([3, 1])
     with col_sel1:
@@ -651,7 +659,6 @@ def render_module(user, get_gspread_client):
                                 p_idx, p_vals = item_p.split("::", 1)
                                 st.session_state.txt_pesos_mem[p_idx.strip()] = p_vals.strip()
 
-                    # Sincronización automática de fotos desde Drive si existen los enlaces
                     link_ir_sheet = fila_encontrada[41].strip() if len(fila_encontrada) > 41 else ""
                     link_temp_sheet = fila_encontrada[42].strip() if len(fila_encontrada) > 42 else ""
                     link_pack_sheet = fila_encontrada[43].strip() if len(fila_encontrada) > 43 else ""
@@ -664,6 +671,7 @@ def render_module(user, get_gspread_client):
                     db_c["link_temp"] = link_temp_sheet
                     db_c["link_pack"] = link_pack_sheet
 
+                    # Descarga segura de fotos de Drive a memoria
                     with st.spinner("Sincronizando fotos de inspección y temperatura..."):
                         if link_ir_sheet and not db_c.get("bytes_ir"):
                             db_c["bytes_ir"] = descargar_bytes_drive(get_gspread_client, link_ir_sheet)
@@ -727,7 +735,7 @@ def render_module(user, get_gspread_client):
             st.session_state.pay_val = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=34000.0, value=float(st.session_state.pay_val), step=100.0, key=f"pay_emb_{v}")
 
     # =========================================================================
-    # PREPARACIÓN DE MATRICES Y TABLAS
+    # PREPARACIÓN DE MATRICES
     # =========================================================================
     caps_filas_default = [int(st.session_state.capg_val)] * int(st.session_state.nfil_val)
     caps_filas_default[0] = int(st.session_state.capf1_val)
@@ -810,7 +818,7 @@ def render_module(user, get_gspread_client):
     prom_global = (peso_tot_gral / tot_b_gral) if tot_b_gral > 0 else 0.0
     peso_a_favor = float(st.session_state.pay_val) - peso_tot_gral
 
-    # Recuperación de bytes para el contenedor actual
+    # Recuperación de bytes para el contenedor
     curr_c_id = st.session_state.cont_val.strip()
     if curr_c_id and curr_c_id not in st.session_state.fotos_contenedor_db:
         st.session_state.fotos_contenedor_db[curr_c_id] = {}
@@ -837,45 +845,40 @@ def render_module(user, get_gspread_client):
         "peso_a_favor": peso_a_favor
     }
 
-    # Generación de bytes del Dossier para botón y lector
-    pdf_dossier_bytes_cache = None
-    if st.session_state.cont_val:
-        try:
-            pdf_dossier_bytes_cache = generar_dossier_unificado(
-                cabecera_pdf_maestra,
-                df_lotes_global,
-                df_pres_global,
-                st.session_state.df_congelado_edit,
-                presentaciones_data_global,
-                resumen_pdf_maestro,
-                bytes_ir_actual,
-                bytes_temp_actual,
-                bytes_pack_actual
-            ).getvalue()
-        except Exception:
-            pdf_dossier_bytes_cache = None
-
-    # Botones superiores
-    if modo_operacion == "Cargar / Editar Contenedor Existente" and st.session_state.cont_val and pdf_dossier_bytes_cache:
+    # Botón directo superior
+    if modo_operacion == "Cargar / Editar Contenedor Existente" and st.session_state.cont_val:
         with c_btn_c2:
-            st.download_button(
-                label=f"📦 Descargar Dossier Completo ({st.session_state.cont_val})",
-                data=pdf_dossier_bytes_cache,
-                file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
+            try:
+                pdf_dossier_top = generar_dossier_unificado(
+                    cabecera_pdf_maestra,
+                    df_lotes_global,
+                    df_pres_global,
+                    st.session_state.df_congelado_edit,
+                    presentaciones_data_global,
+                    resumen_pdf_maestro,
+                    bytes_ir_actual,
+                    bytes_temp_actual,
+                    bytes_pack_actual
+                )
+                st.download_button(
+                    label=f"📦 Descargar Dossier Completo ({st.session_state.cont_val})",
+                    data=pdf_dossier_top,
+                    file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            except Exception as e_pdf:
+                st.caption(f"Generando PDF: {e_pdf}")
 
     # =========================================================================
     # PESTAÑAS
     # =========================================================================
-    tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos, tab_visor = st.tabs([
+    tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos = st.tabs([
         "📅 1. Plano Estiba (Lotes)",
         "📦 2. Plano Estiba (Presentaciones)",
         "❄️ 3. Placas / Túnel / IQF",
         "⚖️ 4. Control de Pesos (Balanza)",
-        "📸 5. IR, Temperatura & Packing List",
-        "👁️ 6. Visor Lector de PDF"
+        "📸 5. IR, Temperatura & Packing List"
     ])
 
     # ------------------ TAB 1: LOTES ------------------
@@ -1045,10 +1048,10 @@ def render_module(user, get_gspread_client):
         r3.metric("Peso Bruto", f"{peso_tot_gral:,.2f} kg")
         r4.metric("Margen a Favor", f"{peso_a_favor:,.2f} kg")
 
-    # ------------------ TAB 5: ADJUNTOS CON PERSISTENCIA INMEDIATA ------------------
+    # ------------------ TAB 5: ADJUNTOS EN FOTOS CON COMPRESIÓN MÓVIL ------------------
     with tab_adjuntos:
         st.markdown("#### 📸 Panel Documentario Fotográfico del Contenedor")
-        st.caption("Arrastra las fotos aquí. Al guardar el contenedor con el botón rojo inferior, las fotos se sincronizan automáticamente sin pasos adicionales.")
+        st.caption("Al subir una foto desde la PC o celular, se optimiza automáticamente en segundos para que la app responda con fluidez.")
 
         c_f1, c_f2, c_f3 = st.columns(3)
 
@@ -1057,8 +1060,9 @@ def render_module(user, get_gspread_client):
             st.markdown("##### 📄 1. Foto de Inspección (IR / EIR)")
             foto_ir = st.file_uploader("Subir foto Reporte IR:", type=["jpg", "jpeg", "png"], key=f"up_ir_{v}")
             if foto_ir:
-                db_actual["bytes_ir"] = foto_ir.getvalue()
-                st.image(foto_ir, caption="Foto IR Cargada", use_container_width=True)
+                b_opt = optimizar_bytes_imagen(foto_ir.getvalue())
+                db_actual["bytes_ir"] = b_opt
+                st.image(b_opt, caption="Foto IR Cargada", use_container_width=True)
             elif db_actual.get("bytes_ir"):
                 st.image(db_actual["bytes_ir"], caption="Foto IR Activa", use_container_width=True)
 
@@ -1070,8 +1074,9 @@ def render_module(user, get_gspread_client):
             st.markdown("##### ❄️ 2. Foto de Temperatura")
             foto_temp = st.file_uploader("Subir foto Display Termoking:", type=["jpg", "jpeg", "png"], key=f"up_temp_{v}")
             if foto_temp:
-                db_actual["bytes_temp"] = foto_temp.getvalue()
-                st.image(foto_temp, caption="Display Termoking Cargado", use_container_width=True)
+                b_opt_t = optimizar_bytes_imagen(foto_temp.getvalue())
+                db_actual["bytes_temp"] = b_opt_t
+                st.image(b_opt_t, caption="Display Termoking Cargado", use_container_width=True)
             elif db_actual.get("bytes_temp"):
                 st.image(db_actual["bytes_temp"], caption="Display Termoking Activo", use_container_width=True)
 
@@ -1083,22 +1088,14 @@ def render_module(user, get_gspread_client):
             st.markdown("##### 📋 3. Foto de Packing List")
             foto_pack = st.file_uploader("Subir foto del Packing List:", type=["jpg", "jpeg", "png"], key=f"up_pack_{v}")
             if foto_pack:
-                db_actual["bytes_pack"] = foto_pack.getvalue()
-                st.image(foto_pack, caption="Packing List Cargado", use_container_width=True)
+                b_opt_p = optimizar_bytes_imagen(foto_pack.getvalue())
+                db_actual["bytes_pack"] = b_opt_p
+                st.image(b_opt_p, caption="Packing List Cargado", use_container_width=True)
             elif db_actual.get("bytes_pack"):
                 st.image(db_actual["bytes_pack"], caption="Packing List Activo", use_container_width=True)
 
             if db_actual.get("link_pack"):
                 st.markdown(f"🔗 [Abrir Foto Packing en Drive]({db_actual['link_pack']})")
-
-    # ------------------ TAB 6: LECTOR / VISOR DE PDF INTERACTIVO ------------------
-    with tab_visor:
-        st.markdown("#### 👁️ Visor Lector de Expediente Técnico")
-        if pdf_dossier_bytes_cache:
-            st.caption(f"Visualizando documento completo de: **{st.session_state.cont_val}**")
-            renderizar_visor_pdf(pdf_dossier_bytes_cache, height=720)
-        else:
-            st.info("⚠️ Ingrese o seleccione un contenedor para previsualizar su expediente PDF aquí.")
 
     # =========================================================================
     # GUARDADO CENTRALIZADO: REGISTRA DATOS Y SUBE FOTOS A DRIVE AUTOMÁTICAMENTE
@@ -1113,7 +1110,6 @@ def render_module(user, get_gspread_client):
                 num_c_guardar = st.session_state.cont_val.strip()
                 db_c_guardar = st.session_state.fotos_contenedor_db.get(num_c_guardar, {})
 
-                # SUBIDA AUTOMÁTICA DE FOTOS A DRIVE SI HAY BYTES NUEVOS
                 with st.spinner("Subiendo fotos a Drive y guardando datos en Sheets..."):
                     if db_c_guardar.get("bytes_ir") and not db_c_guardar.get("link_ir"):
                         nom_ir = f"IR_{num_c_guardar}_{date.today().strftime('%Y%m%d%H%M')}.jpg"
