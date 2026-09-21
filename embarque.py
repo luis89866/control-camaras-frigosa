@@ -201,7 +201,7 @@ def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
         return resultado
 
 # =========================================================================
-# ESCALADO DE IMAGEN: 1 PÁGINA EXACTA POR FOTO
+# ESCALADO DE IMAGEN
 # =========================================================================
 def crear_imagen_maximizada(b_data, max_w=540, max_h=510):
     try:
@@ -216,6 +216,85 @@ def crear_imagen_maximizada(b_data, max_w=540, max_h=510):
         return RLImage(img_io, width=final_w, height=final_h)
     except Exception:
         return None
+
+# =========================================================================
+# REPORTE DE PESOS CON DATOS DEL MUESTREO (BLOCK, SACO Y PLUS %)
+# =========================================================================
+def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=20, rightMargin=20, topMargin=20, bottomMargin=20)
+    story = []
+    styles = getSampleStyleSheet()
+
+    titulo_style = ParagraphStyle('TitF', parent=styles['Heading1'], fontSize=11.5, leading=13.5, textColor=colors.HexColor("#0D3B66"), alignment=1)
+    sub_style = ParagraphStyle('SubF', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
+    cell_head_style = ParagraphStyle('CH', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
+
+    story.append(Paragraph("SEGUIMIENTO DE CONTROL DE PESO Y BALANZA - FRIGOSA SAC", titulo_style))
+    story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
+    story.append(Spacer(1, 6))
+
+    prom_saco_txt = f"{resumen.get('promedio_global', 0.0):.3f} KG"
+    block_txt = f"{resumen.get('peso_block_planta', 0.0):.3f} KG" if resumen.get('peso_block_planta', 0.0) > 0 else "-"
+    plus_txt = f"{resumen.get('porcentaje_plus_planta', 0.0):+.2f} %" if resumen.get('peso_block_planta', 0.0) > 0 else "-"
+    tipo_env = resumen.get('tipo_envase', 'Saco')
+    tara_env = resumen.get('tara_descuento', 0.15)
+    nb_env = resumen.get('bloques_x_bulto', 2)
+
+    data_cab = [
+        ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
+        ["CLIENTE:", cabecera.get('cliente', '-'), "DESTINO:", cabecera.get('destino', '-')],
+        ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
+        ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
+        ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
+        ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", f"{tipo_env} (Tara: {tara_env:.2f} kg)"],
+        [f"PESO PROMEDIO {tipo_env.upper()}:", prom_saco_txt, "PESO BLOCK ESTIMADO:", block_txt],
+        ["PLUS / SOBREPESO (%):", plus_txt, "N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)"]
+    ]
+    t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
+    t_cab.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 6.5),
+        ('TOPPADDING', (0, 0), (-1, -1), 1.6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.6),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F4F6F9")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
+        ('ALIGN', (1, 0), (1, -1), 'CENTER'),
+        ('ALIGN', (3, 0), (3, -1), 'CENTER'),
+        ('BACKGROUND', (0, 6), (-1, -1), colors.HexColor("#EBF8FF")),
+        ('TEXTCOLOR', (0, 6), (-1, -1), colors.HexColor("#2B6CB0")),
+    ]))
+    story.append(t_cab)
+    story.append(Spacer(1, 8))
+
+    headers = [Paragraph(f"<b>{p['nombre'].strip()}</b>", cell_head_style) for p in presentaciones_data]
+    matrix_pesos = [headers]
+    for r in range(20):
+        fila = [f"{p['pesos'][r]:.2f}" if r < len(p['pesos']) and p['pesos'][r] > 0 else "-" for p in presentaciones_data]
+        matrix_pesos.append(fila)
+
+    matrix_pesos.append([f"Bultos: {p['bultos']}" for p in presentaciones_data])
+    matrix_pesos.append([f"Prom: {p['promedio']:.3f}" for p in presentaciones_data])
+    matrix_pesos.append([f"Total: {p['total_kg']:,.1f} kg" for p in presentaciones_data])
+
+    ancho_col = 572 / max(len(presentaciones_data), 1)
+    t_muestreo = Table(matrix_pesos, colWidths=[ancho_col] * len(presentaciones_data))
+    t_muestreo.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 1), (-1, -1), 6.5),
+        ('TOPPADDING', (0, 0), (-1, -1), 1.5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1A365D")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
+        ('BACKGROUND', (0, -3), (-1, -1), colors.HexColor("#EDF2F7")),
+        ('FONTNAME', (0, -3), (-1, -1), 'Helvetica-Bold'),
+    ]))
+    story.append(t_muestreo)
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
 
 # =========================================================================
 # TABLAS DE ESTIBA EN PDF (ANTI-DUPLICADOS DE TOTALES)
@@ -295,7 +374,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
                     tot_row.append(f"{sum_val:,.2f}" if "TM" in col_name.upper() else f"{int(sum_val):,}")
                 except Exception:
                     tot_row.append("-")
-        t_data.append(tot_row)
+            t_data.append(tot_row)
 
         t_pdf = Table(t_data, colWidths=col_widths)
         t_pdf.setStyle(TableStyle([
@@ -316,7 +395,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     return elementos
 
 # =========================================================================
-# REPORTE DE EMBARQUE UNIFICADO (CON LIQUIDACIÓN WINCHA Y PLUS %)
+# REPORTE DE EMBARQUE UNIFICADO (Dossier Completo)
 # =========================================================================
 def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_ir_bytes=None, foto_temp_bytes=None, foto_pack_bytes=None, foto_invol_bytes=None):
     buffer_dossier = io.BytesIO()
@@ -328,17 +407,17 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     sub_style = ParagraphStyle('SubD', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
     cell_head_style = ParagraphStyle('CHD', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
-    # 1. PÁGINA 1: REPORTE DE EMBARQUE
+    # PÁGINA 1: REPORTE DE EMBARQUE
     story.append(Paragraph("REPORTE DE EMBARQUE - FRIGOSA SAC", titulo_style))
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
     story.append(Spacer(1, 5))
 
-    peso_w_txt = f"{resumen.get('peso_wincha', 0.0):,.2f} KG" if resumen.get('peso_wincha', 0.0) > 0 else "-"
-    prom_saco_txt = f"{resumen.get('promedio_saco', 0.0):.3f} KG" if resumen.get('promedio_saco', 0.0) > 0 else "-"
-    prom_caja_txt = f"{resumen.get('promedio_caja', 0.0):.3f} KG" if resumen.get('promedio_caja', 0.0) > 0 else "-"
-    block_txt = f"{resumen.get('peso_block', 0.0):.3f} KG" if resumen.get('peso_block', 0.0) > 0 else "-"
-    plus_txt = f"{resumen.get('porcentaje_plus', 0.0):+.2f} %" if resumen.get('peso_block', 0.0) > 0 else "-"
-    detalle_envases = f"Sacos: {resumen.get('cant_sacos', 0):,} | Cajas: {resumen.get('cant_cajas', 0):,}"
+    prom_saco_txt = f"{resumen.get('promedio_global', 0.0):.3f} KG"
+    block_txt = f"{resumen.get('peso_block_planta', 0.0):.3f} KG" if resumen.get('peso_block_planta', 0.0) > 0 else "-"
+    plus_txt = f"{resumen.get('porcentaje_plus_planta', 0.0):+.2f} %" if resumen.get('peso_block_planta', 0.0) > 0 else "-"
+    tipo_env = resumen.get('tipo_envase', 'Saco')
+    tara_env = resumen.get('tara_descuento', 0.15)
+    nb_env = resumen.get('bloques_x_bulto', 2)
 
     data_cab = [
         ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
@@ -346,9 +425,9 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
         ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO PLANTA:", f"{resumen['peso_total']:,.2f} KG"],
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
-        ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "DISTRIB. ENVASES:", detalle_envases],
-        ["PESO WINCHA REAL:", peso_w_txt, "PESO BLOCK ESTIMADO:", block_txt],
-        ["PROM. REAL SACO (2 blk):", prom_saco_txt, "PLUS / SOBREPESO:", plus_txt]
+        ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", f"{tipo_env} (Tara: {tara_env:.2f} kg)"],
+        [f"PESO PROMEDIO {tipo_env.upper()}:", prom_saco_txt, "PESO BLOCK ESTIMADO:", block_txt],
+        ["PLUS / SOBREPESO (%):", plus_txt, "N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)"]
     ]
     t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
     t_cab.setStyle(TableStyle([
@@ -551,15 +630,21 @@ def render_module(user, get_gspread_client):
     if "wstd_val" not in st.session_state:
         st.session_state.wstd_val = 20.00
 
-    # Configuración de Envase Mixto y Peso Wincha
-    if "modo_envase_val" not in st.session_state:
-        st.session_state.modo_envase_val = "Solo Sacos"
-    if "cant_sacos_override" not in st.session_state:
-        st.session_state.cant_sacos_override = 0
-    if "cant_cajas_override" not in st.session_state:
-        st.session_state.cant_cajas_override = 0
-    if "peso_wincha_val" not in st.session_state:
-        st.session_state.peso_wincha_val = 0.0
+    # Configuración de Envase Planta para Muestreo
+    if "tipo_envase_val" not in st.session_state:
+        st.session_state.tipo_envase_val = "Saco"
+    if "tara_insumos_val" not in st.session_state:
+        st.session_state.tara_insumos_val = 0.15
+    if "bloques_bulto_val" not in st.session_state:
+        st.session_state.bloques_bulto_val = 2
+
+    # Valores históricos recuperados de planta
+    if "peso_saco_hist" not in st.session_state:
+        st.session_state.peso_saco_hist = 0.0
+    if "peso_block_hist" not in st.session_state:
+        st.session_state.peso_block_hist = 0.0
+    if "plus_hist" not in st.session_state:
+        st.session_state.plus_hist = 0.0
 
     if "pres_items" not in st.session_state:
         st.session_state.pres_items = [
@@ -707,14 +792,13 @@ def render_module(user, get_gspread_client):
                                 p_idx, p_vals = item_p.split("::", 1)
                                 st.session_state.txt_pesos_mem[p_idx.strip()] = p_vals.strip()
 
-                    # Cargar Peso Wincha Paita si existe (Columna AT / index 45)
+                    # Cargar Datos Históricos de Muestreo de Planta (AU, AV, AW)
                     try:
-                        if len(fila_encontrada) > 45 and fila_encontrada[45].strip():
-                            st.session_state.peso_wincha_val = float(fila_encontrada[45].strip())
-                        else:
-                            st.session_state.peso_wincha_val = 0.0
+                        st.session_state.peso_saco_hist = float(fila_encontrada[46].strip()) if len(fila_encontrada) > 46 and fila_encontrada[46].strip() else 0.0
+                        st.session_state.peso_block_hist = float(fila_encontrada[47].strip()) if len(fila_encontrada) > 47 and fila_encontrada[47].strip() else 0.0
+                        st.session_state.plus_hist = float(fila_encontrada[48].strip()) if len(fila_encontrada) > 48 and fila_encontrada[48].strip() else 0.0
                     except Exception:
-                        st.session_state.peso_wincha_val = 0.0
+                        pass
 
                     with st.spinner("Sincronizando fotos guardadas desde la base de datos..."):
                         fotos_recuperadas = recuperar_fotos_de_sheets(get_gspread_client, num_c_cargado)
@@ -733,7 +817,7 @@ def render_module(user, get_gspread_client):
                         del st.session_state["caps_filas_override"]
 
                     st.session_state.form_version += 1
-                    st.success(f"✅ ¡Contenedor {num_c_cargado} cargado con sus fotos!")
+                    st.success(f"✅ ¡Contenedor {num_c_cargado} cargado con éxito!")
                     st.rerun()
 
     with col_sel2:
@@ -753,7 +837,9 @@ def render_module(user, get_gspread_client):
             st.session_state.capf1_val = 75
             st.session_state.capfu_val = 75
             st.session_state.wstd_val = 20.00
-            st.session_state.peso_wincha_val = 0.0
+            st.session_state.peso_saco_hist = 0.0
+            st.session_state.peso_block_hist = 0.0
+            st.session_state.plus_hist = 0.0
             st.session_state.pres_items = [{"nombre": LISTA_PRESENTACIONES_FRIGOSA[0], "bultos": 0, "peso": 20.0}]
             st.session_state.lotes_items = [{"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0}]
             st.session_state.txt_pesos_mem = {}
@@ -867,44 +953,18 @@ def render_module(user, get_gspread_client):
     peso_a_favor = float(st.session_state.pay_val) - peso_tot_gral
 
     # =========================================================================
-    # LÓGICA DE CÁLCULO MIXTO: SACOS Y CAJAS CON OVERWEIGHT
+    # CÁLCULOS EXACTOS DE PLANTA: PESO SACO, PESO BLOCK Y PLUS % DESDE EL MUESTREO
     # =========================================================================
-    modo_env = st.session_state.modo_envase_val
-    peso_w_actual = float(st.session_state.peso_wincha_val)
+    tipo_env_act = st.session_state.tipo_envase_val
+    tara_act = float(st.session_state.tara_insumos_val)
+    bloques_act = int(st.session_state.bloques_bulto_val)
 
-    if modo_env == "Solo Sacos":
-        cant_sacos = tot_b_gral
-        cant_cajas = 0
-    elif modo_env == "Solo Cajas":
-        cant_sacos = 0
-        cant_cajas = tot_b_gral
-    else:  # Mixto
-        cant_sacos = int(st.session_state.cant_sacos_override)
-        cant_cajas = max(tot_b_gral - cant_sacos, 0)
-
-    # Taras exactas de planta obtenidas
-    TARA_SACO = 0.15   # Saco + lámina + rafia
-    TARA_CAJA = 0.59   # Caja master corrugada
-
-    tara_total = (cant_sacos * TARA_SACO) + (cant_cajas * TARA_CAJA)
-    peso_neto_wincha = max(peso_w_actual - tara_total, 0.0)
-
-    # Unidades equivalentes de 10 kg nominales (Saco = 2 blocks, Caja a granel = 1 block)
-    unidades_equiv = (cant_sacos * 2) + (cant_cajas * 1)
-
-    if peso_w_actual > 0 and unidades_equiv > 0:
-        peso_block_calc = peso_neto_wincha / float(unidades_equiv)
-        plus_porcentaje = ((peso_block_calc - 10.0) / 10.0) * 100.0
-        prom_saco_wincha = (peso_block_calc * 2) + TARA_SACO
-        prom_caja_wincha = (peso_block_calc * 1) + TARA_CAJA
+    if prom_global > tara_act and bloques_act > 0:
+        peso_block_planta = (prom_global - tara_act) / float(bloques_act)
+        plus_planta = ((peso_block_planta - 10.0) / 10.0) * 100.0
     else:
-        peso_block_calc = 0.0
-        plus_porcentaje = 0.0
-        prom_saco_wincha = 0.0
-        prom_caja_wincha = 0.0
-
-    # Promedio global por bulto según carga
-    prom_bulto_wincha_global = (peso_w_actual / tot_b_gral) if (peso_w_actual > 0 and tot_b_gral > 0) else 0.0
+        peso_block_planta = 0.0
+        plus_planta = 0.0
 
     # Recuperación de fotos para el contenedor
     curr_c_id = st.session_state.cont_val.strip()
@@ -931,13 +991,11 @@ def render_module(user, get_gspread_client):
         "peso_total": peso_tot_gral,
         "promedio_global": prom_global,
         "peso_a_favor": peso_a_favor,
-        "peso_wincha": peso_w_actual,
-        "promedio_saco": prom_saco_wincha if cant_sacos > 0 else prom_bulto_wincha_global,
-        "promedio_caja": prom_caja_wincha,
-        "peso_block": peso_block_calc,
-        "porcentaje_plus": plus_porcentaje,
-        "cant_sacos": cant_sacos,
-        "cant_cajas": cant_cajas
+        "peso_block_planta": peso_block_planta,
+        "porcentaje_plus_planta": plus_planta,
+        "tipo_envase": tipo_env_act,
+        "tara_descuento": tara_act,
+        "bloques_x_bulto": bloques_act
     }
 
     # Generación de bytes del Dossier para botón superior
@@ -1128,9 +1186,9 @@ def render_module(user, get_gspread_client):
         s3.metric("Total IQF", f"{tot_iqf_sum:,} b")
         s4.metric("Total Congelado", f"{tot_placas_sum + tot_tunel_sum + tot_iqf_sum:,} b")
 
-    # ------------------ TAB 4: CONTROL DE PESOS (PLANTA + WINCHA MIXTA) ------------------
+    # ------------------ TAB 4: CONTROL DE PESOS (MUESTREO + BLOCK Y PLUS REAL) ------------------
     with tab_pesos:
-        st.markdown("#### 1. Muestreo de Pesos en Planta (Balanza)")
+        st.markdown("#### 1. Muestreo de Control de Pesos en Balanza")
         cols_w = st.columns(max(len(lista_pres_mem), 1))
 
         for i, col in enumerate(cols_w):
@@ -1143,63 +1201,72 @@ def render_module(user, get_gspread_client):
 
         r1, r2, r3, r4 = st.columns(4)
         r1.metric("Bultos Totales", f"{tot_b_gral:,}")
-        r2.metric("Promedio Planta", f"{prom_global:.3f} kg")
-        r3.metric("Peso Bruto Planta", f"{peso_tot_gral:,.2f} kg")
+        r2.metric("Promedio Global", f"{prom_global:.3f} kg")
+        r3.metric("Peso Bruto Total", f"{peso_tot_gral:,.2f} kg")
         r4.metric("Margen a Favor", f"{peso_a_favor:,.2f} kg")
 
         st.markdown("---")
-        st.markdown("#### ⚓ 2. Liquidación de Pesaje en Puerto (Wincha Paita - Saco / Caja / Mixto)")
-        st.caption("Tarado industrial: Saco = 0.15 kg (2 blocks) | Caja = 0.59 kg (granel 10 kg nominales)")
+        st.markdown("#### ⚖️ 2. Liquidación Técnica del Muestreo (Block, Tara y Plus)")
+        st.caption("Cálculo matemático directo desde los pesos de balanza y el peso bruto total de planta:")
 
-        col_m1, col_m2 = st.columns([1.5, 2])
-        with col_m1:
-            modo_env_opc = st.radio(
-                "Tipo de Carga en Contenedor:",
-                ["Solo Sacos", "Solo Cajas", "Mixto (Sacos y Cajas)"],
-                horizontal=True,
-                key=f"rad_env_{v}"
-            )
-            st.session_state.modo_envase_val = modo_env_opc
+        col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
+        with col_cfg1:
+            idx_env = 0 if st.session_state.tipo_envase_val == "Saco" else 1
+            env_sel = st.selectbox("Envase Empleado:", ["Saco", "Caja"], index=idx_env, key=f"env_sel_{v}")
+            st.session_state.tipo_envase_val = env_sel
+            
+            # Ajuste de tara por defecto
+            tara_sugerida = 0.15 if env_sel == "Saco" else 0.59
+            bloques_sugeridos = 2 if env_sel == "Saco" else 1
 
-        with col_m2:
-            if modo_env_opc == "Mixto (Sacos y Cajas)":
-                cs_col1, cs_col2 = st.columns(2)
-                with cs_col1:
-                    st.session_state.cant_sacos_override = st.number_input(
-                        "Cantidad de Sacos:",
-                        min_value=0,
-                        max_value=tot_b_gral,
-                        value=min(int(st.session_state.cant_sacos_override or (tot_b_gral // 2)), tot_b_gral),
-                        step=10,
-                        key=f"cs_inp_{v}"
-                    )
-                with cs_col2:
-                    cajas_calc = max(tot_b_gral - int(st.session_state.cant_sacos_override), 0)
-                    st.metric("Cantidad de Cajas:", f"{cajas_calc:,} cajas")
-
-        col_w1, col_w2, col_w3, col_w4 = st.columns(4)
-        with col_w1:
-            st.session_state.peso_wincha_val = st.number_input(
-                "Peso Wincha Balanza (KG):",
+        with col_cfg2:
+            st.session_state.tara_insumos_val = st.number_input(
+                f"Tara / Insumos ({env_sel} en kg):",
                 min_value=0.0,
-                max_value=36000.0,
-                value=float(st.session_state.peso_wincha_val),
-                step=10.0,
+                max_value=2.0,
+                value=tara_sugerida,
+                step=0.01,
                 format="%.2f",
-                key=f"wincha_inp_{v}"
+                key=f"tara_inp_{v}"
             )
 
-        with col_w2:
-            st.metric("⚖️ Peso Block Real", f"{peso_block_calc:.3f} kg", help="Peso neto unitario descontando insumos")
-        with col_w3:
-            st.metric("📈 Plus / Sobrepeso (%)", f"{plus_porcentaje:+.2f} %", help="Porcentaje de ganancia sobre 10 kg nominales")
-        with col_w4:
-            if modo_env_opc == "Solo Sacos":
-                st.metric("Promedio Saco Real", f"{prom_saco_wincha:.3f} kg")
-            elif modo_env_opc == "Solo Cajas":
-                st.metric("Promedio Caja Real", f"{prom_caja_wincha:.3f} kg")
-            else:
-                st.metric("Prom. Saco / Caja", f"{prom_saco_wincha:.2f} / {prom_caja_wincha:.2f} kg")
+        with col_cfg3:
+            st.session_state.bloques_bulto_val = st.selectbox(
+                f"Bloques por {env_sel}:",
+                [1, 2, 4],
+                index=[1, 2, 4].index(bloques_sugeridos),
+                key=f"blq_inp_{v}"
+            )
+
+        # Recalcular métricas de muestreo
+        t_d = float(st.session_state.tara_insumos_val)
+        n_b = int(st.session_state.bloques_bulto_val)
+        
+        if prom_global > t_d and n_b > 0:
+            p_block_disp = (prom_global - t_d) / float(n_b)
+            p_plus_disp = ((p_block_disp - 10.0) / 10.0) * 100.0
+        else:
+            p_block_disp = 0.0
+            p_plus_disp = 0.0
+
+        m_res1, m_res2, m_res3 = st.columns(3)
+        m_res1.metric(f"Promedio {env_sel} (Muestreo)", f"{prom_global:.3f} kg", help="Peso Bruto ÷ Bultos Totales")
+        m_res2.metric("⚖️ Peso Block Neto", f"{p_block_disp:.3f} kg", help=f"(Promedio - {t_d} kg tara) ÷ {n_b} bloque(s)")
+        m_res3.metric("📈 Plus / Sobrepeso (%)", f"{p_plus_disp:+.2f} %", help="Porcentaje real sobre los 10 kg nominales")
+
+        st.markdown("---")
+        # Botón de Descarga del Reporte Exclusivo de Pesos (Con Block y Plus)
+        try:
+            pdf_pesos_bytes = generar_pdf_pesos_solos(cabecera_pdf_maestra, presentaciones_data_global, resumen_pdf_maestro)
+            st.download_button(
+                "📄 Descargar Reporte de Control de Pesos y Balanza",
+                data=pdf_pesos_bytes,
+                file_name=f"Pesos_{st.session_state.cont_val}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+        except Exception as e_pesos:
+            st.caption(f"Generando reporte de pesos: {e_pesos}")
 
     # ------------------ TAB 5: ADJUNTOS CON REEMPLAZO Y ELIMINACIÓN ------------------
     with tab_adjuntos:
@@ -1274,7 +1341,7 @@ def render_module(user, get_gspread_client):
                     st.rerun()
 
     # =========================================================================
-    # GUARDADO CENTRALIZADO: REGISTRA DATOS, PESO WINCHA, BLOCK Y PLUS %
+    # GUARDADO CENTRALIZADO: REGISTRA DATOS, PESO SACO, BLOCK Y PLUS EN SHEETS
     # =========================================================================
     st.markdown("---")
     btn_label = f"💾 Guardar / Actualizar Información de {st.session_state.cont_val or 'Contenedor'} en Sheets"
@@ -1317,11 +1384,10 @@ def render_module(user, get_gspread_client):
                 link_pack_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_pack") else ""
                 link_invol_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_invol") else ""
 
-                # Valores exactos de Wincha calculados
-                val_wincha_guardar = float(st.session_state.peso_wincha_val)
-                val_prom_saco_guardar = round(prom_saco_wincha, 3) if val_wincha_guardar > 0 else 0.0
-                val_block_guardar = round(peso_block_calc, 3) if val_wincha_guardar > 0 else 0.0
-                val_plus_guardar = round(plus_porcentaje, 2) if val_wincha_guardar > 0 else 0.0
+                # Valores exactos derivados del Muestreo de Planta
+                val_prom_saco_planta = round(prom_global, 3)
+                val_block_planta = round(peso_block_planta, 3)
+                val_plus_planta = round(plus_planta, 2)
 
                 fila_maestra = [
                     st.session_state.emb_id,                       # A: ID_EMBARQUE
@@ -1354,17 +1420,17 @@ def render_module(user, get_gspread_client):
                     link_temp_final,                               # AQ: link_foto_temperatura
                     link_pack_final,                               # AR: link_foto_packing
                     link_invol_final,                              # AS: link_foto_involucrado
-                    val_wincha_guardar,                            # AT: pesos_wincha
-                    val_prom_saco_guardar,                         # AU: peso_saco_wincha
-                    val_block_guardar,                             # AV: peso_block real
-                    val_plus_guardar                               # AW: porcentaje_plus_block
+                    0.0,                                           # AT: pesos_wincha (disponible si se usa)
+                    val_prom_saco_planta,                          # AU: peso_saco_planta
+                    val_block_planta,                              # AV: peso_block_planta
+                    val_plus_planta                                # AW: porcentaje_plus_planta
                 ]
 
                 es_modo_nuevo = (modo_operacion == "Nuevo Contenedor")
                 ok, res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra, forzar_nuevo=es_modo_nuevo)
 
                 if ok:
-                    st.success(f"✅ Contenedor {st.session_state.cont_val} guardado exitosamente con liquidación de wincha (Block: {val_block_guardar} kg | Plus: {val_plus_guardar}%).")
+                    st.success(f"✅ Contenedor {st.session_state.cont_val} guardado con éxito. Promedio Bulto ({val_prom_saco_planta} kg), Block ({val_block_planta} kg) y Plus ({val_plus_planta}%) registrados en Sheets.")
                 else:
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
