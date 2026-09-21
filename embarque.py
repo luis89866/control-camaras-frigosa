@@ -225,7 +225,6 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     if df_in is None or df_in.empty:
         return elementos
 
-    # Limpieza anti-duplicados: Elimina filas previas de totales
     df_trabajo = df_in.copy()
     col_primera = df_trabajo.columns[0]
     df_trabajo = df_trabajo[~df_trabajo[col_primera].astype(str).str.upper().str.contains("TOTAL|TOTALES", na=False)]
@@ -286,7 +285,6 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
                     row_vals.append(str(val))
             t_data.append(row_vals)
 
-        # Se calcula e inserta UNA ÚNICA fila de TOTAL
         tot_row = []
         for idx_c, col_name in enumerate(cols_actuales):
             if idx_c == 0:
@@ -318,7 +316,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     return elementos
 
 # =========================================================================
-# DOSSIER UNIFICADO COMPLETO (CABECERA CORREGIDA)
+# REPORTE DE EMBARQUE UNIFICADO (TÍTULO NUEVO + PESO WINCHA Y PESO BLOCK)
 # =========================================================================
 def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_ir_bytes=None, foto_temp_bytes=None, foto_pack_bytes=None, foto_invol_bytes=None):
     buffer_dossier = io.BytesIO()
@@ -326,33 +324,41 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     story = []
     styles = getSampleStyleSheet()
 
-    titulo_style = ParagraphStyle('TitD', parent=styles['Heading1'], fontSize=11, leading=13, textColor=colors.HexColor("#0D3B66"), alignment=1)
+    titulo_style = ParagraphStyle('TitD', parent=styles['Heading1'], fontSize=11.5, leading=13.5, textColor=colors.HexColor("#0D3B66"), alignment=1)
     sub_style = ParagraphStyle('SubD', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
     cell_head_style = ParagraphStyle('CHD', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
-    # 1. PÁGINA 1: FICHA LOGÍSTICA CON SUPERVISOR: LUIS ENRIQUE FIESTAS ECA
-    story.append(Paragraph("EXPEDIENTE TÉCNICO Y CONTROL DE EMBARQUE - FRIGOSA SAC", titulo_style))
+    # 1. PÁGINA 1: REPORTE DE EMBARQUE
+    story.append(Paragraph("REPORTE DE EMBARQUE - FRIGOSA SAC", titulo_style))
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
     story.append(Spacer(1, 5))
+
+    peso_w_txt = f"{resumen.get('peso_wincha', 0.0):,.2f} KG" if resumen.get('peso_wincha', 0.0) > 0 else "-"
+    prom_w_txt = f"{resumen.get('promedio_wincha', 0.0):.3f} KG" if resumen.get('promedio_wincha', 0.0) > 0 else "-"
+    block_txt = f"{resumen.get('peso_block', 0.0):.3f} KG" if resumen.get('peso_block', 0.0) > 0 else "-"
 
     data_cab = [
         ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
         ["CLIENTE:", cabecera.get('cliente', '-'), "DESTINO:", cabecera.get('destino', '-')],
         ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
-        ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
+        ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO PLANTA:", f"{resumen['peso_total']:,.2f} KG"],
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
-        ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
+        ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "PROMEDIO PLANTA:", f"{resumen['promedio_global']:.3f} KG"],
+        ["PESO WINCHA (PAITA):", peso_w_txt, "PROMEDIO WINCHA:", prom_w_txt],
+        ["PESO BLOCK ESTIMADO:", block_txt, "DESCUENTO INSUMOS:", "0.15 KG (÷ 2)"]
     ]
     t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
     t_cab.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, -1), 6.5),
-        ('TOPPADDING', (0, 0), (-1, -1), 1.8),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.8),
+        ('TOPPADDING', (0, 0), (-1, -1), 1.6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.6),
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F4F6F9")),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
         ('ALIGN', (1, 0), (1, -1), 'CENTER'),
         ('ALIGN', (3, 0), (3, -1), 'CENTER'),
+        ('BACKGROUND', (0, 6), (-1, -1), colors.HexColor("#EBF8FF")), # Resaltado Paita
+        ('TEXTCOLOR', (0, 6), (-1, -1), colors.HexColor("#2B6CB0")),
     ]))
     story.append(t_cab)
     story.append(Spacer(1, 6))
@@ -493,7 +499,7 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
         return False, f"El contenedor '{num_cont}' ya existe en la fila {fila_idx}. Cambie al modo 'Cargar / Editar' para modificarlo."
 
     if fila_idx:
-        rango = f"A{fila_idx}:AS{fila_idx}"
+        rango = f"A{fila_idx}:AT{fila_idx}"
         ws.update(rango, [datos_fila])
         return True, f"Actualizado exitosamente (Fila {fila_idx})"
     else:
@@ -540,6 +546,10 @@ def render_module(user, get_gspread_client):
         st.session_state.capfu_val = 75
     if "wstd_val" not in st.session_state:
         st.session_state.wstd_val = 20.00
+
+    # Peso Wincha Puerto Paita
+    if "peso_wincha_val" not in st.session_state:
+        st.session_state.peso_wincha_val = 0.0
 
     if "pres_items" not in st.session_state:
         st.session_state.pres_items = [
@@ -687,6 +697,15 @@ def render_module(user, get_gspread_client):
                                 p_idx, p_vals = item_p.split("::", 1)
                                 st.session_state.txt_pesos_mem[p_idx.strip()] = p_vals.strip()
 
+                    # Cargar Peso Wincha Paita si existe (Columna AT / index 45)
+                    try:
+                        if len(fila_encontrada) > 45 and fila_encontrada[45].strip():
+                            st.session_state.peso_wincha_val = float(fila_encontrada[45].strip())
+                        else:
+                            st.session_state.peso_wincha_val = 0.0
+                    except Exception:
+                        st.session_state.peso_wincha_val = 0.0
+
                     with st.spinner("Sincronizando fotos guardadas desde la base de datos..."):
                         fotos_recuperadas = recuperar_fotos_de_sheets(get_gspread_client, num_c_cargado)
                         if num_c_cargado not in st.session_state.fotos_contenedor_db:
@@ -724,6 +743,7 @@ def render_module(user, get_gspread_client):
             st.session_state.capf1_val = 75
             st.session_state.capfu_val = 75
             st.session_state.wstd_val = 20.00
+            st.session_state.peso_wincha_val = 0.0
             st.session_state.pres_items = [{"nombre": LISTA_PRESENTACIONES_FRIGOSA[0], "bultos": 0, "peso": 20.0}]
             st.session_state.lotes_items = [{"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0}]
             st.session_state.txt_pesos_mem = {}
@@ -808,7 +828,7 @@ def render_module(user, get_gspread_client):
             })
         st.session_state.df_congelado_edit = pd.DataFrame(filas_sist_init)
 
-    # Pesos
+    # Pesos Planta
     presentaciones_data_global = []
     for i, p_item in enumerate(lista_pres_mem):
         val_mem = st.session_state.txt_pesos_mem.get(str(i), "20.00, 20.05, 19.98")
@@ -836,6 +856,11 @@ def render_module(user, get_gspread_client):
     prom_global = (peso_tot_gral / tot_b_gral) if tot_b_gral > 0 else 0.0
     peso_a_favor = float(st.session_state.pay_val) - peso_tot_gral
 
+    # CÁLCULO DE PESO DE WINCHA Y PESO BLOCK PAITA
+    peso_w_actual = float(st.session_state.peso_wincha_val)
+    prom_wincha_calc = (peso_w_actual / tot_b_gral) if (peso_w_actual > 0 and tot_b_gral > 0) else 0.0
+    peso_block_calc = ((prom_wincha_calc - 0.15) / 2.0) if prom_wincha_calc > 0.15 else 0.0
+
     # Recuperación de bytes para el contenedor
     curr_c_id = st.session_state.cont_val.strip()
     if curr_c_id and curr_c_id not in st.session_state.fotos_contenedor_db:
@@ -860,7 +885,10 @@ def render_module(user, get_gspread_client):
         "total_bultos": tot_b_gral,
         "peso_total": peso_tot_gral,
         "promedio_global": prom_global,
-        "peso_a_favor": peso_a_favor
+        "peso_a_favor": peso_a_favor,
+        "peso_wincha": peso_w_actual,
+        "promedio_wincha": prom_wincha_calc,
+        "peso_block": peso_block_calc
     }
 
     # Generación de bytes del Dossier para botón superior
@@ -886,9 +914,9 @@ def render_module(user, get_gspread_client):
     if modo_operacion == "Cargar / Editar Contenedor Existente" and st.session_state.cont_val and pdf_dossier_bytes_cache:
         with c_btn_c2:
             st.download_button(
-                label=f"📦 Descargar Dossier Completo ({st.session_state.cont_val})",
+                label=f"📦 Descargar Reporte de Embarque ({st.session_state.cont_val})",
                 data=pdf_dossier_bytes_cache,
-                file_name=f"Dossier_Completo_{st.session_state.cont_val}.pdf",
+                file_name=f"Reporte_Embarque_{st.session_state.cont_val}.pdf",
                 mime="application/pdf",
                 use_container_width=True
             )
@@ -1051,9 +1079,9 @@ def render_module(user, get_gspread_client):
         s3.metric("Total IQF", f"{tot_iqf_sum:,} b")
         s4.metric("Total Congelado", f"{tot_placas_sum + tot_tunel_sum + tot_iqf_sum:,} b")
 
-    # ------------------ TAB 4: CONTROL DE PESOS ------------------
+    # ------------------ TAB 4: CONTROL DE PESOS (PLANTA + WINCHA PAITA) ------------------
     with tab_pesos:
-        st.markdown("#### Pesos de Balanza")
+        st.markdown("#### 1. Muestreo de Pesos en Planta (Balanza)")
         cols_w = st.columns(max(len(lista_pres_mem), 1))
 
         for i, col in enumerate(cols_w):
@@ -1064,12 +1092,37 @@ def render_module(user, get_gspread_client):
                 txt_p = st.text_area(f"Pesos balanza ({i+1}):", value=val_mem, height=90, key=f"pw_box_{i}_{v}")
                 st.session_state.txt_pesos_mem[str(i)] = txt_p
 
-        st.markdown("---")
         r1, r2, r3, r4 = st.columns(4)
         r1.metric("Bultos Totales", f"{tot_b_gral:,}")
-        r2.metric("Promedio Global", f"{prom_global:.3f} kg")
-        r3.metric("Peso Bruto", f"{peso_tot_gral:,.2f} kg")
+        r2.metric("Promedio Planta", f"{prom_global:.3f} kg")
+        r3.metric("Peso Bruto Planta", f"{peso_tot_gral:,.2f} kg")
         r4.metric("Margen a Favor", f"{peso_a_favor:,.2f} kg")
+
+        st.markdown("---")
+        st.markdown("#### ⚓ 2. Liquidación de Pesaje en Puerto (Wincha Paita)")
+        st.caption("Ingresa el peso exacto registrado por la balanza de wincha al ingresar a la naviera:")
+
+        col_w1, col_w2, col_w3 = st.columns([1.5, 1.2, 1.3])
+        with col_w1:
+            st.session_state.peso_wincha_val = st.number_input(
+                "Peso de Wincha en Puerto (KG):",
+                min_value=0.0,
+                max_value=36000.0,
+                value=float(st.session_state.peso_wincha_val),
+                step=10.0,
+                format="%.2f",
+                key=f"wincha_inp_{v}"
+            )
+        
+        # Recalcular métricas de wincha y block
+        p_wincha = float(st.session_state.peso_wincha_val)
+        prom_wincha = (p_wincha / tot_b_gral) if (p_wincha > 0 and tot_b_gral > 0) else 0.0
+        peso_block = ((prom_wincha - 0.15) / 2.0) if prom_wincha > 0.15 else 0.0
+
+        with col_w2:
+            st.metric("Promedio Saco Wincha", f"{prom_wincha:.3f} kg", help="Peso Wincha ÷ Total Bultos")
+        with col_w3:
+            st.metric("⚖️ Peso Block Real", f"{peso_block:.3f} kg", help="(Promedio Wincha - 0.15 kg insumos) ÷ 2 bloques")
 
     # ------------------ TAB 5: ADJUNTOS CON REEMPLAZO Y ELIMINACIÓN ------------------
     with tab_adjuntos:
@@ -1144,7 +1197,7 @@ def render_module(user, get_gspread_client):
                     st.rerun()
 
     # =========================================================================
-    # GUARDADO CENTRALIZADO: REGISTRA DATOS Y FOTOS EN SHEETS
+    # GUARDADO CENTRALIZADO: REGISTRA DATOS, PESO WINCHA Y FOTOS EN SHEETS
     # =========================================================================
     st.markdown("---")
     btn_label = f"💾 Guardar / Actualizar Información de {st.session_state.cont_val or 'Contenedor'} en Sheets"
@@ -1217,14 +1270,15 @@ def render_module(user, get_gspread_client):
                     link_ir_final,                                 # AP: link_foto_ir
                     link_temp_final,                               # AQ: link_foto_temperatura
                     link_pack_final,                               # AR: link_foto_packing
-                    link_invol_final                               # AS: link_foto_involucrado
+                    link_invol_final,                              # AS: link_foto_involucrado
+                    float(st.session_state.peso_wincha_val)        # AT: peso_wincha_paita
                 ]
 
                 es_modo_nuevo = (modo_operacion == "Nuevo Contenedor")
                 ok, res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra, forzar_nuevo=es_modo_nuevo)
 
                 if ok:
-                    st.success(f"✅ Contenedor {st.session_state.cont_val} guardado con sus 4 fotos en la base de datos.")
+                    st.success(f"✅ Contenedor {st.session_state.cont_val} guardado exitosamente con Wincha Paita y fotos.")
                 else:
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
