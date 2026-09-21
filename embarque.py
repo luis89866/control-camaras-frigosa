@@ -249,7 +249,7 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
         ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", f"{tipo_env} (Tara: {tara_env:.2f} kg)"],
         [f"PESO PROMEDIO {tipo_env.upper()}:", prom_saco_txt, "PESO BLOCK ESTIMADO:", block_txt],
-        ["PLUS / SOBREPESO (%):", plus_txt, "N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)"]
+        ["PLUS (%):", plus_txt, "N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)"]
     ]
     t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
     t_cab.setStyle(TableStyle([
