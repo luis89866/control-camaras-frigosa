@@ -218,6 +218,18 @@ def crear_imagen_maximizada(b_data, max_w=540, max_h=510):
         return None
 
 # =========================================================================
+# HELPER DE COLOR PARA MARGEN EN REPORTLAB
+# =========================================================================
+def obtener_estilo_color_margen(margen_val):
+    """Devuelve (color_fondo, color_texto, texto_etiqueta) según el margen."""
+    if margen_val < 0:
+        return colors.HexColor("#FED7D7"), colors.HexColor("#9B2C2C"), "MARGEN (EN CONTRA):"
+    elif margen_val <= 500:
+        return colors.HexColor("#EBF8FF"), colors.HexColor("#2B6CB0"), "MARGEN (AL LÍMITE):"
+    else:
+        return colors.HexColor("#C6F6D5"), colors.HexColor("#22543D"), "MARGEN (A FAVOR):"
+
+# =========================================================================
 # REPORTE DE PESOS CON DATOS DEL MUESTREO (BLOCK, SACO Y PLUS %)
 # =========================================================================
 def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
@@ -241,12 +253,15 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     tara_env = resumen.get('tara_descuento', 0.15)
     nb_env = resumen.get('bloques_x_bulto', 2)
 
+    margen_v = resumen.get('peso_a_favor', 0.0)
+    bg_margen, txt_margen, lbl_margen = obtener_estilo_color_margen(margen_v)
+
     data_cab = [
         ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
         ["CLIENTE:", cabecera.get('cliente', '-'), "DESTINO:", cabecera.get('destino', '-')],
         ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
         ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
-        ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
+        ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", lbl_margen, f"{abs(margen_v):,.2f} KG"],
         ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", f"{tipo_env} (Tara: {tara_env:.2f} kg)"],
         [f"PESO PROMEDIO {tipo_env.upper()}:", prom_saco_txt, "PESO BLOCK ESTIMADO:", block_txt],
         ["PLUS (%):", plus_txt, "N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)"]
@@ -261,6 +276,8 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
         ('ALIGN', (1, 0), (1, -1), 'CENTER'),
         ('ALIGN', (3, 0), (3, -1), 'CENTER'),
+        ('BACKGROUND', (2, 4), (3, 4), bg_margen),
+        ('TEXTCOLOR', (2, 4), (3, 4), txt_margen),
         ('BACKGROUND', (0, 6), (-1, -1), colors.HexColor("#EBF8FF")),
         ('TEXTCOLOR', (0, 6), (-1, -1), colors.HexColor("#2B6CB0")),
     ]))
@@ -374,7 +391,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
                     tot_row.append(f"{sum_val:,.2f}" if "TM" in col_name.upper() else f"{int(sum_val):,}")
                 except Exception:
                     tot_row.append("-")
-            t_data.append(tot_row)
+        t_data.append(tot_row)
 
         t_pdf = Table(t_data, colWidths=col_widths)
         t_pdf.setStyle(TableStyle([
@@ -407,7 +424,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     sub_style = ParagraphStyle('SubD', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
     cell_head_style = ParagraphStyle('CHD', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
-    # PÁGINA 1: REPORTE DE EMBARQUE
+    # 1. PÁGINA 1: REPORTE DE EMBARQUE
     story.append(Paragraph("REPORTE DE EMBARQUE - FRIGOSA SAC", titulo_style))
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
     story.append(Spacer(1, 5))
@@ -419,15 +436,18 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     tara_env = resumen.get('tara_descuento', 0.15)
     nb_env = resumen.get('bloques_x_bulto', 2)
 
+    margen_v = resumen.get('peso_a_favor', 0.0)
+    bg_margen, txt_margen, lbl_margen = obtener_estilo_color_margen(margen_v)
+
     data_cab = [
         ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
         ["CLIENTE:", cabecera.get('cliente', '-'), "DESTINO:", cabecera.get('destino', '-')],
         ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
         ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO PLANTA:", f"{resumen['peso_total']:,.2f} KG"],
-        ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
+        ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", lbl_margen, f"{abs(margen_v):,.2f} KG"],
         ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", f"{tipo_env} (Tara: {tara_env:.2f} kg)"],
         [f"PESO PROMEDIO {tipo_env.upper()}:", prom_saco_txt, "PESO BLOCK ESTIMADO:", block_txt],
-        ["PLUS / SOBREPESO (%):", plus_txt, "N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)"]
+        ["PLUS (%):", plus_txt, "N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)"]
     ]
     t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
     t_cab.setStyle(TableStyle([
@@ -439,6 +459,8 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
         ('ALIGN', (1, 0), (1, -1), 'CENTER'),
         ('ALIGN', (3, 0), (3, -1), 'CENTER'),
+        ('BACKGROUND', (2, 4), (3, 4), bg_margen),
+        ('TEXTCOLOR', (2, 4), (3, 4), txt_margen),
         ('BACKGROUND', (0, 6), (-1, -1), colors.HexColor("#EBF8FF")),
         ('TEXTCOLOR', (0, 6), (-1, -1), colors.HexColor("#2B6CB0")),
     ]))
@@ -953,7 +975,7 @@ def render_module(user, get_gspread_client):
     peso_a_favor = float(st.session_state.pay_val) - peso_tot_gral
 
     # =========================================================================
-    # CÁLCULOS EXACTOS DE PLANTA: PESO SACO, PESO BLOCK Y PLUS % DESDE EL MUESTREO
+    # CÁLCULOS EXACTOS DE PLANTA: PESO SACO, PESO BLOCK Y PLUS %
     # =========================================================================
     tipo_env_act = st.session_state.tipo_envase_val
     tara_act = float(st.session_state.tara_insumos_val)
@@ -1199,11 +1221,24 @@ def render_module(user, get_gspread_client):
                 txt_p = st.text_area(f"Pesos balanza ({i+1}):", value=val_mem, height=90, key=f"pw_box_{i}_{v}")
                 st.session_state.txt_pesos_mem[str(i)] = txt_p
 
+        # Semáforo dinámico de Margen en pantalla
+        if peso_a_favor < 0:
+            estilo_box = "background-color: #FED7D7; border: 1px solid #E53E3E; padding: 12px; border-radius: 8px; color: #9B2C2C;"
+            label_margen = f"🚨 Margen en Contra (Exceso de Payload): {abs(peso_a_favor):,.2f} kg"
+        elif peso_a_favor <= 500:
+            estilo_box = "background-color: #EBF8FF; border: 1px solid #3182CE; padding: 12px; border-radius: 8px; color: #2B6CB0;"
+            label_margen = f"ℹ️ Margen al Límite del Payload: {peso_a_favor:,.2f} kg"
+        else:
+            estilo_box = "background-color: #C6F6D5; border: 1px solid #38A169; padding: 12px; border-radius: 8px; color: #22543D;"
+            label_margen = f"✅ Margen a Favor Holgado: {peso_a_favor:,.2f} kg"
+
+        st.markdown(f"<div style='{estilo_box} font-weight: bold; margin-bottom: 12px;'>{label_margen}</div>", unsafe_allow_html=True)
+
         r1, r2, r3, r4 = st.columns(4)
         r1.metric("Bultos Totales", f"{tot_b_gral:,}")
         r2.metric("Promedio Global", f"{prom_global:.3f} kg")
         r3.metric("Peso Bruto Total", f"{peso_tot_gral:,.2f} kg")
-        r4.metric("Margen a Favor", f"{peso_a_favor:,.2f} kg")
+        r4.metric("Margen Restante", f"{peso_a_favor:,.2f} kg")
 
         st.markdown("---")
         st.markdown("#### ⚖️ 2. Liquidación Técnica del Muestreo (Block, Tara y Plus)")
@@ -1215,7 +1250,6 @@ def render_module(user, get_gspread_client):
             env_sel = st.selectbox("Envase Empleado:", ["Saco", "Caja"], index=idx_env, key=f"env_sel_{v}")
             st.session_state.tipo_envase_val = env_sel
             
-            # Ajuste de tara por defecto
             tara_sugerida = 0.15 if env_sel == "Saco" else 0.59
             bloques_sugeridos = 2 if env_sel == "Saco" else 1
 
@@ -1238,7 +1272,6 @@ def render_module(user, get_gspread_client):
                 key=f"blq_inp_{v}"
             )
 
-        # Recalcular métricas de muestreo
         t_d = float(st.session_state.tara_insumos_val)
         n_b = int(st.session_state.bloques_bulto_val)
         
@@ -1252,10 +1285,9 @@ def render_module(user, get_gspread_client):
         m_res1, m_res2, m_res3 = st.columns(3)
         m_res1.metric(f"Promedio {env_sel} (Muestreo)", f"{prom_global:.3f} kg", help="Peso Bruto ÷ Bultos Totales")
         m_res2.metric("⚖️ Peso Block Neto", f"{p_block_disp:.3f} kg", help=f"(Promedio - {t_d} kg tara) ÷ {n_b} bloque(s)")
-        m_res3.metric("📈 Plus / Sobrepeso (%)", f"{p_plus_disp:+.2f} %", help="Porcentaje real sobre los 10 kg nominales")
+        m_res3.metric("📈 Plus (%)", f"{p_plus_disp:+.2f} %", help="Porcentaje de sobrepeso real sobre los 10 kg nominales")
 
         st.markdown("---")
-        # Botón de Descarga del Reporte Exclusivo de Pesos (Con Block y Plus)
         try:
             pdf_pesos_bytes = generar_pdf_pesos_solos(cabecera_pdf_maestra, presentaciones_data_global, resumen_pdf_maestro)
             st.download_button(
@@ -1384,7 +1416,6 @@ def render_module(user, get_gspread_client):
                 link_pack_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_pack") else ""
                 link_invol_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_invol") else ""
 
-                # Valores exactos derivados del Muestreo de Planta
                 val_prom_saco_planta = round(prom_global, 3)
                 val_block_planta = round(peso_block_planta, 3)
                 val_plus_planta = round(plus_planta, 2)
@@ -1420,7 +1451,7 @@ def render_module(user, get_gspread_client):
                     link_temp_final,                               # AQ: link_foto_temperatura
                     link_pack_final,                               # AR: link_foto_packing
                     link_invol_final,                              # AS: link_foto_involucrado
-                    0.0,                                           # AT: pesos_wincha (disponible si se usa)
+                    0.0,                                           # AT: pesos_wincha
                     val_prom_saco_planta,                          # AU: peso_saco_planta
                     val_block_planta,                              # AV: peso_block_planta
                     val_plus_planta                                # AW: porcentaje_plus_planta
@@ -1430,7 +1461,7 @@ def render_module(user, get_gspread_client):
                 ok, res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra, forzar_nuevo=es_modo_nuevo)
 
                 if ok:
-                    st.success(f"✅ Contenedor {st.session_state.cont_val} guardado con éxito. Promedio Bulto ({val_prom_saco_planta} kg), Block ({val_block_planta} kg) y Plus ({val_plus_planta}%) registrados en Sheets.")
+                    st.success(f"✅ Contenedor {st.session_state.cont_val} guardado con éxito. Promedio Bulto ({val_prom_saco_planta} kg), Block ({val_block_planta} kg) y Plus ({val_plus_planta}%) registrados.")
                 else:
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
