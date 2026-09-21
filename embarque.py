@@ -121,19 +121,14 @@ def obtener_hoja_adjuntos_fotos(get_gspread_client):
         ws.append_row(["CONTENEDOR", "TIPO_FOTO", "PARTE", "FECHA_REGISTRO", "BASE64_DATA"])
         return ws
 
-def guardar_foto_en_sheets(get_gspread_client, num_contenedor, tipo_foto, b_data):
-    if not b_data or not num_contenedor:
+def eliminar_foto_de_sheets(get_gspread_client, num_contenedor, tipo_foto):
+    if not num_contenedor or not tipo_foto:
         return
     try:
         ws = obtener_hoja_adjuntos_fotos(get_gspread_client)
         registros = ws.get_all_values()
         num_c_clean = str(num_contenedor).strip().upper()
         tipo_clean = str(tipo_foto).strip().upper()
-        fec_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        b64_full = base64.b64encode(b_data).decode('utf-8')
-        tamano_chunk = 30000
-        partes = [b64_full[i:i + tamano_chunk] for i in range(0, len(b64_full), tamano_chunk)]
 
         filas_a_eliminar = []
         for idx, r in enumerate(registros):
@@ -142,6 +137,23 @@ def guardar_foto_en_sheets(get_gspread_client, num_contenedor, tipo_foto, b_data
 
         for f_del in reversed(filas_a_eliminar):
             ws.delete_rows(f_del)
+    except Exception as e:
+        st.warning(f"Nota al eliminar foto de Sheets: {e}")
+
+def guardar_foto_en_sheets(get_gspread_client, num_contenedor, tipo_foto, b_data):
+    if not b_data or not num_contenedor:
+        return
+    try:
+        ws = obtener_hoja_adjuntos_fotos(get_gspread_client)
+        num_c_clean = str(num_contenedor).strip().upper()
+        tipo_clean = str(tipo_foto).strip().upper()
+        fec_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        eliminar_foto_de_sheets(get_gspread_client, num_c_clean, tipo_clean)
+
+        b64_full = base64.b64encode(b_data).decode('utf-8')
+        tamano_chunk = 30000
+        partes = [b64_full[i:i + tamano_chunk] for i in range(0, len(b64_full), tamano_chunk)]
 
         nuevas_filas = []
         for idx_p, trozo in enumerate(partes):
@@ -206,17 +218,22 @@ def crear_imagen_maximizada(b_data, max_w=540, max_h=510):
         return None
 
 # =========================================================================
-# TABLAS DE ESTIBA EN PDF
+# TABLAS DE ESTIBA EN PDF (ANTI-DUPLICADOS DE TOTALES)
 # =========================================================================
 def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, styles):
     elementos = []
     if df_in is None or df_in.empty:
         return elementos
 
+    # Limpieza anti-duplicados: Elimina filas previas de totales
+    df_trabajo = df_in.copy()
+    col_primera = df_trabajo.columns[0]
+    df_trabajo = df_trabajo[~df_trabajo[col_primera].astype(str).str.upper().str.contains("TOTAL|TOTALES", na=False)]
+
     titulo_style = ParagraphStyle('TitF', parent=styles['Heading1'], fontSize=10.5, leading=12, textColor=colors.HexColor("#0D3B66"), alignment=1)
     sub_style = ParagraphStyle('SubF', parent=styles['Heading2'], fontSize=7.5, leading=9.5, textColor=colors.HexColor("#2B6CB0"), alignment=1)
     
-    cols_totales = list(df_in.columns)
+    cols_totales = list(df_trabajo.columns)
     cols_fijas = ["N° FILA", "TM", "CANT/FILA"] if "CANT/FILA" in cols_totales else ["N° FILA", "TM ESTIMADO", "TOTAL BULTOS"]
     cols_dinamicas = [c for c in cols_totales if c not in cols_fijas]
     num_lotes = len(cols_dinamicas)
@@ -259,7 +276,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
         header_row = [Paragraph(str(c).replace(" | ", "<br/>").replace("\n", "<br/>"), cell_head_style) for c in cols_actuales]
         t_data = [header_row]
 
-        for _, r in df_in.iterrows():
+        for _, r in df_trabajo.iterrows():
             row_vals = []
             for c in cols_actuales:
                 val = r[c]
@@ -269,17 +286,18 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
                     row_vals.append(str(val))
             t_data.append(row_vals)
 
+        # Se calcula e inserta UNA ÚNICA fila de TOTAL
         tot_row = []
         for idx_c, col_name in enumerate(cols_actuales):
             if idx_c == 0:
                 tot_row.append("TOTAL")
             else:
                 try:
-                    sum_val = df_in[col_name].astype(float).sum()
+                    sum_val = pd.to_numeric(df_trabajo[col_name], errors='coerce').fillna(0).sum()
                     tot_row.append(f"{sum_val:,.2f}" if "TM" in col_name.upper() else f"{int(sum_val):,}")
                 except Exception:
                     tot_row.append("-")
-            t_data.append(tot_row)
+        t_data.append(tot_row)
 
         t_pdf = Table(t_data, colWidths=col_widths)
         t_pdf.setStyle(TableStyle([
@@ -300,7 +318,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     return elementos
 
 # =========================================================================
-# DOSSIER UNIFICADO COMPLETO (CON CABECERA AJUSTADA Y FOTO DE INVOLUCRADO)
+# DOSSIER UNIFICADO COMPLETO (CABECERA CORREGIDA)
 # =========================================================================
 def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_ir_bytes=None, foto_temp_bytes=None, foto_pack_bytes=None, foto_invol_bytes=None):
     buffer_dossier = io.BytesIO()
@@ -312,7 +330,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     sub_style = ParagraphStyle('SubD', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
     cell_head_style = ParagraphStyle('CHD', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
-    # PÁGINA 1: FICHA LOGÍSTICA CON P.I. EN VEZ DE NOMBRE
+    # 1. PÁGINA 1: FICHA LOGÍSTICA CON SUPERVISOR: LUIS ENRIQUE FIESTAS ECA
     story.append(Paragraph("EXPEDIENTE TÉCNICO Y CONTROL DE EMBARQUE - FRIGOSA SAC", titulo_style))
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
     story.append(Spacer(1, 5))
@@ -323,7 +341,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
         ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", "MARGEN (A FAVOR):", f"{resumen['peso_a_favor']:,.2f} KG"],
-        ["P.I. (PEDIDO ASIGNADO):", str(cabecera.get('pi', '-')), "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
+        ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "PROMEDIO GLOBAL:", f"{resumen['promedio_global']:.3f} KG"]
     ]
     t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
     t_cab.setStyle(TableStyle([
@@ -365,34 +383,37 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_muestreo)
 
-    # PÁGINA 2: PLANO DE LOTES (1 PÁGINA EXACTA)
+    # 2. PÁGINA 2: PLANO DE LOTES (1 PÁGINA EXACTA)
     if df_lotes is not None and not df_lotes.empty:
         story.append(PageBreak())
         story.extend(construir_flowables_tabla_estiba(df_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
 
-    # PÁGINA 3: PLANO DE PRESENTACIONES
+    # 3. PÁGINA 3: PLANO DE PRESENTACIONES
     if df_pres is not None and not df_pres.empty:
         story.append(PageBreak())
         story.extend(construir_flowables_tabla_estiba(df_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A", cabecera, styles))
 
-    # PÁGINA 4: DISTRIBUCIÓN POR SISTEMA
+    # 4. PÁGINA 4: DISTRIBUCIÓN POR SISTEMA (ANTI-DUPLICADOS)
     if df_sistema is not None and not df_sistema.empty:
         story.append(PageBreak())
         story.append(Paragraph("DISTRIBUCIÓN POR SISTEMA: PLACAS / TÚNEL / IQF", titulo_style))
         story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | FECHA: {cabecera['fecha']} | CLIENTE: {cabecera.get('cliente', '-')}", sub_style))
         story.append(Spacer(1, 6))
 
-        cols_s = list(df_sistema.columns)
+        df_sist_limpio = df_sistema.copy()
+        df_sist_limpio = df_sist_limpio[~df_sist_limpio.iloc[:, 0].astype(str).str.upper().str.contains("TOTAL|TOTALES", na=False)]
+
+        cols_s = list(df_sist_limpio.columns)
         w_s = 572 / len(cols_s)
         h_s = [Paragraph(str(c), cell_head_style) for c in cols_s]
         t_s_data = [h_s]
-        for _, r in df_sistema.iterrows():
+        for _, r in df_sist_limpio.iterrows():
             t_s_data.append([str(r[c]) for c in cols_s])
 
         tot_s = ["TOTAL"]
         for c in cols_s[1:]:
             try:
-                val_s = df_sistema[c].astype(float).sum()
+                val_s = pd.to_numeric(df_sist_limpio[c], errors='coerce').fillna(0).sum()
                 tot_s.append(f"{val_s:,.2f}" if "TM" in c.upper() else f"{int(val_s):,}")
             except Exception:
                 tot_s.append("-")
@@ -413,7 +434,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_s_pdf)
 
-    # ANEXOS FOTOGRÁFICOS: 1 PÁGINA EXACTA POR FOTO
+    # 5. ANEXOS FOTOGRÁFICOS: 1 PÁGINA EXACTA POR FOTO
     fotos_anexo = [
         ("ANEXO: REPORTE DE INSPECCIÓN (IR / EIR)", "REGISTRO FOTOGRÁFICO DE INSPECCIÓN TÉCNICA DEL CONTENEDOR", foto_ir_bytes),
         ("ANEXO: CONTROL DE TEMPERATURA / TERMOKING", "REGISTRO VISUAL DEL DISPLAY DE TEMPERATURA DE SETEO / SALIDA", foto_temp_bytes),
@@ -873,7 +894,7 @@ def render_module(user, get_gspread_client):
             )
 
     # =========================================================================
-    # PESTAÑAS (VISOR REMOVIDO PARA MÁXIMA FLUIDEZ)
+    # PESTAÑAS (5 PESTAÑAS LIMPIAS Y FLUIDAS)
     # =========================================================================
     tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos = st.tabs([
         "📅 1. Plano Estiba (Lotes)",
@@ -1050,53 +1071,77 @@ def render_module(user, get_gspread_client):
         r3.metric("Peso Bruto", f"{peso_tot_gral:,.2f} kg")
         r4.metric("Margen a Favor", f"{peso_a_favor:,.2f} kg")
 
-    # ------------------ TAB 5: ADJUNTOS CON PERSISTENCIA DIRECTA ------------------
+    # ------------------ TAB 5: ADJUNTOS CON REEMPLAZO Y ELIMINACIÓN ------------------
     with tab_adjuntos:
         st.markdown("#### 📸 Panel Documental Fotográfico del Contenedor")
-        st.caption("Las fotos quedan guardadas de forma permanente en la base de datos de Sheets. Se visualizarán siempre en pantalla y en el PDF.")
+        st.caption("Puedes subir, reemplazar o eliminar fotos individualmente. Al presionar 'Guardar Información en Sheets', todo queda respaldado de forma permanente.")
 
         c_f1, c_f2 = st.columns(2)
         with c_f1:
             st.markdown("##### 📄 1. Foto de Inspección (IR / EIR)")
-            foto_ir = st.file_uploader("Subir foto Reporte IR:", type=["jpg", "jpeg", "png"], key=f"up_ir_{v}")
+            foto_ir = st.file_uploader("Subir / Reemplazar foto Reporte IR:", type=["jpg", "jpeg", "png"], key=f"up_ir_{v}")
             if foto_ir:
                 b_opt = optimizar_bytes_imagen(foto_ir.getvalue())
                 db_actual["bytes_ir"] = b_opt
-                st.image(b_opt, caption="Foto IR Cargada", use_container_width=True)
+                st.image(b_opt, caption="Foto IR Cargada (Lista para guardar)", use_container_width=True)
             elif db_actual.get("bytes_ir"):
-                st.image(db_actual["bytes_ir"], caption="Foto IR Guardada", use_container_width=True)
+                st.image(db_actual["bytes_ir"], caption="Foto IR Activa", use_container_width=True)
+                if st.button("🗑️ Quitar / Eliminar Foto IR", key=f"del_ir_{v}"):
+                    db_actual["bytes_ir"] = None
+                    if curr_c_id:
+                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "IR")
+                    st.success("Foto IR eliminada.")
+                    st.rerun()
 
         with c_f2:
             st.markdown("##### ❄️ 2. Foto de Temperatura")
-            foto_temp = st.file_uploader("Subir foto Display Termoking:", type=["jpg", "jpeg", "png"], key=f"up_temp_{v}")
+            foto_temp = st.file_uploader("Subir / Reemplazar foto Termoking:", type=["jpg", "jpeg", "png"], key=f"up_temp_{v}")
             if foto_temp:
                 b_opt_t = optimizar_bytes_imagen(foto_temp.getvalue())
                 db_actual["bytes_temp"] = b_opt_t
-                st.image(b_opt_t, caption="Display Termoking Cargado", use_container_width=True)
+                st.image(b_opt_t, caption="Display Termoking (Listo para guardar)", use_container_width=True)
             elif db_actual.get("bytes_temp"):
-                st.image(db_actual["bytes_temp"], caption="Display Termoking Guardado", use_container_width=True)
+                st.image(db_actual["bytes_temp"], caption="Display Termoking Activo", use_container_width=True)
+                if st.button("🗑️ Quitar / Eliminar Foto Temp", key=f"del_temp_{v}"):
+                    db_actual["bytes_temp"] = None
+                    if curr_c_id:
+                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "TEMP")
+                    st.success("Foto de temperatura eliminada.")
+                    st.rerun()
 
         st.markdown("---")
         c_f3, c_f4 = st.columns(2)
         with c_f3:
             st.markdown("##### 📋 3. Foto de Lista de Empaque")
-            foto_pack = st.file_uploader("Subir foto del Packing List:", type=["jpg", "jpeg", "png"], key=f"up_pack_{v}")
+            foto_pack = st.file_uploader("Subir / Reemplazar foto Packing List:", type=["jpg", "jpeg", "png"], key=f"up_pack_{v}")
             if foto_pack:
                 b_opt_p = optimizar_bytes_imagen(foto_pack.getvalue())
                 db_actual["bytes_pack"] = b_opt_p
-                st.image(b_opt_p, caption="Packing List Cargado", use_container_width=True)
+                st.image(b_opt_p, caption="Packing List (Listo para guardar)", use_container_width=True)
             elif db_actual.get("bytes_pack"):
-                st.image(db_actual["bytes_pack"], caption="Packing List Guardado", use_container_width=True)
+                st.image(db_actual["bytes_pack"], caption="Packing List Activo", use_container_width=True)
+                if st.button("🗑️ Quitar / Eliminar Packing List", key=f"del_pack_{v}"):
+                    db_actual["bytes_pack"] = None
+                    if curr_c_id:
+                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "PACK")
+                    st.success("Foto de packing list eliminada.")
+                    st.rerun()
 
         with c_f4:
             st.markdown("##### 👤 4. Foto de Involucrado / Supervisor en Planta")
-            foto_invol = st.file_uploader("Subir foto del Involucrado/Supervisor en Operación:", type=["jpg", "jpeg", "png"], key=f"up_invol_{v}")
+            foto_invol = st.file_uploader("Subir / Reemplazar foto Involucrado:", type=["jpg", "jpeg", "png"], key=f"up_invol_{v}")
             if foto_invol:
                 b_opt_i = optimizar_bytes_imagen(foto_invol.getvalue())
                 db_actual["bytes_invol"] = b_opt_i
-                st.image(b_opt_i, caption="Foto Involucrado Cargada", use_container_width=True)
+                st.image(b_opt_i, caption="Foto Involucrado (Lista para guardar)", use_container_width=True)
             elif db_actual.get("bytes_invol"):
-                st.image(db_actual["bytes_invol"], caption="Foto Involucrado Guardada", use_container_width=True)
+                st.image(db_actual["bytes_invol"], caption="Foto Involucrado Activa", use_container_width=True)
+                if st.button("🗑️ Quitar / Eliminar Foto Involucrado", key=f"del_invol_{v}"):
+                    db_actual["bytes_invol"] = None
+                    if curr_c_id:
+                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "INVOLUCRADO")
+                    st.success("Foto de involucrado eliminada.")
+                    st.rerun()
 
     # =========================================================================
     # GUARDADO CENTRALIZADO: REGISTRA DATOS Y FOTOS EN SHEETS
