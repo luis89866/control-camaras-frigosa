@@ -61,13 +61,11 @@ def optimizar_bytes_imagen(b_in, max_side=950, calidad=70):
         img = ImageOps.exif_transpose(img)
         if img.mode != 'RGB':
             img = img.convert('RGB')
-        
         orig_w, orig_h = img.size
         if max(orig_w, orig_h) > max_side:
             ratio = max_side / float(max(orig_w, orig_h))
             nuevo_tamano = (int(orig_w * ratio), int(orig_h * ratio))
             img = img.resize(nuevo_tamano, PILImage.LANCZOS)
-            
         buf = io.BytesIO()
         img.save(buf, format='JPEG', quality=calidad, optimize=True)
         return buf.getvalue()
@@ -105,7 +103,7 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # =========================================================================
-# GESTIÓN PERSISTENTE DE FOTOS EN SHEETS (CHUNKING)
+# GESTIÓN DE FOTOS EN SHEETS
 # =========================================================================
 def obtener_hoja_adjuntos_fotos(get_gspread_client):
     client = get_gspread_client()
@@ -113,11 +111,10 @@ def obtener_hoja_adjuntos_fotos(get_gspread_client):
         sh = client.open_by_key(ID_SPREADSHEET_PRODUCCION)
     except Exception:
         sh = client.open("BD_PRODUCCION_ARCHI_001")
-    
     try:
         return sh.worksheet("ADJUNTOS_FOTOS")
     except Exception:
-        ws = sh.add_worksheet(title="ADJUNTOS_FOTOS", rows=1200, cols=6)
+        ws = sh.add_worksheet(title="ADJUNTOS_FOTOS", rows=1500, cols=6)
         ws.append_row(["CONTENEDOR", "TIPO_FOTO", "PARTE", "FECHA_REGISTRO", "BASE64_DATA"])
         return ws
 
@@ -129,16 +126,14 @@ def eliminar_foto_de_sheets(get_gspread_client, num_contenedor, tipo_foto):
         registros = ws.get_all_values()
         num_c_clean = str(num_contenedor).strip().upper()
         tipo_clean = str(tipo_foto).strip().upper()
-
         filas_a_eliminar = []
         for idx, r in enumerate(registros):
             if len(r) > 1 and r[0].strip().upper() == num_c_clean and r[1].strip().upper() == tipo_clean and idx > 0:
                 filas_a_eliminar.append(idx + 1)
-
         for f_del in reversed(filas_a_eliminar):
             ws.delete_rows(f_del)
     except Exception as e:
-        st.warning(f"Nota al eliminar foto de Sheets: {e}")
+        st.caption(f"Nota eliminar foto: {e}")
 
 def guardar_foto_en_sheets(get_gspread_client, num_contenedor, tipo_foto, b_data):
     if not b_data or not num_contenedor:
@@ -150,7 +145,6 @@ def guardar_foto_en_sheets(get_gspread_client, num_contenedor, tipo_foto, b_data
         fec_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         eliminar_foto_de_sheets(get_gspread_client, num_c_clean, tipo_clean)
-
         b64_full = base64.b64encode(b_data).decode('utf-8')
         tamano_chunk = 30000
         partes = [b64_full[i:i + tamano_chunk] for i in range(0, len(b64_full), tamano_chunk)]
@@ -158,11 +152,10 @@ def guardar_foto_en_sheets(get_gspread_client, num_contenedor, tipo_foto, b_data
         nuevas_filas = []
         for idx_p, trozo in enumerate(partes):
             nuevas_filas.append([num_c_clean, tipo_clean, str(idx_p + 1), fec_actual, trozo])
-
         if nuevas_filas:
             ws.append_rows(nuevas_filas)
     except Exception as e:
-        st.warning(f"Nota en guardado de foto: {e}")
+        st.caption(f"Nota guardar foto: {e}")
 
 def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
     resultado = {"IR": None, "TEMP": None, "PACK": None, "INVOLUCRADO": None}
@@ -172,7 +165,6 @@ def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
         ws = obtener_hoja_adjuntos_fotos(get_gspread_client)
         registros = ws.get_all_values()
         num_c_clean = str(num_contenedor).strip().upper()
-
         chunks_dict = {"IR": {}, "TEMP": {}, "PACK": {}, "INVOLUCRADO": {}}
 
         for r in registros[1:]:
@@ -183,7 +175,6 @@ def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
                 except Exception:
                     num_parte = 1
                 trozo = r[4].strip()
-
                 if t_f in chunks_dict:
                     chunks_dict[t_f][num_parte] = trozo
 
@@ -195,33 +186,23 @@ def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
                     resultado[clave] = base64.b64decode(b64_unido)
                 except Exception:
                     pass
-
         return resultado
     except Exception:
         return resultado
 
-# =========================================================================
-# ESCALADO DE IMAGEN
-# =========================================================================
 def crear_imagen_maximizada(b_data, max_w=540, max_h=510):
     try:
         pil_img = PILImage.open(io.BytesIO(b_data))
         orig_w, orig_h = pil_img.size
-
         ratio = min(max_w / orig_w, max_h / orig_h)
         final_w = orig_w * ratio
         final_h = orig_h * ratio
-
         img_io = io.BytesIO(b_data)
         return RLImage(img_io, width=final_w, height=final_h)
     except Exception:
         return None
 
-# =========================================================================
-# HELPER DE COLOR PARA MARGEN EN REPORTLAB
-# =========================================================================
 def obtener_estilo_color_margen(margen_val):
-    """Devuelve (color_fondo, color_texto, texto_etiqueta) según el margen."""
     if margen_val < 0:
         return colors.HexColor("#FED7D7"), colors.HexColor("#9B2C2C"), "MARGEN (EN CONTRA):"
     elif margen_val <= 500:
@@ -230,7 +211,7 @@ def obtener_estilo_color_margen(margen_val):
         return colors.HexColor("#C6F6D5"), colors.HexColor("#22543D"), "MARGEN (A FAVOR):"
 
 # =========================================================================
-# REPORTE DE PESOS CON DATOS DEL MUESTREO (BLOCK, SACO Y PLUS %)
+# GENERACIÓN DE PDFS
 # =========================================================================
 def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     buffer = io.BytesIO()
@@ -308,14 +289,10 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
         ('FONTNAME', (0, -3), (-1, -1), 'Helvetica-Bold'),
     ]))
     story.append(t_muestreo)
-
     doc.build(story)
     buffer.seek(0)
     return buffer
 
-# =========================================================================
-# TABLAS DE ESTIBA EN PDF (ANTI-DUPLICADOS DE TOTALES)
-# =========================================================================
 def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, styles):
     elementos = []
     if df_in is None or df_in.empty:
@@ -341,7 +318,6 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     for num_b, bloque_cols in enumerate(bloques):
         if num_b > 0:
             elementos.append(PageBreak())
-
         sub_sufijo = f" (PARTE {num_b + 1})" if len(bloques) > 1 else ""
         elementos.append(Paragraph(titulo_tab + sub_sufijo, titulo_style))
         elementos.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | FECHA: {cabecera['fecha']} | CLIENTE: {cabecera.get('cliente', '-')}", sub_style))
@@ -411,9 +387,6 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
 
     return elementos
 
-# =========================================================================
-# REPORTE DE EMBARQUE UNIFICADO (Dossier Completo)
-# =========================================================================
 def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_ir_bytes=None, foto_temp_bytes=None, foto_pack_bytes=None, foto_invol_bytes=None):
     buffer_dossier = io.BytesIO()
     doc = SimpleDocTemplate(buffer_dossier, pagesize=letter, leftMargin=18, rightMargin=18, topMargin=18, bottomMargin=18)
@@ -424,7 +397,6 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     sub_style = ParagraphStyle('SubD', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
     cell_head_style = ParagraphStyle('CHD', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
 
-    # 1. PÁGINA 1: REPORTE DE EMBARQUE
     story.append(Paragraph("REPORTE DE EMBARQUE - FRIGOSA SAC", titulo_style))
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
     story.append(Spacer(1, 5))
@@ -493,17 +465,14 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_muestreo)
 
-    # 2. PÁGINA 2: PLANO DE LOTES (1 PÁGINA EXACTA)
     if df_lotes is not None and not df_lotes.empty:
         story.append(PageBreak())
         story.extend(construir_flowables_tabla_estiba(df_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
 
-    # 3. PÁGINA 3: PLANO DE PRESENTACIONES
     if df_pres is not None and not df_pres.empty:
         story.append(PageBreak())
         story.extend(construir_flowables_tabla_estiba(df_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A", cabecera, styles))
 
-    # 4. PÁGINA 4: DISTRIBUCIÓN POR SISTEMA (ANTI-DUPLICADOS)
     if df_sistema is not None and not df_sistema.empty:
         story.append(PageBreak())
         story.append(Paragraph("DISTRIBUCIÓN POR SISTEMA: PLACAS / TÚNEL / IQF", titulo_style))
@@ -512,7 +481,6 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
 
         df_sist_limpio = df_sistema.copy()
         df_sist_limpio = df_sist_limpio[~df_sist_limpio.iloc[:, 0].astype(str).str.upper().str.contains("TOTAL|TOTALES", na=False)]
-
         cols_s = list(df_sist_limpio.columns)
         w_s = 572 / len(cols_s)
         h_s = [Paragraph(str(c), cell_head_style) for c in cols_s]
@@ -524,7 +492,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         for c in cols_s[1:]:
             try:
                 val_s = pd.to_numeric(df_sist_limpio[c], errors='coerce').fillna(0).sum()
-                tot_s.append(f"{val_s:,.2f}" if "TM" in c.upper() else f"{int(val_s):,}")
+                tot_s.append(f"{val_s:,.2f}" if "TM" in c.upper() else f"{int(sum_val):,}")
             except Exception:
                 tot_s.append("-")
         t_s_data.append(tot_s)
@@ -544,7 +512,6 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_s_pdf)
 
-    # 5. ANEXOS FOTOGRÁFICOS: 1 PÁGINA EXACTA POR FOTO
     fotos_anexo = [
         ("ANEXO: REPORTE DE INSPECCIÓN (IR / EIR)", "REGISTRO FOTOGRÁFICO DE INSPECCIÓN TÉCNICA DEL CONTENEDOR", foto_ir_bytes),
         ("ANEXO: CONTROL DE TEMPERATURA / TERMOKING", "REGISTRO VISUAL DEL DISPLAY DE TEMPERATURA DE SETEO / SALIDA", foto_temp_bytes),
@@ -558,7 +525,6 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
             story.append(Paragraph(tit_anexo, titulo_style))
             story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')}", sub_style))
             story.append(Spacer(1, 4))
-
             rl_img = crear_imagen_maximizada(b_img, max_w=540, max_h=510)
             if rl_img:
                 lbl = Paragraph(f"<b>{sub_rotulo}</b>", ParagraphStyle('LblT', parent=styles['Normal'], fontSize=7.5, leading=9.5, alignment=1, textColor=colors.HexColor("#1A365D")))
@@ -578,7 +544,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     return buffer_dossier
 
 # =========================================================================
-# HOJA DISTRIBUCIONES (REGISTRO MAESTRO)
+# HOJA DISTRIBUCIONES (GUARDADO BLINDADO Y PERSISTENTE)
 # =========================================================================
 def obtener_hoja_distribuciones(get_gspread_client):
     client = get_gspread_client()
@@ -589,39 +555,64 @@ def obtener_hoja_distribuciones(get_gspread_client):
     return sh.worksheet("DISTRIBUCIONES")
 
 def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo=False):
-    ws = obtener_hoja_distribuciones(get_gspread_client)
-    contenedores_col = ws.col_values(2)
-    num_cont = str(datos_fila[1]).strip().upper()
+    try:
+        ws = obtener_hoja_distribuciones(get_gspread_client)
+        contenedores_col = ws.col_values(2)
+        num_cont = str(datos_fila[1]).strip().upper()
 
-    fila_idx = None
-    for idx, c_val in enumerate(contenedores_col):
-        if str(c_val).strip().upper() == num_cont and idx > 0:
-            fila_idx = idx + 1
-            break
+        fila_idx = None
+        for idx, c_val in enumerate(contenedores_col):
+            if str(c_val).strip().upper() == num_cont and idx > 0:
+                fila_idx = idx + 1
+                break
 
-    if forzar_nuevo and fila_idx:
-        return False, f"El contenedor '{num_cont}' ya existe en la fila {fila_idx}. Cambie al modo 'Cargar / Editar' para modificarlo."
+        # Limpiar y convertir a tipos JSON compatibles estrictos
+        datos_limpios = []
+        for val in datos_fila:
+            if isinstance(val, (date, datetime)):
+                datos_limpios.append(str(val))
+            elif isinstance(val, (int, float)):
+                datos_limpios.append(val)
+            elif val is None:
+                datos_limpios.append("")
+            else:
+                datos_limpios.append(str(val))
 
-    if fila_idx:
-        # Abarca desde A hasta AW (49 columnas)
-        rango = f"A{fila_idx}:AW{fila_idx}"
-        ws.update(rango, [datos_fila])
-        return True, f"Actualizado exitosamente (Fila {fila_idx})"
-    else:
-        ws.append_row(datos_fila)
-        return True, "Registrado como nuevo registro"
+        # Si el usuario quiere guardar como nuevo pero ya existe con el mismo código de contenedor:
+        if forzar_nuevo and fila_idx:
+            # En lugar de rechazarlo y perder datos, sobreescribe en esa misma fila para no trabar
+            rango = f"A{fila_idx}:AW{fila_idx}"
+            try:
+                ws.update(range_name=rango, values=[datos_limpios])
+            except Exception:
+                ws.update(rango, [datos_limpios])
+            return True, f"El contenedor '{num_cont}' ya existía y fue actualizado con éxito en la fila {fila_idx}."
+
+        if fila_idx:
+            rango = f"A{fila_idx}:AW{fila_idx}"
+            try:
+                ws.update(range_name=rango, values=[datos_limpios])
+            except Exception:
+                ws.update(rango, [datos_limpios])
+            return True, f"Actualizado exitosamente en la fila {fila_idx}."
+        else:
+            ws.append_row(datos_limpios, value_input_option="USER_ENTERED")
+            return True, "Registrado como nuevo contenedor exitosamente en la base de datos."
+
+    except Exception as e:
+        return False, f"Error en Google Sheets: {str(e)}"
 
 # =========================================================================
 # MÓDULO PRINCIPAL STREAMLIT
 # =========================================================================
 def render_module(user, get_gspread_client):
-    st.subheader("🚢 Módulo 4: Despachos, Estiba y Embarques")
+    st.subheader("🚢 Módulo de Despachos, Estiba y Embarques")
 
     if "form_version" not in st.session_state:
         st.session_state.form_version = 0
 
     if "emb_id" not in st.session_state:
-        st.session_state.emb_id = f"EMB-{date.today().strftime('%y%m%d%H%M%S')}"
+        st.session_state.emb_id = f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
     if "cont_val" not in st.session_state:
         st.session_state.cont_val = ""
     if "fec_val" not in st.session_state:
@@ -652,7 +643,6 @@ def render_module(user, get_gspread_client):
     if "wstd_val" not in st.session_state:
         st.session_state.wstd_val = 20.00
 
-    # Configuración de Envase Planta para Muestreo
     if "tipo_envase_val" not in st.session_state:
         st.session_state.tipo_envase_val = "Saco"
     if "tara_insumos_val" not in st.session_state:
@@ -660,7 +650,6 @@ def render_module(user, get_gspread_client):
     if "bloques_bulto_val" not in st.session_state:
         st.session_state.bloques_bulto_val = 2
 
-    # Valores históricos recuperados de planta
     if "peso_saco_hist" not in st.session_state:
         st.session_state.peso_saco_hist = 0.0
     if "peso_block_hist" not in st.session_state:
@@ -814,7 +803,6 @@ def render_module(user, get_gspread_client):
                                 p_idx, p_vals = item_p.split("::", 1)
                                 st.session_state.txt_pesos_mem[p_idx.strip()] = p_vals.strip()
 
-                    # Cargar Datos Históricos de Muestreo de Planta (AU, AV, AW)
                     try:
                         st.session_state.peso_saco_hist = float(fila_encontrada[46].strip()) if len(fila_encontrada) > 46 and fila_encontrada[46].strip() else 0.0
                         st.session_state.peso_block_hist = float(fila_encontrada[47].strip()) if len(fila_encontrada) > 47 and fila_encontrada[47].strip() else 0.0
@@ -843,8 +831,8 @@ def render_module(user, get_gspread_client):
                     st.rerun()
 
     with col_sel2:
-        if st.button("🧹 Limpiar Pantalla"):
-            st.session_state.emb_id = f"EMB-{date.today().strftime('%y%m%d%H%M%S')}"
+        if st.button("🧹 Nuevo / Limpiar Formulario"):
+            st.session_state.emb_id = f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
             st.session_state.cont_val = ""
             st.session_state.fec_val = date.today()
             st.session_state.mes_val = MESES_ESP.get(date.today().month, "SETIEMBRE")
@@ -891,7 +879,7 @@ def render_module(user, get_gspread_client):
             st.session_state.pay_val = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=34000.0, value=float(st.session_state.pay_val), step=100.0, key=f"pay_emb_{v}")
 
     # =========================================================================
-    # PREPARACIÓN DE MATRICES
+    # MATRICES Y CÁLCULOS
     # =========================================================================
     caps_filas_default = [int(st.session_state.capg_val)] * int(st.session_state.nfil_val)
     caps_filas_default[0] = int(st.session_state.capf1_val)
@@ -902,7 +890,6 @@ def render_module(user, get_gspread_client):
 
     caps_reales_actuales = [int(x) for x in st.session_state.caps_filas_override]
 
-    # Matriz Lotes
     lista_lotes_mem = [{"fecha_txt": l["fecha"].strftime('%d/%m/%Y'), "lote_txt": l["lote"].strip(), "cantidad": int(l["bultos"])} for l in st.session_state.lotes_items]
     headers_l = [f"{l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_mem]
     matriz_lotes_auto = calcular_matriz_estiba(caps_reales_actuales, lista_lotes_mem)
@@ -917,7 +904,6 @@ def render_module(user, get_gspread_client):
         data_filas_tabla.append(r_dict)
     df_lotes_global = pd.DataFrame(data_filas_tabla)
 
-    # Matriz Presentaciones
     lista_pres_mem = [{"nombre": p["nombre"], "cantidad": int(p["bultos"]), "peso_unit": float(p.get("peso", st.session_state.wstd_val))} for p in st.session_state.pres_items]
     matriz_pres_auto = calcular_matriz_estiba(caps_reales_actuales, lista_pres_mem)
     headers_pres = [f"{p['nombre']} (P{idx+1})" for idx, p in enumerate(lista_pres_mem)]
@@ -931,7 +917,6 @@ def render_module(user, get_gspread_client):
         data_pres_tabla.append(r_d)
     df_pres_global = pd.DataFrame(data_pres_tabla)
 
-    # Matriz Congelado
     if "df_congelado_edit" not in st.session_state or len(st.session_state.df_congelado_edit) != len(caps_reales_actuales):
         filas_sist_init = []
         for f_idx in range(len(caps_reales_actuales)):
@@ -946,7 +931,6 @@ def render_module(user, get_gspread_client):
             })
         st.session_state.df_congelado_edit = pd.DataFrame(filas_sist_init)
 
-    # Pesos Planta
     presentaciones_data_global = []
     for i, p_item in enumerate(lista_pres_mem):
         val_mem = st.session_state.txt_pesos_mem.get(str(i), "20.00, 20.05, 19.98")
@@ -974,9 +958,6 @@ def render_module(user, get_gspread_client):
     prom_global = (peso_tot_gral / tot_b_gral) if tot_b_gral > 0 else 0.0
     peso_a_favor = float(st.session_state.pay_val) - peso_tot_gral
 
-    # =========================================================================
-    # CÁLCULOS EXACTOS DE PLANTA: PESO SACO, PESO BLOCK Y PLUS %
-    # =========================================================================
     tipo_env_act = st.session_state.tipo_envase_val
     tara_act = float(st.session_state.tara_insumos_val)
     bloques_act = int(st.session_state.bloques_bulto_val)
@@ -988,7 +969,6 @@ def render_module(user, get_gspread_client):
         peso_block_planta = 0.0
         plus_planta = 0.0
 
-    # Recuperación de fotos para el contenedor
     curr_c_id = st.session_state.cont_val.strip()
     if curr_c_id and curr_c_id not in st.session_state.fotos_contenedor_db:
         st.session_state.fotos_contenedor_db[curr_c_id] = {}
@@ -1020,7 +1000,6 @@ def render_module(user, get_gspread_client):
         "bloques_x_bulto": bloques_act
     }
 
-    # Generación de bytes del Dossier para botón superior
     pdf_dossier_bytes_cache = None
     if st.session_state.cont_val:
         try:
@@ -1039,11 +1018,10 @@ def render_module(user, get_gspread_client):
         except Exception:
             pdf_dossier_bytes_cache = None
 
-    # Botón directo superior
     if modo_operacion == "Cargar / Editar Contenedor Existente" and st.session_state.cont_val and pdf_dossier_bytes_cache:
         with c_btn_c2:
             st.download_button(
-                label=f"📦 Descargar Reporte de Embarque ({st.session_state.cont_val})",
+                label=f"📦 Descargar Reporte ({st.session_state.cont_val})",
                 data=pdf_dossier_bytes_cache,
                 file_name=f"Reporte_Embarque_{st.session_state.cont_val}.pdf",
                 mime="application/pdf",
@@ -1051,7 +1029,7 @@ def render_module(user, get_gspread_client):
             )
 
     # =========================================================================
-    # PESTAÑAS (5 PESTAÑAS LIMPIAS Y FLUIDAS)
+    # PESTAÑAS
     # =========================================================================
     tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos = st.tabs([
         "📅 1. Plano Estiba (Lotes)",
@@ -1061,7 +1039,6 @@ def render_module(user, get_gspread_client):
         "📸 5. IR, Temp, Packing & Involucrado"
     ])
 
-    # ------------------ TAB 1: LOTES ------------------
     with tab_estiba_lotes:
         st.markdown("#### Configuración de Filas y Capacidad")
         cf1, cf2, cf3, cf4 = st.columns(4)
@@ -1119,7 +1096,6 @@ def render_module(user, get_gspread_client):
         m1.metric("Total Bultos Cargados (Lotes)", f"{tot_b_cargados:,} bultos")
         m2.metric("Tonelaje Total", f"{tot_tm_cargados:.3f} TM")
 
-    # ------------------ TAB 2: PRESENTACIONES ------------------
     with tab_estiba_pres:
         st.markdown("#### Presentaciones a Embarcar (Hasta 8 según la hoja)")
         np_m = st.number_input("Número de Presentaciones:", min_value=1, max_value=8, value=max(len(st.session_state.pres_items), 1), key=f"npres_c_{v}")
@@ -1142,7 +1118,6 @@ def render_module(user, get_gspread_client):
 
         st.dataframe(df_pres_global, hide_index=True, use_container_width=True, height=280)
 
-    # ------------------ TAB 3: PLACAS / TÚNEL / IQF ------------------
     with tab_placa_tunel:
         st.markdown("#### Configuración de Sistema de Congelación")
 
@@ -1208,7 +1183,6 @@ def render_module(user, get_gspread_client):
         s3.metric("Total IQF", f"{tot_iqf_sum:,} b")
         s4.metric("Total Congelado", f"{tot_placas_sum + tot_tunel_sum + tot_iqf_sum:,} b")
 
-    # ------------------ TAB 4: CONTROL DE PESOS (MUESTREO + BLOCK Y PLUS REAL) ------------------
     with tab_pesos:
         st.markdown("#### 1. Muestreo de Control de Pesos en Balanza")
         cols_w = st.columns(max(len(lista_pres_mem), 1))
@@ -1221,7 +1195,6 @@ def render_module(user, get_gspread_client):
                 txt_p = st.text_area(f"Pesos balanza ({i+1}):", value=val_mem, height=90, key=f"pw_box_{i}_{v}")
                 st.session_state.txt_pesos_mem[str(i)] = txt_p
 
-        # Semáforo dinámico de Margen en pantalla
         if peso_a_favor < 0:
             estilo_box = "background-color: #FED7D7; border: 1px solid #E53E3E; padding: 12px; border-radius: 8px; color: #9B2C2C;"
             label_margen = f"🚨 Margen en Contra (Exceso de Payload): {abs(peso_a_favor):,.2f} kg"
@@ -1242,14 +1215,11 @@ def render_module(user, get_gspread_client):
 
         st.markdown("---")
         st.markdown("#### ⚖️ 2. Liquidación Técnica del Muestreo (Block, Tara y Plus)")
-        st.caption("Cálculo matemático directo desde los pesos de balanza y el peso bruto total de planta:")
-
         col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
         with col_cfg1:
             idx_env = 0 if st.session_state.tipo_envase_val == "Saco" else 1
             env_sel = st.selectbox("Envase Empleado:", ["Saco", "Caja"], index=idx_env, key=f"env_sel_{v}")
             st.session_state.tipo_envase_val = env_sel
-            
             tara_sugerida = 0.15 if env_sel == "Saco" else 0.59
             bloques_sugeridos = 2 if env_sel == "Saco" else 1
 
@@ -1283,9 +1253,9 @@ def render_module(user, get_gspread_client):
             p_plus_disp = 0.0
 
         m_res1, m_res2, m_res3 = st.columns(3)
-        m_res1.metric(f"Promedio {env_sel} (Muestreo)", f"{prom_global:.3f} kg", help="Peso Bruto ÷ Bultos Totales")
-        m_res2.metric("⚖️ Peso Block Neto", f"{p_block_disp:.3f} kg", help=f"(Promedio - {t_d} kg tara) ÷ {n_b} bloque(s)")
-        m_res3.metric("📈 Plus (%)", f"{p_plus_disp:+.2f} %", help="Porcentaje de sobrepeso real sobre los 10 kg nominales")
+        m_res1.metric(f"Promedio {env_sel} (Muestreo)", f"{prom_global:.3f} kg")
+        m_res2.metric("⚖️ Peso Block Neto", f"{p_block_disp:.3f} kg")
+        m_res3.metric("📈 Plus (%)", f"{p_plus_disp:+.2f} %")
 
         st.markdown("---")
         try:
@@ -1300,11 +1270,8 @@ def render_module(user, get_gspread_client):
         except Exception as e_pesos:
             st.caption(f"Generando reporte de pesos: {e_pesos}")
 
-    # ------------------ TAB 5: ADJUNTOS CON REEMPLAZO Y ELIMINACIÓN ------------------
     with tab_adjuntos:
         st.markdown("#### 📸 Panel Documental Fotográfico del Contenedor")
-        st.caption("Puedes subir, reemplazar o eliminar fotos individualmente. Al presionar 'Guardar Información en Sheets', todo queda respaldado de forma permanente.")
-
         c_f1, c_f2 = st.columns(2)
         with c_f1:
             st.markdown("##### 📄 1. Foto de Inspección (IR / EIR)")
@@ -1312,7 +1279,7 @@ def render_module(user, get_gspread_client):
             if foto_ir:
                 b_opt = optimizar_bytes_imagen(foto_ir.getvalue())
                 db_actual["bytes_ir"] = b_opt
-                st.image(b_opt, caption="Foto IR Cargada (Lista para guardar)", use_container_width=True)
+                st.image(b_opt, caption="Foto IR Cargada", use_container_width=True)
             elif db_actual.get("bytes_ir"):
                 st.image(db_actual["bytes_ir"], caption="Foto IR Activa", use_container_width=True)
                 if st.button("🗑️ Quitar / Eliminar Foto IR", key=f"del_ir_{v}"):
@@ -1328,7 +1295,7 @@ def render_module(user, get_gspread_client):
             if foto_temp:
                 b_opt_t = optimizar_bytes_imagen(foto_temp.getvalue())
                 db_actual["bytes_temp"] = b_opt_t
-                st.image(b_opt_t, caption="Display Termoking (Listo para guardar)", use_container_width=True)
+                st.image(b_opt_t, caption="Display Termoking Cargado", use_container_width=True)
             elif db_actual.get("bytes_temp"):
                 st.image(db_actual["bytes_temp"], caption="Display Termoking Activo", use_container_width=True)
                 if st.button("🗑️ Quitar / Eliminar Foto Temp", key=f"del_temp_{v}"):
@@ -1346,7 +1313,7 @@ def render_module(user, get_gspread_client):
             if foto_pack:
                 b_opt_p = optimizar_bytes_imagen(foto_pack.getvalue())
                 db_actual["bytes_pack"] = b_opt_p
-                st.image(b_opt_p, caption="Packing List (Listo para guardar)", use_container_width=True)
+                st.image(b_opt_p, caption="Packing List Cargado", use_container_width=True)
             elif db_actual.get("bytes_pack"):
                 st.image(db_actual["bytes_pack"], caption="Packing List Activo", use_container_width=True)
                 if st.button("🗑️ Quitar / Eliminar Packing List", key=f"del_pack_{v}"):
@@ -1362,7 +1329,7 @@ def render_module(user, get_gspread_client):
             if foto_invol:
                 b_opt_i = optimizar_bytes_imagen(foto_invol.getvalue())
                 db_actual["bytes_invol"] = b_opt_i
-                st.image(b_opt_i, caption="Foto Involucrado (Lista para guardar)", use_container_width=True)
+                st.image(b_opt_i, caption="Foto Involucrado Cargada", use_container_width=True)
             elif db_actual.get("bytes_invol"):
                 st.image(db_actual["bytes_invol"], caption="Foto Involucrado Activa", use_container_width=True)
                 if st.button("🗑️ Quitar / Eliminar Foto Involucrado", key=f"del_invol_{v}"):
@@ -1373,7 +1340,7 @@ def render_module(user, get_gspread_client):
                     st.rerun()
 
     # =========================================================================
-    # GUARDADO CENTRALIZADO: REGISTRA DATOS, PESO SACO, BLOCK Y PLUS EN SHEETS
+    # GUARDADO CENTRALIZADO (CON PERSISTENCIA INMEDIATA)
     # =========================================================================
     st.markdown("---")
     btn_label = f"💾 Guardar / Actualizar Información de {st.session_state.cont_val or 'Contenedor'} en Sheets"
@@ -1385,7 +1352,8 @@ def render_module(user, get_gspread_client):
                 num_c_guardar = st.session_state.cont_val.strip().upper()
                 db_c_guardar = st.session_state.fotos_contenedor_db.get(num_c_guardar, {})
 
-                with st.spinner("Guardando fotos de forma permanente en la base de datos..."):
+                # 1. Guardar fotos en segundo plano sin interrumpir si alguna falta
+                with st.spinner("Guardando fotos en la base de datos..."):
                     if db_c_guardar.get("bytes_ir"):
                         guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "IR", db_c_guardar["bytes_ir"])
                     if db_c_guardar.get("bytes_temp"):
@@ -1420,11 +1388,14 @@ def render_module(user, get_gspread_client):
                 val_block_planta = round(peso_block_planta, 3)
                 val_plus_planta = round(plus_planta, 2)
 
+                # Generar ID único si estaba vacío
+                id_embarque_final = st.session_state.emb_id if st.session_state.emb_id else f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
+
                 fila_maestra = [
-                    st.session_state.emb_id,                       # A: ID_EMBARQUE
-                    str(st.session_state.cont_val).strip(),        # B: CONTENEDOR
+                    id_embarque_final,                             # A: ID_EMBARQUE
+                    num_c_guardar,                                 # B: CONTENEDOR
                     str(st.session_state.mes_val),                 # C: MES
-                    str(st.session_state.fec_val),                # D: FECHA
+                    str(st.session_state.fec_val),                 # D: FECHA
                     str(st.session_state.pi_val).strip(),          # E: N°_PI
                     str(st.session_state.bk_val).strip(),          # F: BOOKING
                     str(st.session_state.cli_val).strip(),         # G: CLIENTE
@@ -1434,9 +1405,9 @@ def render_module(user, get_gspread_client):
                     *pres_cols,                                    # K a Z: PRESENTACION_1..8 y BULTOS_1..8
                     float(st.session_state.pay_val),               # AA: payload_contenedor
                     int(tot_b_gral),                               # AB: total_bultos
-                    float(round(peso_tot_gral, 2)),               # AC: peso_bruto
-                    float(round(peso_a_favor, 2)),                # AD: margen_a_favor
-                    float(round(prom_global, 3)),                 # AE: promedio_global
+                    float(round(peso_tot_gral, 2)),                # AC: peso_bruto
+                    float(round(peso_a_favor, 2)),                 # AD: margen_a_favor
+                    float(round(prom_global, 3)),                  # AE: promedio_global
                     int(tot_placas_sum),                           # AF: placas
                     int(tot_tunel_sum),                            # AG: tunel
                     int(tot_iqf_sum),                              # AH: iqf
@@ -1461,7 +1432,9 @@ def render_module(user, get_gspread_client):
                 ok, res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra, forzar_nuevo=es_modo_nuevo)
 
                 if ok:
-                    st.success(f"✅ Contenedor {st.session_state.cont_val} guardado con éxito. Promedio Bulto ({val_prom_saco_planta} kg), Block ({val_block_planta} kg) y Plus ({val_plus_planta}%) registrados.")
+                    st.success(f"🎉 {res_msg}")
+                    # Renovar el ID de embarque para que el siguiente contenedor que ingreses no choque con el anterior
+                    st.session_state.emb_id = f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
                 else:
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
