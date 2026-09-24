@@ -910,6 +910,7 @@ def render_module(user, get_gspread_client):
         data_pres_tabla.append(r_d)
     df_pres_global = pd.DataFrame(data_pres_tabla)
 
+    # ------------------ INICIALIZACIÓN TABLA CONGELADO ------------------
     if "df_congelado_edit" not in st.session_state or len(st.session_state.df_congelado_edit) != len(caps_reales_actuales):
         filas_sist_init = []
         for f_idx in range(len(caps_reales_actuales)):
@@ -1108,6 +1109,7 @@ def render_module(user, get_gspread_client):
 
         st.dataframe(df_pres_global, hide_index=True, use_container_width=True, height=280)
 
+    # ------------------ TAB 3: PLACAS / TÚNEL / IQF (OPTIMIZADO CON FORMULARIO) ------------------
     with tab_placa_tunel:
         st.markdown("#### Configuración de Sistema de Congelación")
 
@@ -1133,6 +1135,7 @@ def render_module(user, get_gspread_client):
         num_filas_actual = len(caps_reales_actuales)
         df_editor_source = st.session_state.df_congelado_edit.copy()
 
+        # Automatización de modos 100%
         if modo_cong_opc == "Solo Placas (100% de la carga)":
             for idx in range(num_filas_actual):
                 cap_f = caps_reales_actuales[idx]
@@ -1140,6 +1143,16 @@ def render_module(user, get_gspread_client):
                 df_editor_source.at[idx, "TUNEL"] = 0
                 df_editor_source.at[idx, "IQF"] = 0
                 df_editor_source.at[idx, "TOTAL"] = cap_f
+                df_editor_source.at[idx, "TM"] = round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+            st.session_state.df_congelado_edit = df_editor_source
+
+            st.dataframe(
+                df_editor_source,
+                hide_index=True,
+                use_container_width=True,
+                height=320
+            )
+
         elif modo_cong_opc == "Solo Túnel (100% de la carga)":
             for idx in range(num_filas_actual):
                 cap_f = caps_reales_actuales[idx]
@@ -1147,22 +1160,45 @@ def render_module(user, get_gspread_client):
                 df_editor_source.at[idx, "TUNEL"] = cap_f
                 df_editor_source.at[idx, "IQF"] = 0
                 df_editor_source.at[idx, "TOTAL"] = cap_f
+                df_editor_source.at[idx, "TM"] = round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+            st.session_state.df_congelado_edit = df_editor_source
 
-        st.info("💡 En 'Mixto' la tabla se limpia en 0 para digitar directamente fila por fila:")
+            st.dataframe(
+                df_editor_source,
+                hide_index=True,
+                use_container_width=True,
+                height=320
+            )
 
-        df_congelado_resultado = st.data_editor(
-            df_editor_source,
-            disabled=["N° FILA", "TM", "TOTAL"],
-            hide_index=True,
-            use_container_width=True,
-            height=320,
-            key=f"grid_cong_{v}_{num_filas_actual}"
-        )
+        else:
+            # MODO MIXTO CON BUFFER Y FORMULARIO (NO SE LAJEA NI RECARGA EN CADA FILA)
+            st.info("✍️ **Modo Mixto Activo:** Digita libremente las cantidades de Placas, Túnel e IQF fila por fila. Al finalizar, presiona el botón verde **'🔄 Actualizar y Calcular Distribución Mixta'** para consolidar los cálculos.")
 
-        df_congelado_resultado["TOTAL"] = df_congelado_resultado["PLACAS"] + df_congelado_resultado["TUNEL"] + df_congelado_resultado["IQF"]
-        df_congelado_resultado["TM"] = round((df_congelado_resultado["TOTAL"] * float(st.session_state.wstd_val)) / 1000.0, 4)
-        st.session_state.df_congelado_edit = df_congelado_resultado
+            with st.form("form_mixto_congelado"):
+                df_grid_ingreso = st.data_editor(
+                    df_editor_source,
+                    disabled=["N° FILA", "TM", "TOTAL"],
+                    hide_index=True,
+                    use_container_width=True,
+                    height=320,
+                    key=f"grid_cong_batch_{v}_{num_filas_actual}"
+                )
+                
+                btn_actualizar_mixto = st.form_submit_button(
+                    "🔄 Actualizar y Calcular Distribución Mixta",
+                    type="secondary",
+                    use_container_width=True
+                )
 
+                if btn_actualizar_mixto:
+                    df_grid_ingreso["TOTAL"] = df_grid_ingreso["PLACAS"] + df_grid_ingreso["TUNEL"] + df_grid_ingreso["IQF"]
+                    df_grid_ingreso["TM"] = round((df_grid_ingreso["TOTAL"] * float(st.session_state.wstd_val)) / 1000.0, 4)
+                    st.session_state.df_congelado_edit = df_grid_ingreso
+                    st.success("✅ ¡Distribución mixta consolidada y calculada correctamente!")
+                    st.rerun()
+
+        # Métricas de congelación
+        df_congelado_resultado = st.session_state.df_congelado_edit
         tot_placas_sum = int(df_congelado_resultado["PLACAS"].sum())
         tot_tunel_sum = int(df_congelado_resultado["TUNEL"].sum())
         tot_iqf_sum = int(df_congelado_resultado["IQF"].sum())
@@ -1330,7 +1366,7 @@ def render_module(user, get_gspread_client):
                     st.rerun()
 
     # =========================================================================
-    # GUARDADO CENTRALIZADO (SIN append_row DESFASADO)
+    # GUARDADO CENTRALIZADO (DESDE COLUMNA A DIRECTO)
     # =========================================================================
     st.markdown("---")
     btn_label = f"💾 Guardar / Actualizar Información de {st.session_state.cont_val or 'Contenedor'} en Sheets"
@@ -1426,3 +1462,5 @@ def render_module(user, get_gspread_client):
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
                 st.error(f"Error al guardar en Sheets: {e}")
+  
+    
