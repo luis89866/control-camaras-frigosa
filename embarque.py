@@ -78,9 +78,9 @@ def generar_lote_juliano(fecha_obj):
     try:
         yy = str(fecha_obj.year)[-2:]
         juliano = fecha_obj.timetuple().tm_yday
-        return f"LT 0{yy}.{juliano:03d}"
+        return f"LT {yy} {juliano:03d}"
     except Exception:
-        return "LT 026.001"
+        return "LT 26 001"
 
 def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     num_filas = len(filas_capacidades)
@@ -494,7 +494,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         for c in cols_s[1:]:
             try:
                 val_s = pd.to_numeric(df_sist_limpio[c], errors='coerce').fillna(0).sum()
-                tot_s.append(f"{val_s:,.2f}" if "TM" in c.upper() else f"{int(sum_val):,}")
+                tot_s.append(f"{val_s:,.2f}" if "TM" in c.upper() else f"{int(val_s):,}")
             except Exception:
                 tot_s.append("-")
         t_s_data.append(tot_s)
@@ -1055,13 +1055,25 @@ def render_module(user, get_gspread_client):
             col_target = cols_l[i % 4]
             item_l = st.session_state.lotes_items[i]
             with col_target:
+                # 1. Selector de fecha
                 fl = st.date_input(f"Fecha {i+1}:", value=item_l["fecha"], key=f"fl_{i}_{v}")
-                lot_txt = st.text_input(f"Lote {i+1}:", value=item_l["lote"], key=f"cl_{i}_{v}")
+                
+                # 2. Si el usuario cambia la fecha, auto-calcula con el formato 'LT 26 001'
+                if fl != item_l["fecha"]:
+                    item_l["fecha"] = fl
+                    item_l["lote"] = generar_lote_juliano(fl)
+                    st.session_state[f"cl_{i}_{v}"] = item_l["lote"]
+
+                # 3. Campo de texto editable (puedes digitar manualmente años anteriores)
+                lot_txt = st.text_input(f"Lote {i+1}:", value=item_l["lote"], key=f"cl_{i}_{v}").strip().upper()
+                
+                # 4. Cantidad de bultos
                 bl = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(item_l["bultos"]), step=10, key=f"bl_{i}_{v}")
+                
                 item_l["fecha"] = fl
                 item_l["lote"] = lot_txt
                 item_l["bultos"] = int(bl)
-                lista_lotes_calc.append({"fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt.strip(), "cantidad": int(bl)})
+                lista_lotes_calc.append({"fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt, "cantidad": int(bl)})
 
         cols_bloqueadas = ["N° FILA", "TM"] + headers_l
         st.info("💡 Solo edita el número en **CANT/FILA** si deseas balancear (+1, -1). El resto se recalcula solo.")
@@ -1172,7 +1184,7 @@ def render_module(user, get_gspread_client):
 
         else:
             # MODO MIXTO CON BUFFER Y FORMULARIO (NO SE LAJEA NI RECARGA EN CADA FILA)
-            st.info("✍️ **Modo Mixto Activo:** Digita libremente las cantidades de Placas, Túnel e IQF fila por fila. Al finalizar, presiona el botón verde **'🔄 Actualizar y Calcular Distribución Mixta'** para consolidar los cálculos.")
+            st.info("✍️ **Modo Mixto Activo:** Digita libremente las cantidades de Placas, Túnel e IQF fila por fila. Al finalizar, presiona el botón **'🔄 Actualizar y Calcular Distribución Mixta'** para consolidar los cálculos.")
 
             with st.form("form_mixto_congelado"):
                 df_grid_ingreso = st.data_editor(
@@ -1462,5 +1474,3 @@ def render_module(user, get_gspread_client):
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
                 st.error(f"Error al guardar en Sheets: {e}")
-  
-    
