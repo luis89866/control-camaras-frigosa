@@ -95,7 +95,7 @@ def calcular_horas_extras(hora_entrada_dt, hora_salida_dt, modo_turno, es_doming
     
     texto_h_m = formatear_horas_minutos_texto(minutos_extras_totales)
 
-    # Retornamos además minutos_trabajados para registrar las horas laboradas totales
+    # Retorna también minutos_trabajados para el registro en la Columna N
     return he_tot_val, h_pag_val, h_bg_val, h_bd_val, texto_h_m, minutos_trabajados
 
 def verificar_registro_existente(cargar_datos, codigo, fecha_str):
@@ -150,24 +150,66 @@ def render_module(user, get_sheet, cargar_datos):
         nombre = nombre_sesion
 
     # =========================================================================
-    # CALCULADORA RÁPIDA DE SALIDA (RENGANCHE 9 HRS)
+    # CALCULADORAS RÁPIDAS DE JORNADA Y TURNOS
     # =========================================================================
-    with st.expander("🧮 Calculadora Rápida de Salida (Turnos Especiales / Renganche)"):
-        st.caption("Calcula la hora exacta de salida sumando las horas de jornada.")
-        c_calc1, c_calc2, c_calc3 = st.columns(3)
-        with c_calc1:
-            hora_ing_calc = st.text_input("Hora de Ingreso (Ej: 12:00):", "12:00", key="calc_h_ing")
-        with c_calc2:
-            horas_a_cubrir = st.number_input("Horas a Cubrir:", min_value=4.0, max_value=14.0, step=0.5, value=9.0, key="calc_hrs_cubrir")
-        with c_calc3:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Calcular Hora de Salida", key="btn_ejecutar_calc"):
-                try:
-                    dt_ing_calc = datetime.strptime(hora_ing_calc.strip(), "%H:%M")
-                    dt_sal_calc = dt_ing_calc + timedelta(hours=float(horas_a_cubrir))
-                    st.success(f"🎯 Hora de Salida Sugerida: **{dt_sal_calc.strftime('%H:%M')}**")
-                except Exception:
-                    st.error("Formato de hora inválido. Use HH:MM.")
+    with st.expander("🧮 Calculadoras Rápidas de Jornada y Turnos", expanded=False):
+        tab_calc_salida, tab_calc_tiempo = st.tabs([
+            "🎯 Calcular Hora de Salida", 
+            "⏱️ Calcular Tiempo Trabajado (Entrada ➔ Salida)"
+        ])
+        
+        # --- TAB 1: CALCULAR SALIDA SEGÚN HORAS A CUBRIR ---
+        with tab_calc_salida:
+            st.caption("Calcula la hora exacta de salida sumando las horas de jornada a la entrada.")
+            c_calc1, c_calc2, c_calc3 = st.columns(3)
+            with c_calc1:
+                hora_ing_calc = st.text_input("Hora de Ingreso (Ej: 08:00 o 12:00):", "08:00", key="calc_h_ing")
+            with c_calc2:
+                horas_a_cubrir = st.number_input("Horas a Cubrir:", min_value=1.0, max_value=24.0, step=0.5, value=9.0, key="calc_hrs_cubrir")
+            with c_calc3:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("Calcular Hora de Salida", key="btn_ejecutar_calc"):
+                    try:
+                        dt_ing_calc = datetime.strptime(hora_ing_calc.strip(), "%H:%M")
+                        dt_sal_calc = dt_ing_calc + timedelta(hours=float(horas_a_cubrir))
+                        st.success(f"🎯 Hora de Salida Sugerida: **{dt_sal_calc.strftime('%H:%M')}**")
+                    except Exception:
+                        st.error("Formato de hora inválido. Use HH:MM.")
+
+        # --- TAB 2: CALCULAR TIEMPO TRABAJADO ENTRE ENTRADA Y SALIDA ---
+        with tab_calc_tiempo:
+            st.caption("Calcula el total de horas y minutos trabajados entre dos horas (soporta cambio de día / amanecida).")
+            c_t1, c_t2, c_t3 = st.columns(3)
+            with c_t1:
+                h_in_trab = st.text_input("Hora de Ingreso (Ej: 07:30):", "07:30", key="calc_trab_ing")
+            with c_t2:
+                h_out_trab = st.text_input("Hora de Salida (Ej: 19:45):", "19:45", key="calc_trab_sal")
+            with c_t3:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("Calcular Horas Trabajadas", key="btn_ejecutar_calc_trab"):
+                    try:
+                        dt_in = datetime.strptime(h_in_trab.strip(), "%H:%M")
+                        dt_out = datetime.strptime(h_out_trab.strip(), "%H:%M")
+                        
+                        min_in = dt_in.hour * 60 + dt_in.minute
+                        min_out = dt_out.hour * 60 + dt_out.minute
+                        
+                        # Manejo de amanecida / cruce de medianoche
+                        if min_out <= min_in:
+                            min_totales = (1440 - min_in) + min_out
+                            amanecida_txt = " *(Turno de amanecida / cambio de día)*"
+                        else:
+                            min_totales = min_out - min_in
+                            amanecida_txt = ""
+                        
+                        tiempo_texto = formatear_horas_minutos_texto(min_totales)
+                        tiempo_punto = minutos_a_formato_punto(min_totales)
+                        horas_decimal = round(min_totales / 60.0, 2)
+                        
+                        st.success(f"⏱️ **Tiempo Trabajado:** **{tiempo_texto}**{amanecida_txt}")
+                        st.info(f"📊 **Formato Sheets (H.MM):** `{tiempo_punto}` | **Horas Decimales:** `{horas_decimal} hrs`")
+                    except Exception:
+                        st.error("Formato de hora inválido. Asegúrese de ingresar en formato HH:MM (ej: 08:00, 21:30).")
 
     # 1. VISUALIZADOR DE SALDOS
     try:
@@ -243,7 +285,7 @@ def render_module(user, get_sheet, cargar_datos):
                     id_reg = f"EXC-{datetime.now().strftime('%y%m%d%H%M%S')}"
                     etiqueta = f"EXCEPCIÓN: {tipo_asistencia}" + (f" - Tardanza: {minutos_tardanza} min" if es_tardanza else "") + (f" - {motivo_excepcion}" if motivo_excepcion else "")
                     
-                    # Estructura A hasta N (14 columnas)
+                    # Estructura de A a N (14 columnas exactas)
                     ws_asist.append_row([
                         id_reg, codigo_per, nombre, fecha_actual_str, 
                         "00:00", "00:00", modo_turno, 
@@ -276,7 +318,7 @@ def render_module(user, get_sheet, cargar_datos):
                         id_reg = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
                         obs_ing = "Ingreso Registrado" + (f" - Tardanza: {min_tard_ing} min" if es_tardanza_ing else "")
                         
-                        # Estructura A hasta N (14 columnas)
+                        # Estructura de A a N (14 columnas exactas)
                         ws_asist.append_row([
                             id_reg, codigo_per, nombre, fecha_actual_str, 
                             hora_ingreso_input.strip(), "", modo_turno, 
@@ -328,7 +370,7 @@ def render_module(user, get_sheet, cargar_datos):
                         id_reg = f"REG-{datetime.now().strftime('%y%m%d%H%M%S')}"
                         h_trab_val = minutos_a_formato_punto(minutos_trabajados_tot)
 
-                        # Estructura A hasta N (14 columnas exactas)
+                        # Estructura exacta de A hasta N (14 columnas)
                         fila_datos = [
                             id_reg,                             # A: id_registro
                             str(codigo_per).strip(),            # B: codigo_personal
@@ -436,7 +478,7 @@ def render_module(user, get_sheet, cargar_datos):
                                     ws_asist.append_row([
                                         id_reg, cod_vac, nom_vac, f_str, "00:00", "00:00", "Sin Producción", 
                                         0.0, 0.0, 0.0, "EXCEPCIÓN: Vacaciones", "Completado",
-                                        "", 0.0  # M y N
+                                        "", 0.0  # Columnas M y N
                                     ])
                                     current_d += timedelta(days=1)
                                 st.success("✅ Vacaciones registradas.")
@@ -470,7 +512,7 @@ def render_module(user, get_sheet, cargar_datos):
                                     ws_asist.append_row([
                                         id_reg_l, cod_lic, nom_lic, f_str_l, "00:00", "00:00", "Sin Producción", 
                                         0.0, 0.0, 0.0, detalle_lic, "Completado",
-                                        "", 0.0  # M y N
+                                        "", 0.0  # Columnas M y N
                                     ])
                                     current_dl += timedelta(days=1)
                                 st.success("✅ Licencia registrada.")
@@ -512,7 +554,7 @@ def render_module(user, get_sheet, cargar_datos):
                                     "00:00", "00:00", "Sin Producción", 
                                     0.0, 0.0, 0.0, 
                                     "EXCEPCIÓN: Compensación de Horas", "Completado",
-                                    "", 0.0  # M y N
+                                    "", 0.0  # Columnas M y N
                                 ])
                                 curr_c += timedelta(days=1)
 
