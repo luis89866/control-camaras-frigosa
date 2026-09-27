@@ -1,4 +1,5 @@
 from datetime import datetime
+import time
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
@@ -74,13 +75,20 @@ def registrar_log(
     st.warning(f"No se pudo registrar log: {e}")
 
 
-# --- INICIALIZACIÓN DE VARIABLES DE SESIÓN ---
+# --- INICIALIZACIÓN DE VARIABLES DE SESIÓN Y SEGURIDAD ---
 if "logged_in" not in st.session_state:
   st.session_state.logged_in = False
   st.session_state.user_info = None
 
 if "modulo_activo" not in st.session_state:
   st.session_state.modulo_activo = "Home"
+
+# Variables para control de intentos de acceso
+if "intentos_login" not in st.session_state:
+  st.session_state.intentos_login = 0
+
+if "tiempo_bloqueo" not in st.session_state:
+  st.session_state.tiempo_bloqueo = 0
 
 
 # --- CONTROL DE ACCESO BASADO EN ROLES (RBAC) ---
@@ -104,7 +112,7 @@ def obtener_modulos_permitidos(rol_usuario):
   return permisos.get(rol_clean, ["Asistencia"])
 
 
-# --- FORMULARIO DE INICIO DE SESIÓN ---
+# --- FORMULARIO DE INICIO DE SESIÓN CON BLOQUEO POR INTENTOS ---
 def login_form():
   st.markdown(
       "<h2 style='text-align: center; color: #1E3D59;'>❄️ OPERACIONES / WMS"
@@ -114,6 +122,20 @@ def login_form():
   col1, col2, col3 = st.columns([1, 1.2, 1])
 
   with col2:
+    ahora = time.time()
+
+    # Verificar si la sesión se encuentra bloqueada por superar intentos
+    if ahora < st.session_state.tiempo_bloqueo:
+      segundos_restantes = int(st.session_state.tiempo_bloqueo - ahora)
+      minutos = segundos_restantes // 60
+      segundos = segundos_restantes % 60
+      st.error(
+          f"⛔ **Acceso bloqueado por seguridad.**\n\nHa superado el límite de"
+          f" 5 intentos fallidos. Espere **{minutos:02d}:{segundos:02d}**"
+          " minutos para volver a intentar."
+      )
+      return
+
     with st.form("login_form"):
       usuario_input = st.text_input("Usuario").strip().lower()
       pin_input = st.text_input("PIN (Clave)", type="password").strip()
@@ -122,6 +144,10 @@ def login_form():
       )
 
       if submit:
+        if not usuario_input or not pin_input:
+          st.warning("Por favor ingrese su usuario y PIN.")
+          return
+
         try:
           df_users = cargar_datos("Usuarios")
           # Normalización de columnas de la hoja Usuarios
@@ -141,14 +167,34 @@ def login_form():
           ]
 
           if not match.empty:
+            # Éxito: restablecemos los contadores
+            st.session_state.intentos_login = 0
+            st.session_state.tiempo_bloqueo = 0
             st.session_state.logged_in = True
             st.session_state.user_info = match.iloc[0].to_dict()
             st.session_state.modulo_activo = "Home"
             st.rerun()
           else:
-            st.error("Usuario o PIN incorrecto.")
+            # Fallo: incrementamos contador
+            st.session_state.intentos_login += 1
+            restantes = 5 - st.session_state.intentos_login
+
+            if st.session_state.intentos_login >= 5:
+              st.session_state.tiempo_bloqueo = time.time() + 300  # 5 minutos
+              st.session_state.intentos_login = 0
+              st.error(
+                  "⛔ Ha alcanzado el límite de 5 intentos fallidos. El acceso ha"
+                  " sido bloqueado por 5 minutos."
+              )
+              st.rerun()
+            else:
+              st.error(
+                  f"Usuario o PIN incorrecto. Le quedan **{restantes}**"
+                  " intento(s)."
+              )
+
         except Exception as e:
-          st.error(f"Error de conexión con Usuarios: {e}")
+          st.error(f"Error de conexión con el sistema: {e}")
 
 
 if not st.session_state.logged_in:
