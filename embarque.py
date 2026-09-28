@@ -1045,7 +1045,7 @@ def render_module(user, get_gspread_client):
             )
 
     # =========================================================================
-    # PESTAÑAS (INCLUYENDO VISOR DOCUMENTAL 6)
+    # PESTAÑAS (INCLUYENDO VISOR DOCUMENTAL 6 BLINDADO)
     # =========================================================================
     tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos, tab_visor = st.tabs([
         "📅 1. Plano Estiba (Lotes)",
@@ -1423,12 +1423,12 @@ def render_module(user, get_gspread_client):
                     st.success("Foto de involucrado eliminada.")
                     st.rerun()
 
-    # ------------------ TAB 6: VISOR DOCUMENTAL INTEGRADO Y ESTADO ------------------
+    # ------------------ TAB 6: VISOR DOCUMENTAL Y ESTADO (RENDERIZADO SEGURO ANTI-BLOQUEO) ------------------
     with tab_visor:
         st.markdown("#### 🔎 Centro de Visualización de Documentos y Evidencias")
-        st.caption(f"Revisión en vivo de los adjuntos y expediente del contenedor: **{st.session_state.cont_val or 'Sin Contenedor Asignado'}**")
+        st.caption(f"Inspección directa de los archivos del contenedor: **{st.session_state.cont_val or 'Sin Contenedor Asignado'}**")
 
-        # Panel de Estado de Documentación
+        # 1. Semáforo de Estado
         v_c1, v_c2, v_c3, v_c4 = st.columns(4)
         has_ir = bool(db_actual.get("bytes_ir"))
         has_temp = bool(db_actual.get("bytes_temp"))
@@ -1458,10 +1458,39 @@ def render_module(user, get_gspread_client):
                 st.warning("⚠️ Aún no se ha cargado el Reporte de Inspección (IR) para este contenedor.")
             else:
                 if isinstance(b_ir_view, (bytes, bytearray)) and b_ir_view.startswith(b'%PDF'):
-                    b64_pdf = base64.b64encode(b_ir_view).decode('utf-8')
-                    pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="750px" type="application/pdf" style="border: 1px solid #CBD5E0; border-radius: 8px;"></iframe>'
-                    st.markdown(pdf_display, unsafe_allow_html=True)
-                    st.download_button("📥 Descargar Archivo IR (PDF)", data=b_ir_view, file_name=f"IR_{st.session_state.cont_val}.pdf", mime="application/pdf")
+                    c_act1, c_act2 = st.columns([1.5, 3])
+                    with c_act1:
+                        st.download_button(
+                            "📥 Descargar Archivo IR (PDF)",
+                            data=b_ir_view,
+                            file_name=f"IR_{st.session_state.cont_val or 'Contenedor'}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                    
+                    # Extracción inteligente de páginas para visualización 100% nativa anti-bloqueo Chrome
+                    try:
+                        reader = pypdf.PdfReader(io.BytesIO(b_ir_view))
+                        imagenes_encontradas = []
+                        for page in reader.pages:
+                            for img_obj in page.images:
+                                imagenes_encontradas.append(img_obj.data)
+                        
+                        if imagenes_encontradas:
+                            st.info(f"Visualizando {len(imagenes_encontradas)} página(s) del documento IR:")
+                            for idx_img, b_pg in enumerate(imagenes_encontradas):
+                                st.image(b_pg, caption=f"Página {idx_img+1} - Reporte IR", use_container_width=True)
+                        else:
+                            # Visor JS alternativo homologado en Chrome
+                            b64_pdf = base64.b64encode(b_ir_view).decode('utf-8')
+                            visor_html = f'''
+                            <object data="data:application/pdf;base64,{b64_pdf}" type="application/pdf" width="100%" height="700px">
+                                <embed src="data:application/pdf;base64,{b64_pdf}" type="application/pdf" />
+                            </object>
+                            '''
+                            st.components.v1.html(visor_html, height=720)
+                    except Exception:
+                        st.info("Utilice el botón superior para abrir o descargar el documento PDF con nitidez.")
                 else:
                     st.image(b_ir_view, caption=f"Reporte IR - Contenedor {st.session_state.cont_val}", use_container_width=True)
 
@@ -1490,10 +1519,28 @@ def render_module(user, get_gspread_client):
             if not pdf_dossier_bytes_cache:
                 st.info("ℹ️ Ingrese el N° de Contenedor y los datos básicos para previsualizar el dossier completo.")
             else:
-                b64_dossier = base64.b64encode(pdf_dossier_bytes_cache).decode('utf-8')
-                pdf_dossier_display = f'<iframe src="data:application/pdf;base64,{b64_dossier}" width="100%" height="750px" type="application/pdf" style="border: 1px solid #CBD5E0; border-radius: 8px;"></iframe>'
-                st.markdown(pdf_dossier_display, unsafe_allow_html=True)
-                st.download_button("📥 Descargar Reporte de Embarque Oficial (PDF)", data=pdf_dossier_bytes_cache, file_name=f"Reporte_Embarque_{st.session_state.cont_val}.pdf", mime="application/pdf")
+                st.download_button(
+                    "📥 Descargar Reporte de Embarque Oficial (PDF Completo)",
+                    data=pdf_dossier_bytes_cache,
+                    file_name=f"Reporte_Embarque_{st.session_state.cont_val}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+                
+                # Renderizado por páginas del reporte generado para vista inmediata
+                try:
+                    reader_dos = pypdf.PdfReader(io.BytesIO(pdf_dossier_bytes_cache))
+                    st.success(f"Reporte Consolidado generado con éxito ({len(reader_dos.pages)} páginas listas para despacho).")
+                    
+                    b64_dossier = base64.b64encode(pdf_dossier_bytes_cache).decode('utf-8')
+                    visor_dossier_html = f'''
+                    <object data="data:application/pdf;base64,{b64_dossier}#toolbar=1" type="application/pdf" width="100%" height="750px">
+                        <embed src="data:application/pdf;base64,{b64_dossier}#toolbar=1" type="application/pdf" />
+                    </object>
+                    '''
+                    st.components.v1.html(visor_dossier_html, height=780)
+                except Exception:
+                    st.info("Presione el botón verde arriba para descargar o abrir el reporte.")
 
     # =========================================================================
     # GUARDADO CENTRALIZADO (DESDE COLUMNA A DIRECTO)
