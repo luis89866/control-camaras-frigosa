@@ -213,7 +213,7 @@ def obtener_estilo_color_margen(margen_val):
         return colors.HexColor("#C6F6D5"), colors.HexColor("#22543D"), "MARGEN (A FAVOR):"
 
 # =========================================================================
-# REPORTE DE PESOS Y BALANZA
+# REPORTE DE PESOS Y BALANZA (SIN VISUALIZACIÓN DE PLUS EN EL PDF)
 # =========================================================================
 def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     buffer = io.BytesIO()
@@ -231,7 +231,6 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
 
     prom_saco_txt = f"{resumen.get('promedio_global', 0.0):.3f} KG"
     block_txt = f"{resumen.get('peso_block_planta', 0.0):.3f} KG" if resumen.get('peso_block_planta', 0.0) > 0 else "-"
-    plus_txt = f"{resumen.get('porcentaje_plus_planta', 0.0):+.2f} %" if resumen.get('peso_block_planta', 0.0) > 0 else "-"
     tipo_env = resumen.get('tipo_envase', 'Saco')
     tara_env = resumen.get('tara_descuento', 0.15)
     nb_env = resumen.get('bloques_x_bulto', 2)
@@ -239,6 +238,7 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     margen_v = resumen.get('peso_a_favor', 0.0)
     bg_margen, txt_margen, lbl_margen = obtener_estilo_color_margen(margen_v)
 
+    # Nota: Se retiró el campo PLUS (%) del PDF para evitar observaciones gerenciales
     data_cab = [
         ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
         ["CLIENTE:", cabecera.get('cliente', '-'), "DESTINO:", cabecera.get('destino', '-')],
@@ -247,7 +247,7 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", lbl_margen, f"{abs(margen_v):,.2f} KG"],
         ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", f"{tipo_env} (Tara: {tara_env:.2f} kg)"],
         [f"PESO PROMEDIO {tipo_env.upper()}:", prom_saco_txt, "PESO BLOCK ESTIMADO:", block_txt],
-        ["PLUS (%):", plus_txt, "N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)"]
+        ["N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)", "ESTADO PESAJE:", "CONFORME / EMBARQUE"]
     ]
     t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
     t_cab.setStyle(TableStyle([
@@ -312,6 +312,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     cols_dinamicas = [c for c in cols_totales if c not in cols_fijas]
     num_lotes = len(cols_dinamicas)
 
+    # Bloques dinámicos para tolerar 20, 30 o 40 lotes con total elegancia en PDF
     tamano_bloque = 8 if num_lotes <= 8 else 5
     bloques = [cols_dinamicas[i:i + tamano_bloque] for i in range(0, len(cols_dinamicas), tamano_bloque)]
     if not bloques:
@@ -320,7 +321,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     for num_b, bloque_cols in enumerate(bloques):
         if num_b > 0:
             elementos.append(PageBreak())
-        sub_sufijo = f" (PARTE {num_b + 1})" if len(bloques) > 1 else ""
+        sub_sufijo = f" (PARTE {num_b + 1} DE {len(bloques)})" if len(bloques) > 1 else ""
         elementos.append(Paragraph(titulo_tab + sub_sufijo, titulo_style))
         elementos.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | FECHA: {cabecera['fecha']} | CLIENTE: {cabecera.get('cliente', '-')}", sub_style))
         elementos.append(Spacer(1, 4))
@@ -405,7 +406,6 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
 
     prom_saco_txt = f"{resumen.get('promedio_global', 0.0):.3f} KG"
     block_txt = f"{resumen.get('peso_block_planta', 0.0):.3f} KG" if resumen.get('peso_block_planta', 0.0) > 0 else "-"
-    plus_txt = f"{resumen.get('porcentaje_plus_planta', 0.0):+.2f} %" if resumen.get('peso_block_planta', 0.0) > 0 else "-"
     tipo_env = resumen.get('tipo_envase', 'Saco')
     tara_env = resumen.get('tara_descuento', 0.15)
     nb_env = resumen.get('bloques_x_bulto', 2)
@@ -413,6 +413,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     margen_v = resumen.get('peso_a_favor', 0.0)
     bg_margen, txt_margen, lbl_margen = obtener_estilo_color_margen(margen_v)
 
+    # Nota: También se retiró PLUS (%) de la carátula del Reporte de Embarque
     data_cab = [
         ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
         ["CLIENTE:", cabecera.get('cliente', '-'), "DESTINO:", cabecera.get('destino', '-')],
@@ -421,7 +422,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", lbl_margen, f"{abs(margen_v):,.2f} KG"],
         ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", f"{tipo_env} (Tara: {tara_env:.2f} kg)"],
         [f"PESO PROMEDIO {tipo_env.upper()}:", prom_saco_txt, "PESO BLOCK ESTIMADO:", block_txt],
-        ["PLUS (%):", plus_txt, "N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)"]
+        ["N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)", "ESTADO EMBARQUE:", "DESPACHADO / CONFORME"]
     ]
     t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
     t_cab.setStyle(TableStyle([
@@ -1030,6 +1031,7 @@ def render_module(user, get_gspread_client):
         "📸 5. IR, Temp, Packing & Involucrado"
     ])
 
+    # ------------------ TAB 1: PLANO ESTIBA (LOTES AMPLIADO HASTA 40) ------------------
     with tab_estiba_lotes:
         st.markdown("#### Configuración de Filas y Capacidad")
         cf1, cf2, cf3, cf4 = st.columns(4)
@@ -1043,7 +1045,8 @@ def render_module(user, get_gspread_client):
             st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {st.session_state.nfil_val}:", min_value=20, max_value=100, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
             st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
 
-        n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=12, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
+        # Ampliado de 12 a 40 lotes máximos para soportar contenedores grandes o consolidados
+        n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=40, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
         while len(st.session_state.lotes_items) < n_lotes:
             st.session_state.lotes_items.append({"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0})
         while len(st.session_state.lotes_items) > n_lotes:
@@ -1055,19 +1058,16 @@ def render_module(user, get_gspread_client):
             col_target = cols_l[i % 4]
             item_l = st.session_state.lotes_items[i]
             with col_target:
-                # 1. Selector de fecha
                 fl = st.date_input(f"Fecha {i+1}:", value=item_l["fecha"], key=f"fl_{i}_{v}")
                 
-                # 2. Si el usuario cambia la fecha, auto-calcula con el formato 'LT 26 001'
+                # Auto-cálculo si cambia la fecha (formato LT 26 001)
                 if fl != item_l["fecha"]:
                     item_l["fecha"] = fl
                     item_l["lote"] = generar_lote_juliano(fl)
                     st.session_state[f"cl_{i}_{v}"] = item_l["lote"]
 
-                # 3. Campo de texto editable (puedes digitar manualmente años anteriores)
+                # Campo editable libremente
                 lot_txt = st.text_input(f"Lote {i+1}:", value=item_l["lote"], key=f"cl_{i}_{v}").strip().upper()
-                
-                # 4. Cantidad de bultos
                 bl = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(item_l["bultos"]), step=10, key=f"bl_{i}_{v}")
                 
                 item_l["fecha"] = fl
@@ -1121,7 +1121,7 @@ def render_module(user, get_gspread_client):
 
         st.dataframe(df_pres_global, hide_index=True, use_container_width=True, height=280)
 
-    # ------------------ TAB 3: PLACAS / TÚNEL / IQF (OPTIMIZADO CON FORMULARIO) ------------------
+    # ------------------ TAB 3: PLACAS / TÚNEL / IQF ------------------
     with tab_placa_tunel:
         st.markdown("#### Configuración de Sistema de Congelación")
 
@@ -1147,7 +1147,6 @@ def render_module(user, get_gspread_client):
         num_filas_actual = len(caps_reales_actuales)
         df_editor_source = st.session_state.df_congelado_edit.copy()
 
-        # Automatización de modos 100%
         if modo_cong_opc == "Solo Placas (100% de la carga)":
             for idx in range(num_filas_actual):
                 cap_f = caps_reales_actuales[idx]
@@ -1183,7 +1182,6 @@ def render_module(user, get_gspread_client):
             )
 
         else:
-            # MODO MIXTO CON BUFFER Y FORMULARIO (NO SE LAJEA NI RECARGA EN CADA FILA)
             st.info("✍️ **Modo Mixto Activo:** Digita libremente las cantidades de Placas, Túnel e IQF fila por fila. Al finalizar, presiona el botón **'🔄 Actualizar y Calcular Distribución Mixta'** para consolidar los cálculos.")
 
             with st.form("form_mixto_congelado"):
@@ -1209,7 +1207,6 @@ def render_module(user, get_gspread_client):
                     st.success("✅ ¡Distribución mixta consolidada y calculada correctamente!")
                     st.rerun()
 
-        # Métricas de congelación
         df_congelado_resultado = st.session_state.df_congelado_edit
         tot_placas_sum = int(df_congelado_resultado["PLACAS"].sum())
         tot_tunel_sum = int(df_congelado_resultado["TUNEL"].sum())
@@ -1221,6 +1218,7 @@ def render_module(user, get_gspread_client):
         s3.metric("Total IQF", f"{tot_iqf_sum:,} b")
         s4.metric("Total Congelado", f"{tot_placas_sum + tot_tunel_sum + tot_iqf_sum:,} b")
 
+    # ------------------ TAB 4: CONTROL DE PESOS (PLUS VISIBLE EN EL APP) ------------------
     with tab_pesos:
         st.markdown("#### 1. Muestreo de Control de Pesos en Balanza")
         cols_w = st.columns(max(len(lista_pres_mem), 1))
@@ -1253,6 +1251,8 @@ def render_module(user, get_gspread_client):
 
         st.markdown("---")
         st.markdown("#### ⚖️ 2. Liquidación Técnica del Muestreo (Block, Tara y Plus)")
+        st.caption("Visibilidad interna de supervisión: El plus y el peso block se controlan aquí y se respaldan en Sheets, pero se omiten del PDF.")
+
         col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
         with col_cfg1:
             idx_env = 0 if st.session_state.tipo_envase_val == "Saco" else 1
@@ -1293,13 +1293,13 @@ def render_module(user, get_gspread_client):
         m_res1, m_res2, m_res3 = st.columns(3)
         m_res1.metric(f"Promedio {env_sel} (Muestreo)", f"{prom_global:.3f} kg")
         m_res2.metric("⚖️ Peso Block Neto", f"{p_block_disp:.3f} kg")
-        m_res3.metric("📈 Plus (%)", f"{p_plus_disp:+.2f} %")
+        m_res3.metric("📈 Plus Real (%)", f"{p_plus_disp:+.2f} %", help="Control interno exclusivo de supervisión (no figura en el PDF final)")
 
         st.markdown("---")
         try:
             pdf_pesos_bytes = generar_pdf_pesos_solos(cabecera_pdf_maestra, presentaciones_data_global, resumen_pdf_maestro)
             st.download_button(
-                "📄 Descargar Reporte de Control de Pesos y Balanza",
+                "📄 Descargar Reporte de Control de Pesos y Balanza (Sin Plus)",
                 data=pdf_pesos_bytes,
                 file_name=f"Pesos_{st.session_state.cont_val}.pdf",
                 mime="application/pdf",
