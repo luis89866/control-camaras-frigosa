@@ -4,6 +4,7 @@ from datetime import date, datetime
 import io
 import base64
 from PIL import Image as PILImage, ImageOps
+import pypdf
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -105,7 +106,7 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # =========================================================================
-# GESTIÓN DE FOTOS EN SHEETS (CHUNKING)
+# GESTIÓN DE ADJUNTOS EN SHEETS (PDFs O IMÁGENES VIA CHUNKING)
 # =========================================================================
 def obtener_hoja_adjuntos_fotos(get_gspread_client):
     client = get_gspread_client()
@@ -116,7 +117,7 @@ def obtener_hoja_adjuntos_fotos(get_gspread_client):
     try:
         return sh.worksheet("ADJUNTOS_FOTOS")
     except Exception:
-        ws = sh.add_worksheet(title="ADJUNTOS_FOTOS", rows=1500, cols=6)
+        ws = sh.add_worksheet(title="ADJUNTOS_FOTOS", rows=2500, cols=6)
         ws.append_row(["CONTENEDOR", "TIPO_FOTO", "PARTE", "FECHA_REGISTRO", "BASE64_DATA"])
         return ws
 
@@ -135,7 +136,7 @@ def eliminar_foto_de_sheets(get_gspread_client, num_contenedor, tipo_foto):
         for f_del in reversed(filas_a_eliminar):
             ws.delete_rows(f_del)
     except Exception as e:
-        st.caption(f"Nota al eliminar foto: {e}")
+        st.caption(f"Nota al eliminar adjunto: {e}")
 
 def guardar_foto_en_sheets(get_gspread_client, num_contenedor, tipo_foto, b_data):
     if not b_data or not num_contenedor:
@@ -157,7 +158,7 @@ def guardar_foto_en_sheets(get_gspread_client, num_contenedor, tipo_foto, b_data
         if nuevas_filas:
             ws.append_rows(nuevas_filas)
     except Exception as e:
-        st.caption(f"Nota al guardar foto: {e}")
+        st.caption(f"Nota al guardar adjunto: {e}")
 
 def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
     resultado = {"IR": None, "TEMP": None, "PACK": None, "INVOLUCRADO": None}
@@ -238,7 +239,6 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     margen_v = resumen.get('peso_a_favor', 0.0)
     bg_margen, txt_margen, lbl_margen = obtener_estilo_color_margen(margen_v)
 
-    # Nota: Se retiró el campo PLUS (%) del PDF para evitar observaciones gerenciales
     data_cab = [
         ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
         ["CLIENTE:", cabecera.get('cliente', '-'), "DESTINO:", cabecera.get('destino', '-')],
@@ -312,7 +312,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     cols_dinamicas = [c for c in cols_totales if c not in cols_fijas]
     num_lotes = len(cols_dinamicas)
 
-    # Bloques dinámicos para tolerar 20, 30 o 40 lotes con total elegancia en PDF
+    # Bloques dinámicos: soporta hasta 100 lotes partiendo ordenadamente en páginas
     tamano_bloque = 8 if num_lotes <= 8 else 5
     bloques = [cols_dinamicas[i:i + tamano_bloque] for i in range(0, len(cols_dinamicas), tamano_bloque)]
     if not bloques:
@@ -413,7 +413,6 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     margen_v = resumen.get('peso_a_favor', 0.0)
     bg_margen, txt_margen, lbl_margen = obtener_estilo_color_margen(margen_v)
 
-    # Nota: También se retiró PLUS (%) de la carátula del Reporte de Embarque
     data_cab = [
         ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
         ["CLIENTE:", cabecera.get('cliente', '-'), "DESTINO:", cabecera.get('destino', '-')],
@@ -515,8 +514,12 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_s_pdf)
 
+    # Anexos fotográficos directos (Temp, Packing, Involucrado)
+    # Nota: El IR si es imagen se incluye aquí; si es PDF se inserta directamente vía pypdf al final
+    es_ir_pdf = foto_ir_bytes and foto_ir_bytes.startswith(b'%PDF')
+
     fotos_anexo = [
-        ("ANEXO: REPORTE DE INSPECCIÓN (IR / EIR)", "REGISTRO FOTOGRÁFICO DE INSPECCIÓN TÉCNICA DEL CONTENEDOR", foto_ir_bytes),
+        ("ANEXO: REPORTE DE INSPECCIÓN (IR / EIR)", "REGISTRO FOTOGRÁFICO DE INSPECCIÓN TÉCNICA DEL CONTENEDOR", foto_ir_bytes if not es_ir_pdf else None),
         ("ANEXO: CONTROL DE TEMPERATURA / TERMOKING", "REGISTRO VISUAL DEL DISPLAY DE TEMPERATURA DE SETEO / SALIDA", foto_temp_bytes),
         ("ANEXO: PACKING LIST / GUÍA DE EMBARQUE", "REGISTRO FOTOGRÁFICO DEL PACKING LIST OFICIAL DE PLANTA", foto_pack_bytes),
         ("ANEXO: CONSTANCIA FOTOGRÁFICA DE SUPERVISIÓN EN PLANTA", "EVIDENCIA DE CONTROL DIRECTO Y SUPERVISIÓN EN DESPACHO", foto_invol_bytes)
@@ -544,6 +547,28 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
 
     doc.build(story)
     buffer_dossier.seek(0)
+
+    # Si el IR fue cargado como archivo PDF nativo, fusionarlo directamente manteniendo la nitidez digital
+    if es_ir_pdf:
+        try:
+            merger = pypdf.PdfWriter()
+            reader_dossier = pypdf.PdfReader(buffer_dossier)
+            for page in reader_dossier.pages:
+                merger.add_page(page)
+
+            reader_ir = pypdf.PdfReader(io.BytesIO(foto_ir_bytes))
+            for page_ir in reader_ir.pages:
+                merger.add_page(page_ir)
+
+            out_buf = io.BytesIO()
+            merger.write(out_buf)
+            out_buf.seek(0)
+            return out_buf
+        except Exception as e_pdf_merge:
+            st.caption(f"Nota en acople de IR PDF: {e_pdf_merge}")
+            buffer_dossier.seek(0)
+            return buffer_dossier
+
     return buffer_dossier
 
 # =========================================================================
@@ -808,7 +833,7 @@ def render_module(user, get_gspread_client):
                     except Exception:
                         pass
 
-                    with st.spinner("Sincronizando fotos guardadas desde la base de datos..."):
+                    with st.spinner("Sincronizando fotos y reportes guardados desde la base de datos..."):
                         fotos_recuperadas = recuperar_fotos_de_sheets(get_gspread_client, num_c_cargado)
                         if num_c_cargado not in st.session_state.fotos_contenedor_db:
                             st.session_state.fotos_contenedor_db[num_c_cargado] = {}
@@ -1028,10 +1053,10 @@ def render_module(user, get_gspread_client):
         "📦 2. Plano Estiba (Presentaciones)",
         "❄️ 3. Placas / Túnel / IQF",
         "⚖️ 4. Control de Pesos (Balanza)",
-        "📸 5. IR, Temp, Packing & Involucrado"
+        "📸 5. IR (PDF/Foto), Temp, Packing & Involucrado"
     ])
 
-    # ------------------ TAB 1: PLANO ESTIBA (LOTES AMPLIADO HASTA 40) ------------------
+    # ------------------ TAB 1: PLANO ESTIBA (HASTA 100 LOTES) ------------------
     with tab_estiba_lotes:
         st.markdown("#### Configuración de Filas y Capacidad")
         cf1, cf2, cf3, cf4 = st.columns(4)
@@ -1045,8 +1070,8 @@ def render_module(user, get_gspread_client):
             st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {st.session_state.nfil_val}:", min_value=20, max_value=100, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
             st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
 
-        # Ampliado de 12 a 40 lotes máximos para soportar contenedores grandes o consolidados
-        n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=40, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
+        # Configurado hasta 100 lotes
+        n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=100, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
         while len(st.session_state.lotes_items) < n_lotes:
             st.session_state.lotes_items.append({"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0})
         while len(st.session_state.lotes_items) > n_lotes:
@@ -1308,23 +1333,47 @@ def render_module(user, get_gspread_client):
         except Exception as e_pesos:
             st.caption(f"Generando reporte de pesos: {e_pesos}")
 
+    # ------------------ TAB 5: PANEL DOCUMENTAL (IR EN PDF O FOTO) ------------------
     with tab_adjuntos:
-        st.markdown("#### 📸 Panel Documental Fotográfico del Contenedor")
+        st.markdown("#### 📸 Panel Documental del Contenedor")
+        st.caption("El Reporte de Inspección (IR) puede subirse como archivo **PDF nativo** desde PC o en imagen JPG/PNG. Al guardar en Sheets se conservará y se cargará en cualquier momento.")
+
         c_f1, c_f2 = st.columns(2)
         with c_f1:
-            st.markdown("##### 📄 1. Foto de Inspección (IR / EIR)")
-            foto_ir = st.file_uploader("Subir / Reemplazar foto Reporte IR:", type=["jpg", "jpeg", "png"], key=f"up_ir_{v}")
+            st.markdown("##### 📄 1. Reporte de Inspección (IR / EIR)")
+            foto_ir = st.file_uploader(
+                "Subir / Reemplazar Reporte IR (PDF o Imagen):", 
+                type=["pdf", "jpg", "jpeg", "png"], 
+                key=f"up_ir_{v}"
+            )
             if foto_ir:
-                b_opt = optimizar_bytes_imagen(foto_ir.getvalue())
-                db_actual["bytes_ir"] = b_opt
-                st.image(b_opt, caption="Foto IR Cargada", use_container_width=True)
+                raw_bytes = foto_ir.getvalue()
+                if foto_ir.name.lower().endswith(".pdf") or raw_bytes.startswith(b'%PDF'):
+                    db_actual["bytes_ir"] = raw_bytes
+                    st.success(f"📄 Archivo PDF cargado con éxito: **{foto_ir.name}** (Listo para guardar)")
+                else:
+                    b_opt = optimizar_bytes_imagen(raw_bytes)
+                    db_actual["bytes_ir"] = b_opt
+                    st.image(b_opt, caption="Foto IR Cargada (Lista para guardar)", use_container_width=True)
             elif db_actual.get("bytes_ir"):
-                st.image(db_actual["bytes_ir"], caption="Foto IR Activa", use_container_width=True)
-                if st.button("🗑️ Quitar / Eliminar Foto IR", key=f"del_ir_{v}"):
+                b_ir_exist = db_actual["bytes_ir"]
+                if isinstance(b_ir_exist, (bytes, bytearray)) and b_ir_exist.startswith(b'%PDF'):
+                    st.success("📄 **Documento PDF del IR actualmente activo y respaldado.**")
+                    st.download_button(
+                        "👁️ Descargar / Previsualizar IR (PDF)",
+                        data=b_ir_exist,
+                        file_name=f"IR_{st.session_state.cont_val or 'Contenedor'}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                else:
+                    st.image(b_ir_exist, caption="Foto IR Activa", use_container_width=True)
+                
+                if st.button("🗑️ Quitar / Eliminar Documento IR", key=f"del_ir_{v}"):
                     db_actual["bytes_ir"] = None
                     if curr_c_id:
                         eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "IR")
-                    st.success("Foto IR eliminada.")
+                    st.success("Reporte IR eliminado.")
                     st.rerun()
 
         with c_f2:
@@ -1390,7 +1439,7 @@ def render_module(user, get_gspread_client):
                 num_c_guardar = st.session_state.cont_val.strip().upper()
                 db_c_guardar = st.session_state.fotos_contenedor_db.get(num_c_guardar, {})
 
-                with st.spinner("Guardando fotos en la base de datos..."):
+                with st.spinner("Guardando archivos y fotos en la base de datos..."):
                     if db_c_guardar.get("bytes_ir"):
                         guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "IR", db_c_guardar["bytes_ir"])
                     if db_c_guardar.get("bytes_temp"):
