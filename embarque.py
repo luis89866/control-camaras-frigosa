@@ -312,7 +312,6 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
     cols_dinamicas = [c for c in cols_totales if c not in cols_fijas]
     num_lotes = len(cols_dinamicas)
 
-    # Bloques dinámicos: soporta hasta 100 lotes partiendo ordenadamente en páginas
     tamano_bloque = 8 if num_lotes <= 8 else 5
     bloques = [cols_dinamicas[i:i + tamano_bloque] for i in range(0, len(cols_dinamicas), tamano_bloque)]
     if not bloques:
@@ -514,8 +513,6 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_s_pdf)
 
-    # Anexos fotográficos directos (Temp, Packing, Involucrado)
-    # Nota: El IR si es imagen se incluye aquí; si es PDF se inserta directamente vía pypdf al final
     es_ir_pdf = foto_ir_bytes and foto_ir_bytes.startswith(b'%PDF')
 
     fotos_anexo = [
@@ -548,7 +545,6 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     doc.build(story)
     buffer_dossier.seek(0)
 
-    # Si el IR fue cargado como archivo PDF nativo, fusionarlo directamente manteniendo la nitidez digital
     if es_ir_pdf:
         try:
             merger = pypdf.PdfWriter()
@@ -1048,12 +1044,16 @@ def render_module(user, get_gspread_client):
                 use_container_width=True
             )
 
-    tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos = st.tabs([
+    # =========================================================================
+    # PESTAÑAS (INCLUYENDO VISOR DOCUMENTAL 6)
+    # =========================================================================
+    tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos, tab_visor = st.tabs([
         "📅 1. Plano Estiba (Lotes)",
         "📦 2. Plano Estiba (Presentaciones)",
         "❄️ 3. Placas / Túnel / IQF",
         "⚖️ 4. Control de Pesos (Balanza)",
-        "📸 5. IR (PDF/Foto), Temp, Packing & Involucrado"
+        "📸 5. IR (PDF/Foto), Temp, Packing & Involucrado",
+        "🔎 6. Visor Documental y Estado"
     ])
 
     # ------------------ TAB 1: PLANO ESTIBA (HASTA 100 LOTES) ------------------
@@ -1070,7 +1070,6 @@ def render_module(user, get_gspread_client):
             st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {st.session_state.nfil_val}:", min_value=20, max_value=100, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
             st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
 
-        # Configurado hasta 100 lotes
         n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=100, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
         while len(st.session_state.lotes_items) < n_lotes:
             st.session_state.lotes_items.append({"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0})
@@ -1085,13 +1084,11 @@ def render_module(user, get_gspread_client):
             with col_target:
                 fl = st.date_input(f"Fecha {i+1}:", value=item_l["fecha"], key=f"fl_{i}_{v}")
                 
-                # Auto-cálculo si cambia la fecha (formato LT 26 001)
                 if fl != item_l["fecha"]:
                     item_l["fecha"] = fl
                     item_l["lote"] = generar_lote_juliano(fl)
                     st.session_state[f"cl_{i}_{v}"] = item_l["lote"]
 
-                # Campo editable libremente
                 lot_txt = st.text_input(f"Lote {i+1}:", value=item_l["lote"], key=f"cl_{i}_{v}").strip().upper()
                 bl = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(item_l["bultos"]), step=10, key=f"bl_{i}_{v}")
                 
@@ -1425,6 +1422,78 @@ def render_module(user, get_gspread_client):
                         eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "INVOLUCRADO")
                     st.success("Foto de involucrado eliminada.")
                     st.rerun()
+
+    # ------------------ TAB 6: VISOR DOCUMENTAL INTEGRADO Y ESTADO ------------------
+    with tab_visor:
+        st.markdown("#### 🔎 Centro de Visualización de Documentos y Evidencias")
+        st.caption(f"Revisión en vivo de los adjuntos y expediente del contenedor: **{st.session_state.cont_val or 'Sin Contenedor Asignado'}**")
+
+        # Panel de Estado de Documentación
+        v_c1, v_c2, v_c3, v_c4 = st.columns(4)
+        has_ir = bool(db_actual.get("bytes_ir"))
+        has_temp = bool(db_actual.get("bytes_temp"))
+        has_pack = bool(db_actual.get("bytes_pack"))
+        has_invol = bool(db_actual.get("bytes_invol"))
+
+        v_c1.markdown(f"**Reporte IR:** {'🟢 Cargado' if has_ir else '🔴 Pendiente'}")
+        v_c2.markdown(f"**Temperatura:** {'🟢 Cargado' if has_temp else '🔴 Pendiente'}")
+        v_c3.markdown(f"**Packing List:** {'🟢 Cargado' if has_pack else '🔴 Pendiente'}")
+        v_c4.markdown(f"**Involucrado:** {'🟢 Cargado' if has_invol else '🔴 Pendiente'}")
+
+        st.markdown("---")
+
+        opciones_visor = [
+            "📄 1. Reporte de Inspección (IR / EIR)",
+            "❄️ 2. Foto de Temperatura (Termoking)",
+            "📋 3. Foto de Packing List",
+            "👤 4. Foto de Supervisor en Planta",
+            "📦 5. Reporte Consolidado de Embarque (PDF Completo)"
+        ]
+
+        doc_elegido = st.selectbox("Seleccione el Documento a Inspeccionar:", opciones_visor)
+
+        if "1. Reporte de Inspección" in doc_elegido:
+            b_ir_view = db_actual.get("bytes_ir")
+            if not b_ir_view:
+                st.warning("⚠️ Aún no se ha cargado el Reporte de Inspección (IR) para este contenedor.")
+            else:
+                if isinstance(b_ir_view, (bytes, bytearray)) and b_ir_view.startswith(b'%PDF'):
+                    b64_pdf = base64.b64encode(b_ir_view).decode('utf-8')
+                    pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="750px" type="application/pdf" style="border: 1px solid #CBD5E0; border-radius: 8px;"></iframe>'
+                    st.markdown(pdf_display, unsafe_allow_html=True)
+                    st.download_button("📥 Descargar Archivo IR (PDF)", data=b_ir_view, file_name=f"IR_{st.session_state.cont_val}.pdf", mime="application/pdf")
+                else:
+                    st.image(b_ir_view, caption=f"Reporte IR - Contenedor {st.session_state.cont_val}", use_container_width=True)
+
+        elif "2. Foto de Temperatura" in doc_elegido:
+            b_temp_view = db_actual.get("bytes_temp")
+            if not b_temp_view:
+                st.warning("⚠️ No hay registro fotográfico de temperatura para este contenedor.")
+            else:
+                st.image(b_temp_view, caption=f"Display de Temperatura - Contenedor {st.session_state.cont_val}", use_container_width=True)
+
+        elif "3. Foto de Packing List" in doc_elegido:
+            b_pack_view = db_actual.get("bytes_pack")
+            if not b_pack_view:
+                st.warning("⚠️ No hay fotografía de Packing List cargada.")
+            else:
+                st.image(b_pack_view, caption=f"Packing List Oficial - Contenedor {st.session_state.cont_val}", use_container_width=True)
+
+        elif "4. Foto de Supervisor" in doc_elegido:
+            b_invol_view = db_actual.get("bytes_invol")
+            if not b_invol_view:
+                st.warning("⚠️ No hay fotografía de supervisión en planta cargada.")
+            else:
+                st.image(b_invol_view, caption=f"Supervisión en Planta - Luis Enrique Fiestas Eca", use_container_width=True)
+
+        elif "5. Reporte Consolidado" in doc_elegido:
+            if not pdf_dossier_bytes_cache:
+                st.info("ℹ️ Ingrese el N° de Contenedor y los datos básicos para previsualizar el dossier completo.")
+            else:
+                b64_dossier = base64.b64encode(pdf_dossier_bytes_cache).decode('utf-8')
+                pdf_dossier_display = f'<iframe src="data:application/pdf;base64,{b64_dossier}" width="100%" height="750px" type="application/pdf" style="border: 1px solid #CBD5E0; border-radius: 8px;"></iframe>'
+                st.markdown(pdf_dossier_display, unsafe_allow_html=True)
+                st.download_button("📥 Descargar Reporte de Embarque Oficial (PDF)", data=pdf_dossier_bytes_cache, file_name=f"Reporte_Embarque_{st.session_state.cont_val}.pdf", mime="application/pdf")
 
     # =========================================================================
     # GUARDADO CENTRALIZADO (DESDE COLUMNA A DIRECTO)
