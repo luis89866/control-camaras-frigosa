@@ -48,6 +48,7 @@ LISTA_PRESENTACIONES_FRIGOSA = [
     "TB S/U S/V 300 g/pza - 500 g/pza",
     "TB S/U S/V 2000 g/pza - 3000 g/pza",
     "TB S/U S/V 1000g /pza-UP",
+    "TB C/U C/V 1000g /pza-UP",
     "OTRO (Digitar manualmente)"
 ]
 
