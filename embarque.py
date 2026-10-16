@@ -569,7 +569,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     return buffer_dossier
 
 # =========================================================================
-# HOJA DISTRIBUCIONES (GUARDADO BLINDADO HASTA COLUMNA AX: COLUMNA 50)
+# HOJA DISTRIBUCIONES (GUARDADO POR ID_EMBARQUE Y HASTA COLUMNA AX: 50 COLS)
 # =========================================================================
 def obtener_hoja_distribuciones(get_gspread_client):
     client = get_gspread_client()
@@ -582,14 +582,27 @@ def obtener_hoja_distribuciones(get_gspread_client):
 def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo=False):
     try:
         ws = obtener_hoja_distribuciones(get_gspread_client)
-        col_b_vals = ws.col_values(2)
-        num_cont = str(datos_fila[1]).strip().upper()
+        col_a_ids = ws.col_values(1)       # Columna A: ID_EMBARQUE
+        col_b_conts = ws.col_values(2)     # Columna B: CONTENEDOR
+        
+        target_id = str(datos_fila[0]).strip().upper()
+        target_cont = str(datos_fila[1]).strip().upper()
 
         fila_idx = None
-        for idx, c_val in enumerate(col_b_vals):
-            if str(c_val).strip().upper() == num_cont and idx > 0:
-                fila_idx = idx + 1
-                break
+
+        # 1. Búsqueda prioritaria por ID_EMBARQUE (permite renombrar el contenedor sin trabarse)
+        if not forzar_nuevo and target_id:
+            for idx, id_val in enumerate(col_a_ids):
+                if str(id_val).strip().upper() == target_id and idx > 0:
+                    fila_idx = idx + 1
+                    break
+
+        # 2. Búsqueda secundaria por N° de Contenedor
+        if fila_idx is None:
+            for idx, c_val in enumerate(col_b_conts):
+                if str(c_val).strip().upper() == target_cont and idx > 0:
+                    fila_idx = idx + 1
+                    break
 
         datos_limpios = []
         for val in datos_fila:
@@ -602,7 +615,6 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
             else:
                 datos_limpios.append(str(val))
 
-        # Abarca exactamente 50 columnas: desde A hasta AX
         while len(datos_limpios) < 50:
             datos_limpios.append("")
         datos_limpios = datos_limpios[:50]
@@ -613,15 +625,15 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
                 ws.update(range_name=rango_exacto, values=[datos_limpios])
             except Exception:
                 ws.update(rango_exacto, [datos_limpios])
-            return True, f"Contenedor '{num_cont}' actualizado exitosamente en la fila {fila_idx}."
+            return True, f"Contenedor '{target_cont}' actualizado exitosamente en la fila {fila_idx}."
         else:
-            siguiente_fila = len(col_b_vals) + 1
+            siguiente_fila = max(len(col_a_ids), len(col_b_conts)) + 1
             rango_nuevo = f"A{siguiente_fila}:AX{siguiente_fila}"
             try:
                 ws.update(range_name=rango_nuevo, values=[datos_limpios])
             except Exception:
                 ws.update(rango_nuevo, [datos_limpios])
-            return True, f"Contenedor '{num_cont}' registrado exitosamente en la fila {siguiente_fila}."
+            return True, f"Contenedor '{target_cont}' registrado exitosamente en la fila {siguiente_fila}."
 
     except Exception as e:
         return False, f"Error en Google Sheets: {str(e)}"
@@ -790,15 +802,14 @@ def render_module(user, get_gspread_client):
                         if len(fila_encontrada) > 39 and fila_encontrada[39].strip():
                             st.session_state.wstd_val = float(fila_encontrada[39].strip())
 
-                        # RECUPERACIÓN INTELIGENTE: Si existe la columna AX (50), cargar las capacidades reales fila por fila
                         target_filas_cargadas = int(st.session_state.nfil_val)
+                        # RECUPERACIÓN PRIORITARIA: Columna AX (50)
                         if len(fila_encontrada) > 49 and fila_encontrada[49].strip():
                             raw_caps_ax = fila_encontrada[49].strip().split(",")
                             st.session_state.caps_filas_override = [int(x) for x in raw_caps_ax if x.isdigit()][:target_filas_cargadas]
                             while len(st.session_state.caps_filas_override) < target_filas_cargadas:
                                 st.session_state.caps_filas_override.append(int(st.session_state.capg_val))
                         else:
-                            # Formato histórico anterior
                             def_caps = [int(st.session_state.capg_val)] * target_filas_cargadas
                             def_caps[0] = int(st.session_state.capf1_val)
                             def_caps[-1] = int(st.session_state.capfu_val)
@@ -1071,7 +1082,7 @@ def render_module(user, get_gspread_client):
             )
 
     # =========================================================================
-    # PESTAÑAS (INCLUYENDO VISOR DOCUMENTAL 6)
+    # PESTAÑAS
     # =========================================================================
     tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos, tab_visor = st.tabs([
         "📅 1. Plano Estiba (Lotes)",
@@ -1082,7 +1093,7 @@ def render_module(user, get_gspread_client):
         "🔎 6. Visor Documental y Estado"
     ])
 
-    # ------------------ TAB 1: PLANO ESTIBA (FORMULARIO BATCH AISLADO) ------------------
+    # ------------------ TAB 1: PLANO ESTIBA ------------------
     with tab_estiba_lotes:
         st.markdown("#### Configuración de Filas y Capacidad")
         
@@ -1097,7 +1108,6 @@ def render_module(user, get_gspread_client):
                 key=f"m_cap_fila_{v}"
             )
 
-        # 1. OPCIÓN A: MODO ESTÁNDAR
         if modo_cap_fila == "Modo Estándar (Fila 1, Centro y Puerta)":
             cf1, cf2, cf3, cf4 = st.columns(4)
             with cf1:
@@ -1117,9 +1127,8 @@ def render_module(user, get_gspread_client):
                 else:
                     st.session_state.caps_filas_override[i] = int(st.session_state.capg_val)
         
-        # 2. OPCIÓN B: DIGITACIÓN MANUAL FILA POR FILA (DENTRO DE FORMULARIO PARA NO RECARGAR)
         else:
-            st.info("✍️ **Modo Manual Batch:** Digita tranquilamente las cantidades de cada fila. No se recargará entre celda y celda. Al terminar, presiona el botón de abajo para aplicar los cambios.")
+            st.info("✍️ **Modo Manual Batch:** Digita tranquilamente las cantidades de cada fila. No se recargará entre celda y celda. Al terminar, presiona el botón verde de abajo para aplicar los cambios.")
             
             with st.form(f"form_filas_manuales_{v}"):
                 c_pstd, _ = st.columns([2, 2])
@@ -1155,7 +1164,6 @@ def render_module(user, get_gspread_client):
                     st.success("✅ ¡Capacidades de filas actualizadas y aplicadas correctamente!")
                     st.rerun()
 
-        # HERRAMIENTA RÁPIDA: ASIGNACIÓN DE BULTOS POR RANGO DE FILAS
         with st.expander("⚡ Asignación Rápida por Rangos de Filas (Ej: Fila 2 a 14 = 63, Fila 15 a 19 = 78)", expanded=False):
             cr1, cr2, cr3, cr4 = st.columns([1.5, 1.5, 2, 2])
             with cr1:
@@ -1682,7 +1690,7 @@ def render_module(user, get_gspread_client):
 
                 id_embarque_final = st.session_state.emb_id if st.session_state.emb_id else f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
 
-                # Serialización exacta de las capacidades fila por fila para la nueva columna AX (50)
+                # Serialización exacta de capacidades fila por fila en la nueva columna AX (50)
                 serial_caps_filas_ax = ",".join([str(int(x)) for x in caps_reales_actuales])
 
                 fila_maestra = [
