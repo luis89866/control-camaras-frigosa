@@ -569,7 +569,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     return buffer_dossier
 
 # =========================================================================
-# HOJA DISTRIBUCIONES (GUARDADO POR ID_EMBARQUE Y HASTA COLUMNA AX: 50 COLS)
+# HOJA DISTRIBUCIONES (GUARDADO BLINDADO HASTA COLUMNA AX: 50 COLUMNAS)
 # =========================================================================
 def obtener_hoja_distribuciones(get_gspread_client):
     client = get_gspread_client()
@@ -590,14 +590,12 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
 
         fila_idx = None
 
-        # 1. Búsqueda prioritaria por ID_EMBARQUE (permite renombrar el contenedor sin trabarse)
         if not forzar_nuevo and target_id:
             for idx, id_val in enumerate(col_a_ids):
                 if str(id_val).strip().upper() == target_id and idx > 0:
                     fila_idx = idx + 1
                     break
 
-        # 2. Búsqueda secundaria por N° de Contenedor
         if fila_idx is None:
             for idx, c_val in enumerate(col_b_conts):
                 if str(c_val).strip().upper() == target_cont and idx > 0:
@@ -803,17 +801,25 @@ def render_module(user, get_gspread_client):
                             st.session_state.wstd_val = float(fila_encontrada[39].strip())
 
                         target_filas_cargadas = int(st.session_state.nfil_val)
-                        # RECUPERACIÓN PRIORITARIA: Columna AX (50)
-                        if len(fila_encontrada) > 49 and fila_encontrada[49].strip():
+
+                        # EVALUACIÓN DUAL INTELIGENTE:
+                        # 1. ¿Tiene datos en la columna AX (columna 50)?
+                        tiene_ax = len(fila_encontrada) > 49 and bool(fila_encontrada[49].strip())
+
+                        if tiene_ax:
+                            # Contenedor nuevo con estiba manual: leer celda AX
                             raw_caps_ax = fila_encontrada[49].strip().split(",")
-                            st.session_state.caps_filas_override = [int(x) for x in raw_caps_ax if x.isdigit()][:target_filas_cargadas]
+                            st.session_state.caps_filas_override = [int(x) for x in raw_caps_ax if x.strip().isdigit()][:target_filas_cargadas]
                             while len(st.session_state.caps_filas_override) < target_filas_cargadas:
                                 st.session_state.caps_filas_override.append(int(st.session_state.capg_val))
+                            st.session_state["modalidad_cap_selector"] = "Digitar Cada Fila Manualmente (Sacos/Cajas)"
                         else:
+                            # Contenedor histórico anterior (celda AX vacía): leer formato antiguo AJ, AK, AL, AM
                             def_caps = [int(st.session_state.capg_val)] * target_filas_cargadas
                             def_caps[0] = int(st.session_state.capf1_val)
                             def_caps[-1] = int(st.session_state.capfu_val)
                             st.session_state.caps_filas_override = def_caps
+                            st.session_state["modalidad_cap_selector"] = "Modo Estándar (Fila 1, Centro y Puerta)"
                     except Exception:
                         pass
 
@@ -900,6 +906,7 @@ def render_module(user, get_gspread_client):
             st.session_state.peso_saco_hist = 0.0
             st.session_state.peso_block_hist = 0.0
             st.session_state.plus_hist = 0.0
+            st.session_state["modalidad_cap_selector"] = "Modo Estándar (Fila 1, Centro y Puerta)"
             st.session_state.pres_items = [{"nombre": LISTA_PRESENTACIONES_FRIGOSA[0], "bultos": 0, "peso": 20.0}]
             st.session_state.lotes_items = [{"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0}]
             st.session_state.txt_pesos_mem = {}
@@ -941,7 +948,6 @@ def render_module(user, get_gspread_client):
 
     caps_reales_actuales = [int(x) for x in st.session_state.caps_filas_override]
 
-    # Identificador único de columna por lote
     lista_lotes_mem = [{"idx": idx + 1, "fecha_txt": l["fecha"].strftime('%d/%m/%Y'), "lote_txt": l["lote"].strip(), "cantidad": int(l["bultos"])} for idx, l in enumerate(st.session_state.lotes_items)]
     headers_l = [f"L{l['idx']}: {l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_mem]
     matriz_lotes_auto = calcular_matriz_estiba(caps_reales_actuales, lista_lotes_mem)
@@ -1100,10 +1106,14 @@ def render_module(user, get_gspread_client):
         c_top1, c_top2 = st.columns([1.5, 3])
         with c_top1:
             st.session_state.nfil_val = int(st.number_input("Total Filas del Contenedor:", min_value=10, max_value=30, value=int(st.session_state.nfil_val), key=f"nfil_{v}"))
+        
+        # Recuperar estado de la modalidad seleccionada
+        default_idx_m = 1 if st.session_state.get("modalidad_cap_selector") == "Digitar Cada Fila Manualmente (Sacos/Cajas)" else 0
         with c_top2:
             modo_cap_fila = st.radio(
                 "Modalidad de Capacidad por Fila:",
                 ["Modo Estándar (Fila 1, Centro y Puerta)", "Digitar Cada Fila Manualmente (Sacos/Cajas)"],
+                index=default_idx_m,
                 horizontal=True,
                 key=f"m_cap_fila_{v}"
             )
@@ -1128,7 +1138,7 @@ def render_module(user, get_gspread_client):
                     st.session_state.caps_filas_override[i] = int(st.session_state.capg_val)
         
         else:
-            st.info("✍️ **Modo Manual Batch:** Digita tranquilamente las cantidades de cada fila. No se recargará entre celda y celda. Al terminar, presiona el botón verde de abajo para aplicar los cambios.")
+            st.info("✍️ **Modo Manual Batch:** Digita directamente los bultos por fila. Al finalizar, presiona el botón verde de abajo para confirmar.")
             
             with st.form(f"form_filas_manuales_{v}"):
                 c_pstd, _ = st.columns([2, 2])
@@ -1141,7 +1151,7 @@ def render_module(user, get_gspread_client):
 
                 for f_i in range(target_nfil):
                     with grid_cols_f[f_i % cols_per_row]:
-                        val_actual_f = int(st.session_state.caps_filas_override[f_i]) if f_i < len(st.session_state.caps_filas_override) else 63
+                        val_actual_f = int(st.session_state.caps_filas_override[f_i]) if f_i < len(st.session_state.caps_filas_override) else 75
                         v_inp = st.number_input(
                             f"Fila {f_i + 1}:", 
                             min_value=0, 
@@ -1161,6 +1171,7 @@ def render_module(user, get_gspread_client):
                 if btn_aplicar_filas:
                     st.session_state.wstd_val = float(w_man_tmp)
                     st.session_state.caps_filas_override = nuevos_valores_buffer
+                    st.session_state["modalidad_cap_selector"] = "Digitar Cada Fila Manualmente (Sacos/Cajas)"
                     st.success("✅ ¡Capacidades de filas actualizadas y aplicadas correctamente!")
                     st.rerun()
 
@@ -1178,6 +1189,7 @@ def render_module(user, get_gspread_client):
                     if r_ini <= r_fin:
                         for idx_f in range(int(r_ini) - 1, int(r_fin)):
                             st.session_state.caps_filas_override[idx_f] = int(r_cant)
+                        st.session_state["modalidad_cap_selector"] = "Digitar Cada Fila Manualmente (Sacos/Cajas)"
                         st.success(f"Filas de {r_ini} a {r_fin} fijadas en {r_cant} bultos.")
                         st.rerun()
                     else:
@@ -1211,22 +1223,14 @@ def render_module(user, get_gspread_client):
                 item_l["bultos"] = int(bl)
                 lista_lotes_calc.append({"idx": i + 1, "fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt, "cantidad": int(bl)})
 
-        cols_bloqueadas = ["N° FILA", "TM"] + headers_l
-        st.info("💡 Resumen de Distribución de Filas (puedes ajustar finamente en CANT/FILA):")
-
-        df_lotes_editado = st.data_editor(
+        # TABLA DE ESTIBA LIMPIA (SIN DUPLICACIÓN Y SIN BUCLES)
+        st.markdown("##### 📊 Plano de Distribución Calculado")
+        st.dataframe(
             df_lotes_global,
-            disabled=cols_bloqueadas,
             hide_index=True,
             use_container_width=True,
-            height=320,
-            key=f"editor_cantfila_only_{v}_{st.session_state.nfil_val}"
+            height=320
         )
-
-        nuevas_capacidades = df_lotes_editado["CANT/FILA"].astype(int).tolist()
-        if nuevas_capacidades != st.session_state.caps_filas_override:
-            st.session_state.caps_filas_override = nuevas_capacidades
-            st.rerun()
 
         tot_b_cargados = sum(caps_reales_actuales)
         tot_tm_cargados = (tot_b_cargados * float(st.session_state.wstd_val)) / 1000.0
@@ -1690,7 +1694,7 @@ def render_module(user, get_gspread_client):
 
                 id_embarque_final = st.session_state.emb_id if st.session_state.emb_id else f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
 
-                # Serialización exacta de capacidades fila por fila en la nueva columna AX (50)
+                # Serialización exacta de capacidades fila por fila en la columna AX (50)
                 serial_caps_filas_ax = ",".join([str(int(x)) for x in caps_reales_actuales])
 
                 fila_maestra = [
@@ -1715,9 +1719,9 @@ def render_module(user, get_gspread_client):
                     int(tot_iqf_sum),                              # AH: iqf
                     detalle_lotes_str,                             # AI: detalle_lotes_fechas
                     int(st.session_state.nfil_val),                # AJ: total_filas
-                    int(st.session_state.capg_val),                # AK: cap_estandar_fila (legado)
-                    int(st.session_state.capf1_val),               # AL: cap_fila_1 (legado)
-                    int(st.session_state.capfu_val),               # AM: cap_fila_puerta (legado)
+                    int(caps_reales_actuales[1]) if len(caps_reales_actuales) > 1 else int(st.session_state.capg_val), # AK: cap_estandar_fila
+                    int(caps_reales_actuales[0]),                  # AL: cap_fila_1
+                    int(caps_reales_actuales[-1]),                 # AM: cap_fila_puerta
                     float(st.session_state.wstd_val),              # AN: peso_std_bulto
                     detalle_pesos_str,                             # AO: detalle_pesos_balanza
                     link_ir_final,                                 # AP: link_foto_ir
