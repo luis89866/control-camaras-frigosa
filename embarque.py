@@ -677,6 +677,9 @@ def render_module(user, get_gspread_client):
     if "wstd_val" not in st.session_state:
         st.session_state.wstd_val = 20.00
 
+    if "modalidad_cap_selector" not in st.session_state:
+        st.session_state["modalidad_cap_selector"] = "Modo Estándar (Fila 1, Centro y Puerta)"
+
     if "tipo_envase_val" not in st.session_state:
         st.session_state.tipo_envase_val = "Saco"
     if "tara_insumos_val" not in st.session_state:
@@ -1099,7 +1102,7 @@ def render_module(user, get_gspread_client):
         "🔎 6. Visor Documental y Estado"
     ])
 
-    # ------------------ TAB 1: PLANO ESTIBA ------------------
+    # ------------------ TAB 1: PLANO ESTIBA (FORMULARIO BATCH SIN BUCLES) ------------------
     with tab_estiba_lotes:
         st.markdown("#### Configuración de Filas y Capacidad")
         
@@ -1107,7 +1110,7 @@ def render_module(user, get_gspread_client):
         with c_top1:
             st.session_state.nfil_val = int(st.number_input("Total Filas del Contenedor:", min_value=10, max_value=30, value=int(st.session_state.nfil_val), key=f"nfil_{v}"))
         
-        # Recuperar estado de la modalidad seleccionada
+        # Recuperar estado del selector de forma consistente
         default_idx_m = 1 if st.session_state.get("modalidad_cap_selector") == "Digitar Cada Fila Manualmente (Sacos/Cajas)" else 0
         with c_top2:
             modo_cap_fila = st.radio(
@@ -1223,7 +1226,7 @@ def render_module(user, get_gspread_client):
                 item_l["bultos"] = int(bl)
                 lista_lotes_calc.append({"idx": i + 1, "fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt, "cantidad": int(bl)})
 
-        # TABLA DE ESTIBA LIMPIA (SIN DUPLICACIÓN Y SIN BUCLES)
+        # TABLA DE ESTIBA LIMPIA (SIN RERUN CÍCLICO Y SIN DUPLICACIÓN)
         st.markdown("##### 📊 Plano de Distribución Calculado")
         st.dataframe(
             df_lotes_global,
