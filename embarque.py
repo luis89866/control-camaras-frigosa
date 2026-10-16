@@ -698,6 +698,10 @@ def render_module(user, get_gspread_client):
 
     v = st.session_state.form_version
 
+    # =========================================================================
+    # BARRA SUPERIOR DE SELECCIÓN Y CONTROLES
+    # =========================================================================
+    c_btn_c2 = None
     col_sel1, col_sel2 = st.columns([3, 1])
     with col_sel1:
         try:
@@ -900,7 +904,7 @@ def render_module(user, get_gspread_client):
             st.session_state.pay_val = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=34000.0, value=float(st.session_state.pay_val), step=100.0, key=f"pay_emb_{v}")
 
     # =========================================================================
-    # CONFIGURACIÓN DINÁMICA DE FILAS Y CAPACIDADES (PROTEGIDO CONTRA INDEXERROR)
+    # CONFIGURACIÓN DINÁMICA DE FILAS Y CAPACIDADES (PROTECCIÓN CONTRA INDEXERROR)
     # =========================================================================
     target_nfil = int(st.session_state.nfil_val)
     if "caps_filas_override" not in st.session_state:
@@ -919,7 +923,7 @@ def render_module(user, get_gspread_client):
     matriz_lotes_auto = calcular_matriz_estiba(caps_reales_actuales, lista_lotes_mem)
 
     data_filas_tabla = []
-    for f_idx in range(int(st.session_state.nfil_val)):
+    for f_idx in range(target_nfil):
         b_f = caps_reales_actuales[f_idx]
         tm_f = round((b_f * float(st.session_state.wstd_val)) / 1000.0, 4)
         r_dict = {"N° FILA": f_idx + 1, "TM": tm_f, "CANT/FILA": b_f}
@@ -1043,7 +1047,7 @@ def render_module(user, get_gspread_client):
         except Exception:
             pdf_dossier_bytes_cache = None
 
-    if modo_operacion == "Cargar / Editar Contenedor Existente" and st.session_state.cont_val and pdf_dossier_bytes_cache:
+    if c_btn_c2 is not None and st.session_state.cont_val and pdf_dossier_bytes_cache:
         with c_btn_c2:
             st.download_button(
                 label=f"📦 Descargar Reporte ({st.session_state.cont_val})",
@@ -1054,7 +1058,7 @@ def render_module(user, get_gspread_client):
             )
 
     # =========================================================================
-    # PESTAÑAS (INCLUYENDO VISOR DOCUMENTAL 6 BLINDADO)
+    # PESTAÑAS (INCLUYENDO VISOR DOCUMENTAL 6)
     # =========================================================================
     tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos, tab_visor = st.tabs([
         "📅 1. Plano Estiba (Lotes)",
@@ -1065,7 +1069,7 @@ def render_module(user, get_gspread_client):
         "🔎 6. Visor Documental y Estado"
     ])
 
-    # ------------------ TAB 1: PLANO ESTIBA (CONFIGURACIÓN MANUAL O POR LOTES) ------------------
+    # ------------------ TAB 1: PLANO ESTIBA (FORMULARIO BATCH AISLADO) ------------------
     with tab_estiba_lotes:
         st.markdown("#### Configuración de Filas y Capacidad")
         
@@ -1080,7 +1084,7 @@ def render_module(user, get_gspread_client):
                 key=f"m_cap_fila_{v}"
             )
 
-        # 1. OPCIÓN A: MODO ESTÁNDAR TRADICIONAL
+        # 1. OPCIÓN A: MODO ESTÁNDAR
         if modo_cap_fila == "Modo Estándar (Fila 1, Centro y Puerta)":
             cf1, cf2, cf3, cf4 = st.columns(4)
             with cf1:
@@ -1100,31 +1104,45 @@ def render_module(user, get_gspread_client):
                 else:
                     st.session_state.caps_filas_override[i] = int(st.session_state.capg_val)
         
-        # 2. OPCIÓN B: DIGITACIÓN MANUAL FILA POR FILA (PROTEGIDO)
+        # 2. OPCIÓN B: DIGITACIÓN MANUAL FILA POR FILA (DENTRO DE FORMULARIO PARA NO RECARGAR)
         else:
-            st.info("✍️ **Modo Manual Activo:** Digita directamente la capacidad exacta de bultos para cada una de las filas (sacos o cajas independientes):")
+            st.info("✍️ **Modo Manual Batch:** Digita tranquilamente las cantidades de cada fila. No se recargará entre celda y celda. Al terminar, presiona el botón verde de abajo para aplicar los cambios.")
             
-            c_pstd, _ = st.columns([2, 2])
-            with c_pstd:
-                st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_man_{v}"))
+            with st.form(f"form_filas_manuales_{v}"):
+                c_pstd, _ = st.columns([2, 2])
+                with c_pstd:
+                    w_man_tmp = st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1)
 
-            cols_per_row = 6
-            grid_cols_f = st.columns(cols_per_row)
-            
-            for f_i in range(target_nfil):
-                with grid_cols_f[f_i % cols_per_row]:
-                    val_actual_f = int(st.session_state.caps_filas_override[f_i])
-                    nuevo_val_f = st.number_input(
-                        f"Fila {f_i + 1}:", 
-                        min_value=0, 
-                        max_value=150, 
-                        value=val_actual_f, 
-                        step=1, 
-                        key=f"inp_man_f_{f_i}_{v}"
-                    )
-                    st.session_state.caps_filas_override[f_i] = int(nuevo_val_f)
+                cols_per_row = 6
+                grid_cols_f = st.columns(cols_per_row)
+                nuevos_valores_buffer = []
 
-        # HERRAMIENTA RÁPIDA: ASIGNACIÓN DE BULTOS POR RANGO DE FILAS (Sacos / Cajas)
+                for f_i in range(target_nfil):
+                    with grid_cols_f[f_i % cols_per_row]:
+                        val_actual_f = int(st.session_state.caps_filas_override[f_i])
+                        v_inp = st.number_input(
+                            f"Fila {f_i + 1}:", 
+                            min_value=0, 
+                            max_value=150, 
+                            value=val_actual_f, 
+                            step=1, 
+                            key=f"manual_f_inp_{f_i}_{v}"
+                        )
+                        nuevos_valores_buffer.append(int(v_inp))
+                
+                btn_aplicar_filas = st.form_submit_button(
+                    "🔄 Confirmar y Aplicar Capacidades de Filas", 
+                    type="primary", 
+                    use_container_width=True
+                )
+
+                if btn_aplicar_filas:
+                    st.session_state.wstd_val = float(w_man_tmp)
+                    st.session_state.caps_filas_override = nuevos_valores_buffer
+                    st.success("✅ ¡Capacidades de filas actualizadas y aplicadas correctamente!")
+                    st.rerun()
+
+        # HERRAMIENTA RÁPIDA: ASIGNACIÓN DE BULTOS POR RANGO DE FILAS
         with st.expander("⚡ Asignación Rápida por Rangos de Filas (Ej: Fila 2 a 14 = 63, Fila 15 a 19 = 78)", expanded=False):
             cr1, cr2, cr3, cr4 = st.columns([1.5, 1.5, 2, 2])
             with cr1:
@@ -1498,7 +1516,7 @@ def render_module(user, get_gspread_client):
                     st.success("Foto de involucrado eliminada.")
                     st.rerun()
 
-    # ------------------ TAB 6: VISOR DOCUMENTAL Y ESTADO (RENDERIZADO NATIVO ANTI-BLOQUEO) ------------------
+    # ------------------ TAB 6: VISOR DOCUMENTAL Y ESTADO ------------------
     with tab_visor:
         st.markdown("#### 🔎 Centro de Visualización de Documentos y Evidencias")
         st.caption(f"Inspección directa de los archivos del contenedor: **{st.session_state.cont_val or 'Sin Contenedor Asignado'}**")
