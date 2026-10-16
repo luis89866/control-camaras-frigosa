@@ -1,605 +1,3 @@
-import streamlit as st
-import pandas as pd
-from datetime import date, datetime
-import io
-import base64
-from PIL import Image as PILImage, ImageOps
-import pypdf
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-
-ID_SPREADSHEET_PRODUCCION = "1cX-C1Lrgp8SznxDs-_cjiMN6DptNusCmNoNopxBmJlg"
-
-LISTA_PRESENTACIONES_FRIGOSA = [
-    "AF 300 - 500 g/pza",
-    "AF 500- 1000 g/pza",
-    "AF 1000 g/pza - UP",
-    "AF 1000 g/pza - CV",
-    "APC 300 g/pza - UP",
-    "ANILLAS S/M S/T",
-    "BOTONES S/M S/T",
-    "CONOS",
-    "FF S/M S/T 2000-4000 g/pza",
-    "FF C/M C/T 500 g/pza - 1000 g/pz",
-    "FF C/M C/T 1000 g/pza - 2000 g/pza",
-    "FF C/M C/T 2000 g/pza - 4000 g/pza",
-    "FF C/M C/T 2000 g/pza - 4000 g/pza MANTO ",
-    "FF C/M C/T 2000 g/pza - 4000 g/pza CORTADO ",
-    "FPC 7mm - 10 mm",
-    "FPC PANZA 7mm - 10 mm",
-    "FPC MEMBRANA 7mm - 10 mm",
-    "FPC PANZA 8 mm - 14 mm",
-    "FPC MEMBRANA 8 mm - 14 mm",
-    "DESHILACHADO",
-    "DESHILACHADO F2",
-    "FPC 10mm - 14 mm",
-    "NF 100 g/pza - 300 g/pza",
-    "NF 300 g/pza - 500 g/pza",
-    "NF 500g/pza -UP",
-    "NF 0 -50 g/pza",
-    "RECORTE PRECOCIDO",
-    "RECORTE FRESCO S/M S/T",
-    "REPRODUCTOR MAYOR A 50 cm",
-    "REPRODUCTOR MENOR A 50 cm",
-    "TB C/U C/V 300 g/pza - 500 g/pza",
-    "TB C/U C/V 500 g/pza - 1000 g/pza",
-    "TB S/U S/V 300 g/pza - 500 g/pza",
-    "TB S/U S/V 2000 g/pza - 3000 g/pza",
-    "TB S/U S/V 1000g /pza-UP",
-    "TB C/U C/V 1000g /pza-UP",
-    "OTRO (Digitar manualmente)"
-]
-
-MESES_ESP = {
-    1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO",
-    7: "JULIO", 8: "AGOSTO", 9: "SETIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"
-}
-
-def obtener_peso_sugerido_presentacion(nombre_corte):
-    nombre_limpio = str(nombre_corte).strip().upper()
-    if "BOTONES" in nombre_limpio or "CAJA" in nombre_limpio:
-        return 10.00
-    return 20.00
-
-def optimizar_bytes_imagen(b_in, max_side=950, calidad=70):
-    if not b_in:
-        return None
-    try:
-        img = PILImage.open(io.BytesIO(b_in))
-        img = ImageOps.exif_transpose(img)
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
-        orig_w, orig_h = img.size
-        if max(orig_w, orig_h) > max_side:
-            ratio = max_side / float(max(orig_w, orig_h))
-            nuevo_tamano = (int(orig_w * ratio), int(orig_h * ratio))
-            img = img.resize(nuevo_tamano, PILImage.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format='JPEG', quality=calidad, optimize=True)
-        return buf.getvalue()
-    except Exception:
-        return b_in
-
-def generar_lote_juliano(fecha_obj):
-    try:
-        yy = str(fecha_obj.year)[-2:]
-        juliano = fecha_obj.timetuple().tm_yday
-        return f"LT {yy} {juliano:03d}"
-    except Exception:
-        return "LT 26 001"
-
-def calcular_matriz_estiba(filas_capacidades, lista_elementos):
-    num_filas = len(filas_capacidades)
-    num_cols = len(lista_elementos)
-    matriz = [[0 for _ in range(num_cols)] for _ in range(num_filas)]
-    col_idx = 0
-    remanente = lista_elementos[col_idx]['cantidad'] if num_cols > 0 else 0
-
-    for f_idx in range(num_filas):
-        espacio_fila = filas_capacidades[f_idx]
-        while espacio_fila > 0 and col_idx < num_cols:
-            if remanente <= 0:
-                col_idx += 1
-                if col_idx < num_cols:
-                    remanente = lista_elementos[col_idx]['cantidad']
-                else:
-                    break
-            asignar = min(espacio_fila, remanente)
-            matriz[f_idx][col_idx] += asignar
-            espacio_fila -= asignar
-            remanente -= asignar
-    return matriz
-
-# =========================================================================
-# GESTIÓN DE ADJUNTOS EN SHEETS
-# =========================================================================
-def obtener_hoja_adjuntos_fotos(get_gspread_client):
-    client = get_gspread_client()
-    try:
-        sh = client.open_by_key(ID_SPREADSHEET_PRODUCCION)
-    except Exception:
-        sh = client.open("BD_PRODUCCION_ARCHI_001")
-    try:
-        return sh.worksheet("ADJUNTOS_FOTOS")
-    except Exception:
-        ws = sh.add_worksheet(title="ADJUNTOS_FOTOS", rows=2500, cols=6)
-        ws.append_row(["CONTENEDOR", "TIPO_FOTO", "PARTE", "FECHA_REGISTRO", "BASE64_DATA"])
-        return ws
-
-def eliminar_foto_de_sheets(get_gspread_client, num_contenedor, tipo_foto):
-    if not num_contenedor or not tipo_foto:
-        return
-    try:
-        ws = obtener_hoja_adjuntos_fotos(get_gspread_client)
-        registros = ws.get_all_values()
-        num_c_clean = str(num_contenedor).strip().upper()
-        tipo_clean = str(tipo_foto).strip().upper()
-        filas_a_eliminar = []
-        for idx, r in enumerate(registros):
-            if len(r) > 1 and r[0].strip().upper() == num_c_clean and r[1].strip().upper() == tipo_clean and idx > 0:
-                filas_a_eliminar.append(idx + 1)
-        for f_del in reversed(filas_a_eliminar):
-            ws.delete_rows(f_del)
-    except Exception as e:
-        st.caption(f"Nota al eliminar adjunto: {e}")
-
-def guardar_foto_en_sheets(get_gspread_client, num_contenedor, tipo_foto, b_data):
-    if not b_data or not num_contenedor:
-        return
-    try:
-        ws = obtener_hoja_adjuntos_fotos(get_gspread_client)
-        num_c_clean = str(num_contenedor).strip().upper()
-        tipo_clean = str(tipo_foto).strip().upper()
-        fec_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        eliminar_foto_de_sheets(get_gspread_client, num_c_clean, tipo_clean)
-        b64_full = base64.b64encode(b_data).decode('utf-8')
-        tamano_chunk = 30000
-        partes = [b64_full[i:i + tamano_chunk] for i in range(0, len(b64_full), tamano_chunk)]
-
-        nuevas_filas = []
-        for idx_p, trozo in enumerate(partes):
-            nuevas_filas.append([num_c_clean, tipo_clean, str(idx_p + 1), fec_actual, trozo])
-        if nuevas_filas:
-            ws.append_rows(nuevas_filas)
-    except Exception as e:
-        st.caption(f"Nota al guardar adjunto: {e}")
-
-def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
-    resultado = {"IR": None, "TEMP": None, "PACK": None, "INVOLUCRADO": None}
-    if not num_contenedor:
-        return resultado
-    try:
-        ws = obtener_hoja_adjuntos_fotos(get_gspread_client)
-        registros = ws.get_all_values()
-        num_c_clean = str(num_contenedor).strip().upper()
-        chunks_dict = {"IR": {}, "TEMP": {}, "PACK": {}, "INVOLUCRADO": {}}
-
-        for r in registros[1:]:
-            if len(r) > 4 and r[0].strip().upper() == num_c_clean:
-                t_f = r[1].strip().upper()
-                try:
-                    num_parte = int(r[2].strip())
-                except Exception:
-                    num_parte = 1
-                trozo = r[4].strip()
-                if t_f in chunks_dict:
-                    chunks_dict[t_f][num_parte] = trozo
-
-        for clave in ["IR", "TEMP", "PACK", "INVOLUCRADO"]:
-            partes_ord = chunks_dict[clave]
-            if partes_ord:
-                b64_unido = "".join([partes_ord[k] for k in sorted(partes_ord.keys())])
-                try:
-                    resultado[clave] = base64.b64decode(b64_unido)
-                except Exception:
-                    pass
-        return resultado
-    except Exception:
-        return resultado
-
-def crear_imagen_maximizada(b_data, max_w=540, max_h=510):
-    try:
-        pil_img = PILImage.open(io.BytesIO(b_data))
-        orig_w, orig_h = pil_img.size
-        ratio = min(max_w / orig_w, max_h / orig_h)
-        final_w = orig_w * ratio
-        final_h = orig_h * ratio
-        img_io = io.BytesIO(b_data)
-        return RLImage(img_io, width=final_w, height=final_h)
-    except Exception:
-        return None
-
-def obtener_estilo_color_margen(margen_val):
-    if margen_val < 0:
-        return colors.HexColor("#FED7D7"), colors.HexColor("#9B2C2C"), "MARGEN (EN CONTRA):"
-    elif margen_val <= 500:
-        return colors.HexColor("#EBF8FF"), colors.HexColor("#2B6CB0"), "MARGEN (AL LÍMITE):"
-    else:
-        return colors.HexColor("#C6F6D5"), colors.HexColor("#22543D"), "MARGEN (A FAVOR):"
-
-# =========================================================================
-# REPORTE DE PESOS Y BALANZA (SIN PLUS EN PDF)
-# =========================================================================
-def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=20, rightMargin=20, topMargin=20, bottomMargin=20)
-    story = []
-    styles = getSampleStyleSheet()
-
-    titulo_style = ParagraphStyle('TitF', parent=styles['Heading1'], fontSize=11.5, leading=13.5, textColor=colors.HexColor("#0D3B66"), alignment=1)
-    sub_style = ParagraphStyle('SubF', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
-    cell_head_style = ParagraphStyle('CH', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
-
-    story.append(Paragraph("SEGUIMIENTO DE CONTROL DE PESO Y BALANZA - FRIGOSA SAC", titulo_style))
-    story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
-    story.append(Spacer(1, 6))
-
-    prom_saco_txt = f"{resumen.get('promedio_global', 0.0):.3f} KG"
-    block_txt = f"{resumen.get('peso_block_planta', 0.0):.3f} KG" if resumen.get('peso_block_planta', 0.0) > 0 else "-"
-    tipo_env = resumen.get('tipo_envase', 'Saco')
-    tara_env = resumen.get('tara_descuento', 0.15)
-    nb_env = resumen.get('bloques_x_bulto', 2)
-
-    margen_v = resumen.get('peso_a_favor', 0.0)
-    bg_margen, txt_margen, lbl_margen = obtener_estilo_color_margen(margen_v)
-
-    data_cab = [
-        ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
-        ["CLIENTE:", cabecera.get('cliente', '-'), "DESTINO:", cabecera.get('destino', '-')],
-        ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
-        ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
-        ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", lbl_margen, f"{abs(margen_v):,.2f} KG"],
-        ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", f"{tipo_env} (Tara: {tara_env:.2f} kg)"],
-        [f"PESO PROMEDIO {tipo_env.upper()}:", prom_saco_txt, "PESO BLOCK ESTIMADO:", block_txt],
-        ["N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)", "ESTADO PESAJE:", "CONFORME / EMBARQUE"]
-    ]
-    t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
-    t_cab.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 6.5),
-        ('TOPPADDING', (0, 0), (-1, -1), 1.6),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.6),
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F4F6F9")),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-        ('ALIGN', (1, 0), (1, -1), 'CENTER'),
-        ('ALIGN', (3, 0), (3, -1), 'CENTER'),
-        ('BACKGROUND', (2, 4), (3, 4), bg_margen),
-        ('TEXTCOLOR', (2, 4), (3, 4), txt_margen),
-        ('BACKGROUND', (0, 6), (-1, -1), colors.HexColor("#EBF8FF")),
-        ('TEXTCOLOR', (0, 6), (-1, -1), colors.HexColor("#2B6CB0")),
-    ]))
-    story.append(t_cab)
-    story.append(Spacer(1, 8))
-
-    headers = [Paragraph(f"<b>{p['nombre'].strip()}</b>", cell_head_style) for p in presentaciones_data]
-    matrix_pesos = [headers]
-    for r in range(20):
-        fila = [f"{p['pesos'][r]:.2f}" if r < len(p['pesos']) and p['pesos'][r] > 0 else "-" for p in presentaciones_data]
-        matrix_pesos.append(fila)
-
-    matrix_pesos.append([f"Bultos: {p['bultos']}" for p in presentaciones_data])
-    matrix_pesos.append([f"Prom: {p['promedio']:.3f}" for p in presentaciones_data])
-    matrix_pesos.append([f"Total: {p['total_kg']:,.1f} kg" for p in presentaciones_data])
-
-    ancho_col = 572 / max(len(presentaciones_data), 1)
-    t_muestreo = Table(matrix_pesos, colWidths=[ancho_col] * len(presentaciones_data))
-    t_muestreo.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 1), (-1, -1), 6.5),
-        ('TOPPADDING', (0, 0), (-1, -1), 1.5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1A365D")),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-        ('BACKGROUND', (0, -3), (-1, -1), colors.HexColor("#EDF2F7")),
-        ('FONTNAME', (0, -3), (-1, -1), 'Helvetica-Bold'),
-    ]))
-    story.append(t_muestreo)
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
-# =========================================================================
-# TABLAS DE ESTIBA EN PDF CON RESALTADO Y SUBRAYADO DE LOTES/CORTES
-# =========================================================================
-def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, styles):
-    elementos = []
-    if df_in is None or df_in.empty:
-        return elementos
-
-    df_trabajo = df_in.copy()
-    col_primera = df_trabajo.columns[0]
-    df_trabajo = df_trabajo[~df_trabajo[col_primera].astype(str).str.upper().str.contains("TOTAL|TOTALES", na=False)]
-
-    titulo_style = ParagraphStyle('TitF', parent=styles['Heading1'], fontSize=10.5, leading=12, textColor=colors.HexColor("#0D3B66"), alignment=1)
-    sub_style = ParagraphStyle('SubF', parent=styles['Heading2'], fontSize=7.5, leading=9.5, textColor=colors.HexColor("#2B6CB0"), alignment=1)
-    
-    cols_totales = list(df_trabajo.columns)
-    cols_fijas = ["N° FILA", "TM", "CANT/FILA"] if "CANT/FILA" in cols_totales else ["N° FILA", "TM ESTIMADO", "TOTAL BULTOS"]
-    cols_dinamicas = [c for c in cols_totales if c not in cols_fijas]
-    num_lotes = len(cols_dinamicas)
-
-    tamano_bloque = 8 if num_lotes <= 8 else 5
-    bloques = [cols_dinamicas[i:i + tamano_bloque] for i in range(0, len(cols_dinamicas), tamano_bloque)]
-    if not bloques:
-        bloques = [[]]
-
-    for num_b, bloque_cols in enumerate(bloques):
-        if num_b > 0:
-            elementos.append(PageBreak())
-        sub_sufijo = f" (PARTE {num_b + 1} DE {len(bloques)})" if len(bloques) > 1 else ""
-        elementos.append(Paragraph(titulo_tab + sub_sufijo, titulo_style))
-        elementos.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | FECHA: {cabecera['fecha']} | CLIENTE: {cabecera.get('cliente', '-')}", sub_style))
-        elementos.append(Spacer(1, 4))
-
-        cols_actuales = cols_fijas + bloque_cols
-        total_cols = len(cols_actuales)
-
-        if total_cols > 9:
-            f_size = 4.8
-            leading_h = 5.8
-            w_fijas = [28, 40, 42]
-        elif total_cols > 6:
-            f_size = 5.3
-            leading_h = 6.4
-            w_fijas = [32, 44, 46]
-        else:
-            f_size = 6.0
-            leading_h = 7.2
-            w_fijas = [38, 50, 52]
-
-        cell_head_style = ParagraphStyle('CH', parent=styles['Normal'], fontSize=f_size, leading=leading_h, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
-        num_din = len(bloque_cols)
-        w_resto = (576 - sum(w_fijas)) / max(num_din, 1)
-        col_widths = w_fijas + [w_resto] * num_din
-
-        header_row = [Paragraph(str(c).replace(" | ", "<br/>").replace("\n", "<br/>"), cell_head_style) for c in cols_actuales]
-        t_data = [header_row]
-
-        # Estilo dinámico para colorear donde hay carga y subrayar límites
-        color_resaltado = colors.HexColor("#EBF8FF") if "LOTES" in titulo_tab.upper() else colors.HexColor("#E6FFFA")
-        estilos_celdas = [
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 1), (-1, -1), f_size),
-            ('TOPPADDING', (0, 0), (-1, -1), 1.1),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 1.1),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(color_header)),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#FEFCBF")),
-            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor("#F7FAFC")]),
-        ]
-
-        fila_num_pdf = 1
-        for row_idx, r in df_trabajo.iterrows():
-            row_vals = []
-            for col_idx_actual, c in enumerate(cols_actuales):
-                val = r[c]
-                if isinstance(val, (int, float)):
-                    if c in bloque_cols and val > 0:
-                        row_vals.append(str(int(val)))
-                        # Resaltado con color suave donde hay bultos activos
-                        estilos_celdas.append(('BACKGROUND', (col_idx_actual, fila_num_pdf), (col_idx_actual, fila_num_pdf), color_resaltado))
-                        estilos_celdas.append(('FONTNAME', (col_idx_actual, fila_num_pdf), (col_idx_actual, fila_num_pdf), 'Helvetica-Bold'))
-                    elif c in bloque_cols and val == 0:
-                        row_vals.append("-")
-                    else:
-                        row_vals.append(f"{val:.2f}" if ("TM" in c.upper()) else str(int(val)))
-                else:
-                    row_vals.append(str(val))
-            
-            # Subrayar con línea más gruesa donde termina un lote o presentación
-            if row_idx < len(df_trabajo) - 1:
-                fila_actual_vals = [r[c] for c in bloque_cols]
-                fila_sig_vals = [df_trabajo.iloc[row_idx + 1][c] for c in bloque_cols]
-                # Si cambia la distribución activa de columnas, trazar línea de división
-                if (any(x > 0 for x in fila_actual_vals) and any(y > 0 for y in fila_sig_vals) and fila_actual_vals != fila_sig_vals):
-                    estilos_celdas.append(('LINEBELOW', (0, fila_num_pdf), (-1, fila_num_pdf), 1.2, colors.HexColor("#2B6CB0")))
-            
-            t_data.append(row_vals)
-            fila_num_pdf += 1
-
-        tot_row = []
-        for idx_c, col_name in enumerate(cols_actuales):
-            if idx_c == 0:
-                tot_row.append("TOTAL")
-            else:
-                try:
-                    sum_val = pd.to_numeric(df_trabajo[col_name], errors='coerce').fillna(0).sum()
-                    tot_row.append(f"{sum_val:,.2f}" if "TM" in col_name.upper() else f"{int(sum_val):,}")
-                except Exception:
-                    tot_row.append("-")
-        t_data.append(tot_row)
-
-        t_pdf = Table(t_data, colWidths=col_widths)
-        t_pdf.setStyle(TableStyle(estilos_celdas))
-        elementos.append(t_pdf)
-
-    return elementos
-
-def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentaciones_data, resumen, foto_ir_bytes=None, foto_temp_bytes=None, foto_pack_bytes=None, foto_invol_bytes=None):
-    buffer_dossier = io.BytesIO()
-    doc = SimpleDocTemplate(buffer_dossier, pagesize=letter, leftMargin=18, rightMargin=18, topMargin=18, bottomMargin=18)
-    story = []
-    styles = getSampleStyleSheet()
-
-    titulo_style = ParagraphStyle('TitD', parent=styles['Heading1'], fontSize=11.5, leading=13.5, textColor=colors.HexColor("#0D3B66"), alignment=1)
-    sub_style = ParagraphStyle('SubD', parent=styles['Heading2'], fontSize=8, leading=10, textColor=colors.HexColor("#2B6CB0"), alignment=1)
-    cell_head_style = ParagraphStyle('CHD', parent=styles['Normal'], fontSize=6.0, leading=7.5, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
-
-    story.append(Paragraph("REPORTE DE EMBARQUE - FRIGOSA SAC", titulo_style))
-    story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
-    story.append(Spacer(1, 5))
-
-    prom_saco_txt = f"{resumen.get('promedio_global', 0.0):.3f} KG"
-    block_txt = f"{resumen.get('peso_block_planta', 0.0):.3f} KG" if resumen.get('peso_block_planta', 0.0) > 0 else "-"
-    tipo_env = resumen.get('tipo_envase', 'Saco')
-    tara_env = resumen.get('tara_descuento', 0.15)
-    nb_env = resumen.get('bloques_x_bulto', 2)
-
-    margen_v = resumen.get('peso_a_favor', 0.0)
-    bg_margen, txt_margen, lbl_margen = obtener_estilo_color_margen(margen_v)
-
-    data_cab = [
-        ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
-        ["CLIENTE:", cabecera.get('cliente', '-'), "DESTINO:", cabecera.get('destino', '-')],
-        ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
-        ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO PLANTA:", f"{resumen['peso_total']:,.2f} KG"],
-        ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", lbl_margen, f"{abs(margen_v):,.2f} KG"],
-        ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", f"{tipo_env} (Tara: {tara_env:.2f} kg)"],
-        [f"PESO PROMEDIO {tipo_env.upper()}:", prom_saco_txt, "PESO BLOCK ESTIMADO:", block_txt],
-        ["N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)", "ESTADO EMBARQUE:", "DESPACHADO / CONFORME"]
-    ]
-    t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
-    t_cab.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 6.5),
-        ('TOPPADDING', (0, 0), (-1, -1), 1.6),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.6),
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F4F6F9")),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-        ('ALIGN', (1, 0), (1, -1), 'CENTER'),
-        ('ALIGN', (3, 0), (3, -1), 'CENTER'),
-        ('BACKGROUND', (2, 4), (3, 4), bg_margen),
-        ('TEXTCOLOR', (2, 4), (3, 4), txt_margen),
-        ('BACKGROUND', (0, 6), (-1, -1), colors.HexColor("#EBF8FF")),
-        ('TEXTCOLOR', (0, 6), (-1, -1), colors.HexColor("#2B6CB0")),
-    ]))
-    story.append(t_cab)
-    story.append(Spacer(1, 6))
-
-    if presentaciones_data:
-        headers_w = [Paragraph(f"<b>{p['nombre'].strip()}</b>", cell_head_style) for p in presentaciones_data]
-        matrix_pesos = [headers_w]
-        for r in range(20):
-            fila = [f"{p['pesos'][r]:.2f}" if r < len(p['pesos']) and p['pesos'][r] > 0 else "-" for p in presentaciones_data]
-            matrix_pesos.append(fila)
-
-        matrix_pesos.append([f"Bultos: {p['bultos']}" for p in presentaciones_data])
-        matrix_pesos.append([f"Prom: {p['promedio']:.3f}" for p in presentaciones_data])
-        matrix_pesos.append([f"Total: {p['total_kg']:,.1f} kg" for p in presentaciones_data])
-
-        ancho_col = 572 / max(len(presentaciones_data), 1)
-        t_muestreo = Table(matrix_pesos, colWidths=[ancho_col] * len(presentaciones_data))
-        t_muestreo.setStyle(TableStyle([
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 1), (-1, -1), 6.5),
-            ('TOPPADDING', (0, 0), (-1, -1), 1.5),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1A365D")),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-            ('BACKGROUND', (0, -3), (-1, -1), colors.HexColor("#EDF2F7")),
-            ('FONTNAME', (0, -3), (-1, -1), 'Helvetica-Bold'),
-        ]))
-        story.append(t_muestreo)
-
-    if df_lotes is not None and not df_lotes.empty:
-        story.append(PageBreak())
-        story.extend(construir_flowables_tabla_estiba(df_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
-
-    if df_pres is not None and not df_pres.empty:
-        story.append(PageBreak())
-        story.extend(construir_flowables_tabla_estiba(df_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A", cabecera, styles))
-
-    if df_sistema is not None and not df_sistema.empty:
-        story.append(PageBreak())
-        story.append(Paragraph("DISTRIBUCIÓN POR SISTEMA: PLACAS / TÚNEL / IQF", titulo_style))
-        story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | FECHA: {cabecera['fecha']} | CLIENTE: {cabecera.get('cliente', '-')}", sub_style))
-        story.append(Spacer(1, 6))
-
-        df_sist_limpio = df_sistema.copy()
-        df_sist_limpio = df_sist_limpio[~df_sist_limpio.iloc[:, 0].astype(str).str.upper().str.contains("TOTAL|TOTALES", na=False)]
-        cols_s = list(df_sist_limpio.columns)
-        w_s = 572 / len(cols_s)
-        h_s = [Paragraph(str(c), cell_head_style) for c in cols_s]
-        t_s_data = [h_s]
-        for _, r in df_sist_limpio.iterrows():
-            t_s_data.append([str(r[c]) for c in cols_s])
-
-        tot_s = ["TOTAL"]
-        for c in cols_s[1:]:
-            try:
-                val_s = pd.to_numeric(df_sist_limpio[c], errors='coerce').fillna(0).sum()
-                tot_s.append(f"{val_s:,.2f}" if "TM" in c.upper() else f"{int(val_s):,}")
-            except Exception:
-                tot_s.append("-")
-        t_s_data.append(tot_s)
-
-        t_s_pdf = Table(t_s_data, colWidths=[w_s] * len(cols_s))
-        t_s_pdf.setStyle(TableStyle([
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 1), (-1, -1), 6.5),
-            ('TOPPADDING', (0, 0), (-1, -1), 1.5),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#D69E2E")),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#FEFCBF")),
-            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor("#F7FAFC")]),
-        ]))
-        story.append(t_s_pdf)
-
-    es_ir_pdf = foto_ir_bytes and foto_ir_bytes.startswith(b'%PDF')
-
-    fotos_anexo = [
-        ("ANEXO: REPORTE DE INSPECCIÓN (IR / EIR)", "REGISTRO FOTOGRÁFICO DE INSPECCIÓN TÉCNICA DEL CONTENEDOR", foto_ir_bytes if not es_ir_pdf else None),
-        ("ANEXO: CONTROL DE TEMPERATURA / TERMOKING", "REGISTRO VISUAL DEL DISPLAY DE TEMPERATURA DE SETEO / SALIDA", foto_temp_bytes),
-        ("ANEXO: PACKING LIST / GUÍA DE EMBARQUE", "REGISTRO FOTOGRÁFICO DEL PACKING LIST OFICIAL DE PLANTA", foto_pack_bytes),
-        ("ANEXO: CONSTANCIA FOTOGRÁFICA DE SUPERVISIÓN EN PLANTA", "EVIDENCIA DE CONTROL DIRECTO Y SUPERVISIÓN EN DESPACHO", foto_invol_bytes)
-    ]
-
-    for tit_anexo, sub_rotulo, b_img in fotos_anexo:
-        if b_img:
-            story.append(PageBreak())
-            story.append(Paragraph(tit_anexo, titulo_style))
-            story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')}", sub_style))
-            story.append(Spacer(1, 4))
-            rl_img = crear_imagen_maximizada(b_img, max_w=540, max_h=510)
-            if rl_img:
-                lbl = Paragraph(f"<b>{sub_rotulo}</b>", ParagraphStyle('LblT', parent=styles['Normal'], fontSize=7.5, leading=9.5, alignment=1, textColor=colors.HexColor("#1A365D")))
-                t_foto = Table([[rl_img], [lbl]], colWidths=[540])
-                t_foto.setStyle(TableStyle([
-                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                    ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E0")),
-                    ('BACKGROUND', (0,1), (-1,1), colors.HexColor("#F7FAFC")),
-                    ('TOPPADDING', (0,0), (-1,-1), 2),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-                ]))
-                story.append(t_foto)
-
-    doc.build(story)
-    buffer_dossier.seek(0)
-
-    if es_ir_pdf:
-        try:
-            merger = pypdf.PdfWriter()
-            reader_dossier = pypdf.PdfReader(buffer_dossier)
-            for page in reader_dossier.pages:
-                merger.add_page(page)
-
-            reader_ir = pypdf.PdfReader(io.BytesIO(foto_ir_bytes))
-            for page_ir in reader_ir.pages:
-                merger.add_page(page_ir)
-
-            out_buf = io.BytesIO()
-            merger.write(out_buf)
-            out_buf.seek(0)
-            return out_buf
-        except Exception as e_pdf_merge:
-            st.caption(f"Nota en acople de IR PDF: {e_pdf_merge}")
-            buffer_dossier.seek(0)
-            return buffer_dossier
-
-    return buffer_dossier
-
 # =========================================================================
 # HOJA DISTRIBUCIONES (GUARDADO POR ID_EMBARQUE Y HASTA COLUMNA AX: 50 COLS)
 # =========================================================================
@@ -981,21 +379,7 @@ def render_module(user, get_gspread_client):
 
     caps_reales_actuales = [int(x) for x in st.session_state.caps_filas_override]
 
-    lista_lotes_mem = [{"idx": idx + 1, "fecha_txt": l["fecha"].strftime('%d/%m/%Y'), "lote_txt": l["lote"].strip(), "cantidad": int(l["bultos"])} for idx, l in enumerate(st.session_state.lotes_items)]
-    headers_l = [f"L{l['idx']}: {l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_mem]
-    matriz_lotes_auto = calcular_matriz_estiba(caps_reales_actuales, lista_lotes_mem)
-
-    data_filas_tabla = []
-    for f_idx in range(target_nfil):
-        b_f = caps_reales_actuales[f_idx]
-        tm_f = round((b_f * float(st.session_state.wstd_val)) / 1000.0, 4)
-        r_dict = {"N° FILA": f_idx + 1, "TM": tm_f, "CANT/FILA": b_f}
-        for l_i in range(len(lista_lotes_mem)):
-            r_dict[headers_l[l_i]] = matriz_lotes_auto[f_idx][l_i]
-        data_filas_tabla.append(r_dict)
-    df_lotes_global = pd.DataFrame(data_filas_tabla)
-
-    # MATRIZ PRESENTACIONES CON PESOS INDIVIDUALES POR CORTE (10 kg Botones vs 20 kg Sacos)
+    # CÁLCULO DE PRESENTACIONES CON PESOS INDIVIDUALES POR CORTE (10 kg Botones vs 20 kg Sacos)
     lista_pres_mem = [
         {
             "nombre": p["nombre"],
@@ -1007,24 +391,42 @@ def render_module(user, get_gspread_client):
     matriz_pres_auto = calcular_matriz_estiba(caps_reales_actuales, lista_pres_mem)
     headers_pres = [f"{p['nombre']} (P{idx+1})" for idx, p in enumerate(lista_pres_mem)]
     data_pres_tabla = []
+    pesos_totales_por_fila = []
     for f_idx in range(len(caps_reales_actuales)):
         b_f = sum(matriz_pres_auto[f_idx])
         # Tonelaje exacto calculado según el peso unitario de cada producto en la fila
         tm_f = sum(matriz_pres_auto[f_idx][p_i] * lista_pres_mem[p_i]['peso_unit'] for p_i in range(len(lista_pres_mem))) / 1000.0
+        pesos_totales_por_fila.append(tm_f)
         r_d = {"N° FILA": f_idx + 1, "TM ESTIMADO": round(tm_f, 4), "TOTAL BULTOS": b_f}
         for p_i in range(len(lista_pres_mem)):
             r_d[headers_pres[p_i]] = matriz_pres_auto[f_idx][p_i]
         data_pres_tabla.append(r_d)
     df_pres_global = pd.DataFrame(data_pres_tabla)
 
+    # MATRIZ DE LOTES: TOMA EL TONELAJE REAL DE LA FILA (NO ASUME 20 KG A TODO)
+    lista_lotes_mem = [{"idx": idx + 1, "fecha_txt": l["fecha"].strftime('%d/%m/%Y'), "lote_txt": l["lote"].strip(), "cantidad": int(l["bultos"])} for idx, l in enumerate(st.session_state.lotes_items)]
+    headers_l = [f"L{l['idx']}: {l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_mem]
+    matriz_lotes_auto = calcular_matriz_estiba(caps_reales_actuales, lista_lotes_mem)
+
+    data_filas_tabla = []
+    for f_idx in range(target_nfil):
+        b_f = caps_reales_actuales[f_idx]
+        tm_f_real = pesos_totales_por_fila[f_idx] if f_idx < len(pesos_totales_por_fila) and sum(p['cantidad'] for p in lista_pres_mem) > 0 else round((b_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+        r_dict = {"N° FILA": f_idx + 1, "TM": round(tm_f_real, 4), "CANT/FILA": b_f}
+        for l_i in range(len(lista_lotes_mem)):
+            r_dict[headers_l[l_i]] = matriz_lotes_auto[f_idx][l_i]
+        data_filas_tabla.append(r_dict)
+    df_lotes_global = pd.DataFrame(data_filas_tabla)
+
     # ------------------ INICIALIZACIÓN TABLA CONGELADO ------------------
     if "df_congelado_edit" not in st.session_state or len(st.session_state.df_congelado_edit) != len(caps_reales_actuales):
         filas_sist_init = []
         for f_idx in range(len(caps_reales_actuales)):
             cap_f = caps_reales_actuales[f_idx]
+            tm_f_sist = pesos_totales_por_fila[f_idx] if f_idx < len(pesos_totales_por_fila) else round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4)
             filas_sist_init.append({
                 "N° FILA": f_idx + 1,
-                "TM": round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4),
+                "TM": round(tm_f_sist, 4),
                 "PLACAS": cap_f,
                 "TUNEL": 0,
                 "IQF": 0,
@@ -1265,7 +667,7 @@ def render_module(user, get_gspread_client):
                 lista_lotes_calc.append({"idx": i + 1, "fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt, "cantidad": int(bl)})
 
         # TABLA DE ESTIBA LIMPIA (SIN RERUN CÍCLICO Y SIN DUPLICACIÓN)
-        st.markdown("##### 📊 Plano de Distribución Calculado")
+        st.markdown("##### 📊 Plano de Distribución Calculado (Lotes)")
         st.dataframe(
             df_lotes_global,
             hide_index=True,
@@ -1274,13 +676,14 @@ def render_module(user, get_gspread_client):
         )
 
         tot_b_cargados = sum(caps_reales_actuales)
-        tot_tm_cargados = (tot_b_cargados * float(st.session_state.wstd_val)) / 1000.0
+        tot_tm_cargados_real = sum(pesos_totales_por_fila) if sum(p['cantidad'] for p in lista_pres_mem) > 0 else (tot_b_cargados * float(st.session_state.wstd_val)) / 1000.0
 
         m1, m2 = st.columns(2)
         m1.metric("Total Bultos Cargados (Lotes)", f"{tot_b_cargados:,} bultos")
-        m2.metric("Tonelaje Total", f"{tot_tm_cargados:.3f} TM")
+        m1_tm = f"{tot_tm_cargados_real:.3f} TM"
+        m2.metric("Tonelaje Total Real", m1_tm)
 
-    # ------------------ TAB 2: PRESENTACIONES CON CONTROL DE KILAJE INDIVIDUAL ------------------
+    # ------------------ TAB 2: PRESENTACIONES (CON DESCARGA DE PDF INDIVIDUAL) ------------------
     with tab_estiba_pres:
         st.markdown("#### Presentaciones a Embarcar (Hasta 8 según la hoja)")
         st.caption("Configura el kilaje unitario exacto por presentación (ej. 10 kg para Botones/Cajas, 20 kg para Sacos).")
@@ -1300,7 +703,7 @@ def render_module(user, get_gspread_client):
                 idx_p_sel = LISTA_PRESENTACIONES_FRIGOSA.index(p_item["nombre"]) if p_item["nombre"] in LISTA_PRESENTACIONES_FRIGOSA else 0
                 sel_nom = st.selectbox(f"Corte {i+1}:", LISTA_PRESENTACIONES_FRIGOSA, index=idx_p_sel, key=f"sp_{i}_{v}")
                 
-                # Asignación automática de kilaje según corte si cambió
+                # Asignación automática de kilaje según corte
                 peso_default_sug = obtener_peso_sugerido_presentacion(sel_nom)
                 val_peso_actual = float(p_item.get("peso", peso_default_sug))
                 if p_item.get("nombre") != sel_nom:
@@ -1314,6 +717,20 @@ def render_module(user, get_gspread_client):
                 p_item["peso"] = float(p_peso)
 
         st.dataframe(df_pres_global, hide_index=True, use_container_width=True, height=280)
+
+        # BOTÓN INDIVIDUAL DE DESCARGA: SOLO EL PLANO DE ESTIBA POR PRESENTACIONES
+        st.markdown("---")
+        try:
+            pdf_pres_solo_bytes = generar_pdf_estiba_presentaciones_solo(cabecera_pdf_maestra, df_pres_global)
+            st.download_button(
+                label="📄 Descargar Plano de Estiba (Presentaciones) - PDF",
+                data=pdf_pres_solo_bytes,
+                file_name=f"Plano_Estiba_Presentaciones_{st.session_state.cont_val or 'Contenedor'}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+        except Exception as e_pres_pdf:
+            st.caption(f"Nota en generación de PDF de presentaciones: {e_pres_pdf}")
 
     # ------------------ TAB 3: PLACAS / TÚNEL / IQF ------------------
     with tab_placa_tunel:
@@ -1344,11 +761,12 @@ def render_module(user, get_gspread_client):
         if modo_cong_opc == "Solo Placas (100% de la carga)":
             for idx in range(num_filas_actual):
                 cap_f = caps_reales_actuales[idx]
+                tm_f_sist = pesos_totales_por_fila[idx] if idx < len(pesos_totales_por_fila) else round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4)
                 df_editor_source.at[idx, "PLACAS"] = cap_f
                 df_editor_source.at[idx, "TUNEL"] = 0
                 df_editor_source.at[idx, "IQF"] = 0
                 df_editor_source.at[idx, "TOTAL"] = cap_f
-                df_editor_source.at[idx, "TM"] = round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+                df_editor_source.at[idx, "TM"] = round(tm_f_sist, 4)
             st.session_state.df_congelado_edit = df_editor_source
 
             st.dataframe(
@@ -1361,11 +779,12 @@ def render_module(user, get_gspread_client):
         elif modo_cong_opc == "Solo Túnel (100% de la carga)":
             for idx in range(num_filas_actual):
                 cap_f = caps_reales_actuales[idx]
+                tm_f_sist = pesos_totales_por_fila[idx] if idx < len(pesos_totales_por_fila) else round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4)
                 df_editor_source.at[idx, "PLACAS"] = 0
                 df_editor_source.at[idx, "TUNEL"] = cap_f
                 df_editor_source.at[idx, "IQF"] = 0
                 df_editor_source.at[idx, "TOTAL"] = cap_f
-                df_editor_source.at[idx, "TM"] = round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+                df_editor_source.at[idx, "TM"] = round(tm_f_sist, 4)
             st.session_state.df_congelado_edit = df_editor_source
 
             st.dataframe(
@@ -1412,7 +831,7 @@ def render_module(user, get_gspread_client):
         s3.metric("Total IQF", f"{tot_iqf_sum:,} b")
         s4.metric("Total Congelado", f"{tot_placas_sum + tot_tunel_sum + tot_iqf_sum:,} b")
 
-    # ------------------ TAB 4: CONTROL DE PESOS ------------------
+    # ------------------ TAB 4: CONTROL DE PESOS (CON DESCARGA DE PDF INDIVIDUAL) ------------------
     with tab_pesos:
         st.markdown("#### 1. Muestreo de Control de Pesos en Balanza")
         cols_w = st.columns(max(len(lista_pres_mem), 1))
