@@ -1064,19 +1064,57 @@ def render_module(user, get_gspread_client):
         "🔎 6. Visor Documental y Estado"
     ])
 
-    # ------------------ TAB 1: PLANO ESTIBA (CONFIGURACIÓN FLEXIBLE Y HASTA 100 LOTES) ------------------
+    # ------------------ TAB 1: PLANO ESTIBA (CONFIGURACIÓN MANUAL O POR LOTES) ------------------
     with tab_estiba_lotes:
         st.markdown("#### Configuración de Filas y Capacidad")
-        cf1, cf2, cf3, cf4 = st.columns(4)
-        with cf1:
-            st.session_state.nfil_val = int(st.number_input("Total Filas:", min_value=10, max_value=30, value=int(st.session_state.nfil_val), key=f"nfil_{v}"))
-        with cf2:
-            st.session_state.capg_val = int(st.number_input("Capacidad Estándar Fila:", min_value=20, max_value=120, value=int(st.session_state.capg_val), key=f"capg_{v}"))
-        with cf3:
-            st.session_state.capf1_val = int(st.number_input("Capacidad Fila 1:", min_value=20, max_value=120, value=int(st.session_state.capf1_val), key=f"capf1_{v}"))
-        with cf4:
-            st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {st.session_state.nfil_val}:", min_value=20, max_value=120, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
-            st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
+        
+        c_top1, c_top2 = st.columns([1.5, 3])
+        with c_top1:
+            st.session_state.nfil_val = int(st.number_input("Total Filas del Contenedor:", min_value=10, max_value=30, value=int(st.session_state.nfil_val), key=f"nfil_{v}"))
+        with c_top2:
+            modo_cap_fila = st.radio(
+                "Modalidad de Capacidad por Fila:",
+                ["Modo Estándar (Fila 1, Centro y Puerta)", "Digitar Cada Fila Manualmente (Sacos/Cajas)"],
+                horizontal=True,
+                key=f"m_cap_fila_{v}"
+            )
+
+        # 1. OPCIÓN A: MODO ESTÁNDAR TRADICIONAL
+        if modo_cap_fila == "Modo Estándar (Fila 1, Centro y Puerta)":
+            cf1, cf2, cf3, cf4 = st.columns(4)
+            with cf1:
+                st.session_state.capg_val = int(st.number_input("Capacidad Estándar Fila:", min_value=20, max_value=120, value=int(st.session_state.capg_val), key=f"capg_{v}"))
+            with cf2:
+                st.session_state.capf1_val = int(st.number_input("Capacidad Fila 1:", min_value=20, max_value=120, value=int(st.session_state.capf1_val), key=f"capf1_{v}"))
+            with cf3:
+                st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {st.session_state.nfil_val}:", min_value=20, max_value=120, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
+            with cf4:
+                st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
+        
+        # 2. OPCIÓN B: DIGITACIÓN MANUAL FILA POR FILA (IGUAL QUE LOS LOTES)
+        else:
+            st.info("✍️ **Modo Manual Activo:** Digita directamente la capacidad exacta de bultos para cada una de las filas (sacos o cajas independientes):")
+            
+            c_pstd, _ = st.columns([2, 2])
+            with c_pstd:
+                st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_man_{v}"))
+
+            total_filas_man = int(st.session_state.nfil_val)
+            cols_per_row = 6
+            grid_cols_f = st.columns(cols_per_row)
+            
+            for f_i in range(total_filas_man):
+                with grid_cols_f[f_i % cols_per_row]:
+                    val_actual_f = int(st.session_state.caps_filas_override[f_i]) if f_i < len(st.session_state.caps_filas_override) else 63
+                    nuevo_val_f = st.number_input(
+                        f"Fila {f_i + 1}:", 
+                        min_value=0, 
+                        max_value=150, 
+                        value=val_actual_f, 
+                        step=1, 
+                        key=f"inp_man_f_{f_i}_{v}"
+                    )
+                    st.session_state.caps_filas_override[f_i] = int(nuevo_val_f)
 
         # HERRAMIENTA RÁPIDA: ASIGNACIÓN DE BULTOS POR RANGO DE FILAS (Sacos / Cajas)
         with st.expander("⚡ Asignación Rápida por Rangos de Filas (Ej: Fila 2 a 14 = 63, Fila 15 a 19 = 78)", expanded=False):
@@ -1098,6 +1136,7 @@ def render_module(user, get_gspread_client):
                     else:
                         st.error("La fila inicial debe ser menor o igual a la final.")
 
+        st.markdown("---")
         n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=100, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
         while len(st.session_state.lotes_items) < n_lotes:
             st.session_state.lotes_items.append({"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0})
@@ -1126,7 +1165,7 @@ def render_module(user, get_gspread_client):
                 lista_lotes_calc.append({"idx": i + 1, "fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt, "cantidad": int(bl)})
 
         cols_bloqueadas = ["N° FILA", "TM"] + headers_l
-        st.info("💡 Puedes editar libremente el número en **CANT/FILA** para balancear fila por fila:")
+        st.info("💡 Resumen de Distribución de Filas (puedes ajustar finamente en CANT/FILA):")
 
         df_lotes_editado = st.data_editor(
             df_lotes_global,
@@ -1451,7 +1490,7 @@ def render_module(user, get_gspread_client):
                     st.success("Foto de involucrado eliminada.")
                     st.rerun()
 
-    # ------------------ TAB 6: VISOR DOCUMENTAL Y ESTADO (RENDERIZADO NATIVO SIN BLOQUEO DE CHROME) ------------------
+    # ------------------ TAB 6: VISOR DOCUMENTAL Y ESTADO (RENDERIZADO NATIVO ANTI-BLOQUEO) ------------------
     with tab_visor:
         st.markdown("#### 🔎 Centro de Visualización de Documentos y Evidencias")
         st.caption(f"Inspección directa de los archivos del contenedor: **{st.session_state.cont_val or 'Sin Contenedor Asignado'}**")
@@ -1498,7 +1537,6 @@ def render_module(user, get_gspread_client):
                         b64_ir_direct = base64.b64encode(b_ir_view).decode('utf-8')
                         st.markdown(f'<a href="data:application/pdf;base64,{b64_ir_direct}" target="_blank" style="display:inline-block; padding:8px 16px; background-color:#2B6CB0; color:white; border-radius:5px; text-decoration:none; font-weight:bold;">🚀 Abrir IR en Pestaña Completa</a>', unsafe_allow_html=True)
                     
-                    # Renderizado nativo: extracción de imágenes contenidas en el PDF para evitar el bloqueo del iframe en Chrome
                     try:
                         reader = pypdf.PdfReader(io.BytesIO(b_ir_view))
                         imagenes_encontradas = []
