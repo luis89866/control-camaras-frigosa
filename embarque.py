@@ -744,7 +744,6 @@ def render_module(user, get_gspread_client):
             with c_btn_c2:
                 btn_refrescar_datos = st.button("🔄 Refrescar Datos del Contenedor", use_container_width=True) if cont_seleccionado else False
 
-            # Lógica de carga y refresco sin tener que salir y volver a filtrar
             if btn_cargar_datos or btn_refrescar_datos:
                 fila_encontrada = None
                 for r in registros[1:]:
@@ -901,18 +900,20 @@ def render_module(user, get_gspread_client):
             st.session_state.pay_val = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=34000.0, value=float(st.session_state.pay_val), step=100.0, key=f"pay_emb_{v}")
 
     # =========================================================================
-    # CONFIGURACIÓN DINÁMICA DE FILAS Y CAPACIDADES
+    # CONFIGURACIÓN DINÁMICA DE FILAS Y CAPACIDADES (PROTEGIDO CONTRA INDEXERROR)
     # =========================================================================
-    caps_filas_default = [int(st.session_state.capg_val)] * int(st.session_state.nfil_val)
-    caps_filas_default[0] = int(st.session_state.capf1_val)
-    caps_filas_default[-1] = int(st.session_state.capfu_val)
-
-    if "caps_filas_override" not in st.session_state or len(st.session_state.caps_filas_override) != int(st.session_state.nfil_val):
-        st.session_state.caps_filas_override = caps_filas_default.copy()
+    target_nfil = int(st.session_state.nfil_val)
+    if "caps_filas_override" not in st.session_state:
+        st.session_state.caps_filas_override = [75] * target_nfil
+    else:
+        while len(st.session_state.caps_filas_override) < target_nfil:
+            st.session_state.caps_filas_override.append(int(st.session_state.capg_val))
+        if len(st.session_state.caps_filas_override) > target_nfil:
+            st.session_state.caps_filas_override = st.session_state.caps_filas_override[:target_nfil]
 
     caps_reales_actuales = [int(x) for x in st.session_state.caps_filas_override]
 
-    # Identificador único de columna por lote para evitar colisiones con fechas repetidas
+    # Identificador único de columna por lote
     lista_lotes_mem = [{"idx": idx + 1, "fecha_txt": l["fecha"].strftime('%d/%m/%Y'), "lote_txt": l["lote"].strip(), "cantidad": int(l["bultos"])} for idx, l in enumerate(st.session_state.lotes_items)]
     headers_l = [f"L{l['idx']}: {l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_mem]
     matriz_lotes_auto = calcular_matriz_estiba(caps_reales_actuales, lista_lotes_mem)
@@ -1087,11 +1088,19 @@ def render_module(user, get_gspread_client):
             with cf2:
                 st.session_state.capf1_val = int(st.number_input("Capacidad Fila 1:", min_value=20, max_value=120, value=int(st.session_state.capf1_val), key=f"capf1_{v}"))
             with cf3:
-                st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {st.session_state.nfil_val}:", min_value=20, max_value=120, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
+                st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {target_nfil}:", min_value=20, max_value=120, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
             with cf4:
                 st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
+            
+            for i in range(target_nfil):
+                if i == 0:
+                    st.session_state.caps_filas_override[i] = int(st.session_state.capf1_val)
+                elif i == target_nfil - 1:
+                    st.session_state.caps_filas_override[i] = int(st.session_state.capfu_val)
+                else:
+                    st.session_state.caps_filas_override[i] = int(st.session_state.capg_val)
         
-        # 2. OPCIÓN B: DIGITACIÓN MANUAL FILA POR FILA (IGUAL QUE LOS LOTES)
+        # 2. OPCIÓN B: DIGITACIÓN MANUAL FILA POR FILA (PROTEGIDO)
         else:
             st.info("✍️ **Modo Manual Activo:** Digita directamente la capacidad exacta de bultos para cada una de las filas (sacos o cajas independientes):")
             
@@ -1099,13 +1108,12 @@ def render_module(user, get_gspread_client):
             with c_pstd:
                 st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_man_{v}"))
 
-            total_filas_man = int(st.session_state.nfil_val)
             cols_per_row = 6
             grid_cols_f = st.columns(cols_per_row)
             
-            for f_i in range(total_filas_man):
+            for f_i in range(target_nfil):
                 with grid_cols_f[f_i % cols_per_row]:
-                    val_actual_f = int(st.session_state.caps_filas_override[f_i]) if f_i < len(st.session_state.caps_filas_override) else 63
+                    val_actual_f = int(st.session_state.caps_filas_override[f_i])
                     nuevo_val_f = st.number_input(
                         f"Fila {f_i + 1}:", 
                         min_value=0, 
@@ -1120,9 +1128,9 @@ def render_module(user, get_gspread_client):
         with st.expander("⚡ Asignación Rápida por Rangos de Filas (Ej: Fila 2 a 14 = 63, Fila 15 a 19 = 78)", expanded=False):
             cr1, cr2, cr3, cr4 = st.columns([1.5, 1.5, 2, 2])
             with cr1:
-                r_ini = st.number_input("Desde Fila:", min_value=1, max_value=int(st.session_state.nfil_val), value=1, key=f"r_ini_{v}")
+                r_ini = st.number_input("Desde Fila:", min_value=1, max_value=target_nfil, value=1, key=f"r_ini_{v}")
             with cr2:
-                r_fin = st.number_input("Hasta Fila:", min_value=1, max_value=int(st.session_state.nfil_val), value=int(st.session_state.nfil_val), key=f"r_fin_{v}")
+                r_fin = st.number_input("Hasta Fila:", min_value=1, max_value=target_nfil, value=target_nfil, key=f"r_fin_{v}")
             with cr3:
                 r_cant = st.number_input("Cantidad Bultos por Fila:", min_value=0, max_value=150, value=63, key=f"r_cant_{v}")
             with cr4:
@@ -1619,74 +1627,4 @@ def render_module(user, get_gspread_client):
                 pres_cols = []
                 for idx in range(8):
                     if idx < len(lista_pres_mem):
-                        pres_cols.extend([lista_pres_mem[idx]["nombre"], int(lista_pres_mem[idx]["cantidad"])])
-                    else:
-                        pres_cols.extend(["", ""])
-
-                detalle_lotes_str = " | ".join([f"{l['lote_txt']} ({l['fecha_txt']}): {l['cantidad']}b" for l in lista_lotes_mem if l['cantidad'] > 0])
-
-                serial_pesos = []
-                for k_p, v_p in st.session_state.txt_pesos_mem.items():
-                    clean_v = v_p.replace("\n", " ").strip()
-                    if clean_v:
-                        serial_pesos.append(f"{k_p}::{clean_v}")
-                detalle_pesos_str = " ;; ".join(serial_pesos)
-
-                link_ir_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_ir") else ""
-                link_temp_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_temp") else ""
-                link_pack_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_pack") else ""
-                link_invol_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_invol") else ""
-
-                val_prom_saco_planta = round(prom_global, 3)
-                val_block_planta = round(peso_block_planta, 3)
-                val_plus_planta = round(plus_planta, 2)
-
-                id_embarque_final = st.session_state.emb_id if st.session_state.emb_id else f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
-
-                fila_maestra = [
-                    id_embarque_final,                             # A: ID_EMBARQUE
-                    num_c_guardar,                                 # B: CONTENEDOR
-                    str(st.session_state.mes_val),                 # C: MES
-                    str(st.session_state.fec_val),                 # D: FECHA
-                    str(st.session_state.pi_val).strip(),          # E: N°_PI
-                    str(st.session_state.bk_val).strip(),          # F: BOOKING
-                    str(st.session_state.cli_val).strip(),         # G: CLIENTE
-                    str(st.session_state.dest_val).strip(),        # H: Destino
-                    str(st.session_state.pais_val).strip(),        # I: PAIS
-                    "LUIS ENRIQUE FIESTAS ECA",                    # J: supervisor
-                    *pres_cols,                                    # K a Z: PRESENTACION 1 a 8 y BULTOS 1 a 8
-                    float(st.session_state.pay_val),               # AA: payload_contenedor
-                    int(tot_b_gral),                               # AB: total_bultos
-                    float(round(peso_tot_gral, 2)),                # AC: peso_bruto
-                    float(round(peso_a_favor, 2)),                 # AD: margen_a_favor
-                    float(round(prom_global, 3)),                  # AE: promedio_global
-                    int(tot_placas_sum),                           # AF: placas
-                    int(tot_tunel_sum),                            # AG: tunel
-                    int(tot_iqf_sum),                              # AH: iqf
-                    detalle_lotes_str,                             # AI: detalle_lotes_fechas
-                    int(st.session_state.nfil_val),                # AJ: total_filas
-                    int(st.session_state.capg_val),                # AK: cap_estandar_fila
-                    int(st.session_state.capf1_val),               # AL: cap_fila_1
-                    int(st.session_state.capfu_val),               # AM: cap_fila_puerta
-                    float(st.session_state.wstd_val),              # AN: peso_std_bulto
-                    detalle_pesos_str,                             # AO: detalle_pesos_balanza
-                    link_ir_final,                                 # AP: link_foto_ir
-                    link_temp_final,                               # AQ: link_foto_temperatura
-                    link_pack_final,                               # AR: link_foto_packing
-                    link_invol_final,                              # AS: link_foto_involucrado
-                    0.0,                                           # AT: pesos_wincha
-                    val_prom_saco_planta,                          # AU: peso_saco_wincha
-                    val_block_planta,                              # AV: peso_block real
-                    val_plus_planta                                # AW: porcentaje_plus_planta
-                ]
-
-                es_modo_nuevo = (modo_operacion == "Nuevo Contenedor")
-                ok, res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra, forzar_nuevo=es_modo_nuevo)
-
-                if ok:
-                    st.success(f"🎉 {res_msg}")
-                    st.session_state.emb_id = f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
-                else:
-                    st.error(f"🚫 {res_msg}")
-            except Exception as e:
-                st.error(f"Error al guardar en Sheets: {e}")
+                        pres_
