@@ -1321,30 +1321,27 @@ def render_module(user, get_gspread_client):
         while len(st.session_state.lotes_items) > n_lotes:
             st.session_state.lotes_items.pop()
 
-        cols_l = st.columns(min(int(n_lotes), 4))
         lista_lotes_calc = []
-        for i in range(int(n_lotes)):
+        with st.container(height=350):
             cols_l = st.columns(min(int(n_lotes), 4))
-        lista_lotes_calc = []
-        for i in range(int(n_lotes)):
-            col_target = cols_l[i % 4]
-            item_l = st.session_state.lotes_items[i]
-            with col_target:
-                fl = st.date_input(f"Fecha {i+1}:", value=item_l["fecha"], key=f"fl_{i}_{v}")
-                
-                if fl != item_l["fecha"]:
+            for i in range(int(n_lotes)):
+                col_target = cols_l[i % 4]
+                item_l = st.session_state.lotes_items[i]
+                with col_target:
+                    fl = st.date_input(f"Fecha {i+1}:", value=item_l["fecha"], key=f"fl_{i}_{v}")
+                    if fl != item_l["fecha"]:
+                        item_l["fecha"] = fl
+                        item_l["lote"] = generar_lote_juliano(fl)
+                        st.session_state[f"cl_{i}_{v}"] = item_l["lote"]
+
+                    lot_txt = st.text_input(f"Lote {i+1}:", value=item_l["lote"], key=f"cl_{i}_{v}").strip().upper()
+                    bl = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(item_l["bultos"]), step=10, key=f"bl_{i}_{v}")
+
                     item_l["fecha"] = fl
-                    item_l["lote"] = generar_lote_juliano(fl)
-                    st.session_state[f"cl_{i}_{v}"] = item_l["lote"]
-
-                lot_txt = st.text_input(f"Lote {i+1}:", value=item_l["lote"], key=f"cl_{i}_{v}").strip().upper()
-                bl = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(item_l["bultos"]), step=10, key=f"bl_{i}_{v}")
-                
-                item_l["fecha"] = fl
-                item_l["lote"] = lot_txt
-                item_l["bultos"] = int(bl)
-                lista_lotes_calc.append({"idx": i + 1, "fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt, "cantidad": int(bl)})
-
+                    item_l["lote"] = lot_txt
+                    item_l["bultos"] = int(bl)
+                    lista_lotes_calc.append({"idx": i + 1, "fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt, "cantidad": int(bl)})
+                    
         st.markdown("##### 📊 Plano de Distribución Calculado (Lotes)")
         st.dataframe(
             df_lotes_global,
