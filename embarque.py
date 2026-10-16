@@ -1036,4 +1036,700 @@ def render_module(user, get_gspread_client):
         "promedio_global": prom_global,
         "peso_a_favor": peso_a_favor,
         "peso_block_planta": peso_block_planta,
-        "porcentaje
+        "porcentaje_plus_planta": plus_planta,
+        "tipo_envase": tipo_env_act,
+        "tara_descuento": tara_act,
+        "bloques_x_bulto": bloques_act
+    }
+
+    pdf_dossier_bytes_cache = None
+    if st.session_state.cont_val:
+        try:
+            pdf_dossier_bytes_cache = generar_dossier_unificado(
+                cabecera_pdf_maestra,
+                df_lotes_global,
+                df_pres_global,
+                st.session_state.df_congelado_edit,
+                presentaciones_data_global,
+                resumen_pdf_maestro,
+                bytes_ir_actual,
+                bytes_temp_actual,
+                bytes_pack_actual,
+                bytes_invol_actual
+            ).getvalue()
+        except Exception:
+            pdf_dossier_bytes_cache = None
+
+    if c_btn_c2 is not None and st.session_state.cont_val and pdf_dossier_bytes_cache:
+        with c_btn_c2:
+            st.download_button(
+                label=f"📦 Descargar Reporte ({st.session_state.cont_val})",
+                data=pdf_dossier_bytes_cache,
+                file_name=f"Reporte_Embarque_{st.session_state.cont_val}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+
+    # =========================================================================
+    # PESTAÑAS (INCLUYENDO VISOR DOCUMENTAL 6)
+    # =========================================================================
+    tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos, tab_visor = st.tabs([
+        "📅 1. Plano Estiba (Lotes)",
+        "📦 2. Plano Estiba (Presentaciones)",
+        "❄️ 3. Placas / Túnel / IQF",
+        "⚖️ 4. Control de Pesos (Balanza)",
+        "📸 5. IR (PDF/Foto), Temp, Packing & Involucrado",
+        "🔎 6. Visor Documental y Estado"
+    ])
+
+    # ------------------ TAB 1: PLANO ESTIBA (FORMULARIO BATCH AISLADO) ------------------
+    with tab_estiba_lotes:
+        st.markdown("#### Configuración de Filas y Capacidad")
+        
+        c_top1, c_top2 = st.columns([1.5, 3])
+        with c_top1:
+            st.session_state.nfil_val = int(st.number_input("Total Filas del Contenedor:", min_value=10, max_value=30, value=int(st.session_state.nfil_val), key=f"nfil_{v}"))
+        with c_top2:
+            modo_cap_fila = st.radio(
+                "Modalidad de Capacidad por Fila:",
+                ["Modo Estándar (Fila 1, Centro y Puerta)", "Digitar Cada Fila Manualmente (Sacos/Cajas)"],
+                horizontal=True,
+                key=f"m_cap_fila_{v}"
+            )
+
+        # 1. OPCIÓN A: MODO ESTÁNDAR
+        if modo_cap_fila == "Modo Estándar (Fila 1, Centro y Puerta)":
+            cf1, cf2, cf3, cf4 = st.columns(4)
+            with cf1:
+                st.session_state.capg_val = int(st.number_input("Capacidad Estándar Fila:", min_value=20, max_value=120, value=int(st.session_state.capg_val), key=f"capg_{v}"))
+            with cf2:
+                st.session_state.capf1_val = int(st.number_input("Capacidad Fila 1:", min_value=20, max_value=120, value=int(st.session_state.capf1_val), key=f"capf1_{v}"))
+            with cf3:
+                st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {target_nfil}:", min_value=20, max_value=120, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
+            with cf4:
+                st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
+            
+            for i in range(target_nfil):
+                if i == 0:
+                    st.session_state.caps_filas_override[i] = int(st.session_state.capf1_val)
+                elif i == target_nfil - 1:
+                    st.session_state.caps_filas_override[i] = int(st.session_state.capfu_val)
+                else:
+                    st.session_state.caps_filas_override[i] = int(st.session_state.capg_val)
+        
+        # 2. OPCIÓN B: DIGITACIÓN MANUAL FILA POR FILA (DENTRO DE FORMULARIO PARA NO RECARGAR)
+        else:
+            st.info("✍️ **Modo Manual Batch:** Digita tranquilamente las cantidades de cada fila. No se recargará entre celda y celda. Al terminar, presiona el botón de abajo para aplicar los cambios.")
+            
+            with st.form(f"form_filas_manuales_{v}"):
+                c_pstd, _ = st.columns([2, 2])
+                with c_pstd:
+                    w_man_tmp = st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1)
+
+                cols_per_row = 6
+                grid_cols_f = st.columns(cols_per_row)
+                nuevos_valores_buffer = []
+
+                for f_i in range(target_nfil):
+                    with grid_cols_f[f_i % cols_per_row]:
+                        val_actual_f = int(st.session_state.caps_filas_override[f_i]) if f_i < len(st.session_state.caps_filas_override) else 63
+                        v_inp = st.number_input(
+                            f"Fila {f_i + 1}:", 
+                            min_value=0, 
+                            max_value=150, 
+                            value=val_actual_f, 
+                            step=1, 
+                            key=f"manual_f_inp_{f_i}_{v}"
+                        )
+                        nuevos_valores_buffer.append(int(v_inp))
+                
+                btn_aplicar_filas = st.form_submit_button(
+                    "🔄 Confirmar y Aplicar Capacidades de Filas", 
+                    type="primary", 
+                    use_container_width=True
+                )
+
+                if btn_aplicar_filas:
+                    st.session_state.wstd_val = float(w_man_tmp)
+                    st.session_state.caps_filas_override = nuevos_valores_buffer
+                    st.success("✅ ¡Capacidades de filas actualizadas y aplicadas correctamente!")
+                    st.rerun()
+
+        # HERRAMIENTA RÁPIDA: ASIGNACIÓN DE BULTOS POR RANGO DE FILAS
+        with st.expander("⚡ Asignación Rápida por Rangos de Filas (Ej: Fila 2 a 14 = 63, Fila 15 a 19 = 78)", expanded=False):
+            cr1, cr2, cr3, cr4 = st.columns([1.5, 1.5, 2, 2])
+            with cr1:
+                r_ini = st.number_input("Desde Fila:", min_value=1, max_value=target_nfil, value=1, key=f"r_ini_{v}")
+            with cr2:
+                r_fin = st.number_input("Hasta Fila:", min_value=1, max_value=target_nfil, value=target_nfil, key=f"r_fin_{v}")
+            with cr3:
+                r_cant = st.number_input("Cantidad Bultos por Fila:", min_value=0, max_value=150, value=63, key=f"r_cant_{v}")
+            with cr4:
+                st.markdown("<br/>", unsafe_allow_html=True)
+                if st.button("Aplicar Rango a Filas", use_container_width=True, key=f"btn_rango_{v}"):
+                    if r_ini <= r_fin:
+                        for idx_f in range(int(r_ini) - 1, int(r_fin)):
+                            st.session_state.caps_filas_override[idx_f] = int(r_cant)
+                        st.success(f"Filas de {r_ini} a {r_fin} fijadas en {r_cant} bultos.")
+                        st.rerun()
+                    else:
+                        st.error("La fila inicial debe ser menor o igual a la final.")
+
+        st.markdown("---")
+        n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=100, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
+        while len(st.session_state.lotes_items) < n_lotes:
+            st.session_state.lotes_items.append({"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0})
+        while len(st.session_state.lotes_items) > n_lotes:
+            st.session_state.lotes_items.pop()
+
+        cols_l = st.columns(min(int(n_lotes), 4))
+        lista_lotes_calc = []
+        for i in range(int(n_lotes)):
+            col_target = cols_l[i % 4]
+            item_l = st.session_state.lotes_items[i]
+            with col_target:
+                fl = st.date_input(f"Fecha {i+1}:", value=item_l["fecha"], key=f"fl_{i}_{v}")
+                
+                if fl != item_l["fecha"]:
+                    item_l["fecha"] = fl
+                    item_l["lote"] = generar_lote_juliano(fl)
+                    st.session_state[f"cl_{i}_{v}"] = item_l["lote"]
+
+                lot_txt = st.text_input(f"Lote {i+1}:", value=item_l["lote"], key=f"cl_{i}_{v}").strip().upper()
+                bl = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(item_l["bultos"]), step=10, key=f"bl_{i}_{v}")
+                
+                item_l["fecha"] = fl
+                item_l["lote"] = lot_txt
+                item_l["bultos"] = int(bl)
+                lista_lotes_calc.append({"idx": i + 1, "fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt, "cantidad": int(bl)})
+
+        cols_bloqueadas = ["N° FILA", "TM"] + headers_l
+        st.info("💡 Resumen de Distribución de Filas (puedes ajustar finamente en CANT/FILA):")
+
+        df_lotes_editado = st.data_editor(
+            df_lotes_global,
+            disabled=cols_bloqueadas,
+            hide_index=True,
+            use_container_width=True,
+            height=320,
+            key=f"editor_cantfila_only_{v}_{st.session_state.nfil_val}"
+        )
+
+        nuevas_capacidades = df_lotes_editado["CANT/FILA"].astype(int).tolist()
+        if nuevas_capacidades != st.session_state.caps_filas_override:
+            st.session_state.caps_filas_override = nuevas_capacidades
+            st.rerun()
+
+        tot_b_cargados = sum(caps_reales_actuales)
+        tot_tm_cargados = (tot_b_cargados * float(st.session_state.wstd_val)) / 1000.0
+
+        m1, m2 = st.columns(2)
+        m1.metric("Total Bultos Cargados (Lotes)", f"{tot_b_cargados:,} bultos")
+        m2.metric("Tonelaje Total", f"{tot_tm_cargados:.3f} TM")
+
+    with tab_estiba_pres:
+        st.markdown("#### Presentaciones a Embarcar (Hasta 8 según la hoja)")
+        np_m = st.number_input("Número de Presentaciones:", min_value=1, max_value=8, value=max(len(st.session_state.pres_items), 1), key=f"npres_c_{v}")
+        while len(st.session_state.pres_items) < np_m:
+            st.session_state.pres_items.append({"nombre": LISTA_PRESENTACIONES_FRIGOSA[0], "bultos": 0, "peso": st.session_state.wstd_val})
+        while len(st.session_state.pres_items) > np_m:
+            st.session_state.pres_items.pop()
+
+        cols_p = st.columns(min(int(np_m), 4))
+        for i in range(int(np_m)):
+            col_target_p = cols_p[i % 4]
+            p_item = st.session_state.pres_items[i]
+            with col_target_p:
+                st.markdown(f"**Presentación {i+1}**")
+                idx_p_sel = LISTA_PRESENTACIONES_FRIGOSA.index(p_item["nombre"]) if p_item["nombre"] in LISTA_PRESENTACIONES_FRIGOSA else 0
+                sel_nom = st.selectbox(f"Corte {i+1}:", LISTA_PRESENTACIONES_FRIGOSA, index=idx_p_sel, key=f"sp_{i}_{v}")
+                cant_b = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(p_item["bultos"]), step=10, key=f"bp_{i}_{v}")
+                p_item["nombre"] = sel_nom
+                p_item["bultos"] = int(cant_b)
+
+        st.dataframe(df_pres_global, hide_index=True, use_container_width=True, height=280)
+
+    # ------------------ TAB 3: PLACAS / TÚNEL / IQF ------------------
+    with tab_placa_tunel:
+        st.markdown("#### Configuración de Sistema de Congelación")
+
+        def on_change_modo_cong():
+            opc = st.session_state.get(f"rad_cong_{v}")
+            num_f = len(caps_reales_actuales)
+            if opc == "Mixto (Ingreso Manual Fila por Fila)":
+                filas_clean = []
+                for f_idx in range(num_f):
+                    filas_clean.append({
+                        "N° FILA": f_idx + 1, "TM": 0.0, "PLACAS": 0, "TUNEL": 0, "IQF": 0, "TOTAL": 0
+                    })
+                st.session_state.df_congelado_edit = pd.DataFrame(filas_clean)
+
+        modo_cong_opc = st.radio(
+            "Carga predominante:",
+            ["Solo Placas (100% de la carga)", "Solo Túnel (100% de la carga)", "Mixto (Ingreso Manual Fila por Fila)"],
+            horizontal=True,
+            key=f"rad_cong_{v}",
+            on_change=on_change_modo_cong
+        )
+
+        num_filas_actual = len(caps_reales_actuales)
+        df_editor_source = st.session_state.df_congelado_edit.copy()
+
+        if modo_cong_opc == "Solo Placas (100% de la carga)":
+            for idx in range(num_filas_actual):
+                cap_f = caps_reales_actuales[idx]
+                df_editor_source.at[idx, "PLACAS"] = cap_f
+                df_editor_source.at[idx, "TUNEL"] = 0
+                df_editor_source.at[idx, "IQF"] = 0
+                df_editor_source.at[idx, "TOTAL"] = cap_f
+                df_editor_source.at[idx, "TM"] = round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+            st.session_state.df_congelado_edit = df_editor_source
+
+            st.dataframe(
+                df_editor_source,
+                hide_index=True,
+                use_container_width=True,
+                height=320
+            )
+
+        elif modo_cong_opc == "Solo Túnel (100% de la carga)":
+            for idx in range(num_filas_actual):
+                cap_f = caps_reales_actuales[idx]
+                df_editor_source.at[idx, "PLACAS"] = 0
+                df_editor_source.at[idx, "TUNEL"] = cap_f
+                df_editor_source.at[idx, "IQF"] = 0
+                df_editor_source.at[idx, "TOTAL"] = cap_f
+                df_editor_source.at[idx, "TM"] = round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+            st.session_state.df_congelado_edit = df_editor_source
+
+            st.dataframe(
+                df_editor_source,
+                hide_index=True,
+                use_container_width=True,
+                height=320
+            )
+
+        else:
+            st.info("✍️ **Modo Mixto Activo:** Digita libremente las cantidades de Placas, Túnel e IQF fila por fila. Al finalizar, presiona el botón **'🔄 Actualizar y Calcular Distribución Mixta'** para consolidar los cálculos.")
+
+            with st.form("form_mixto_congelado"):
+                df_grid_ingreso = st.data_editor(
+                    df_editor_source,
+                    disabled=["N° FILA", "TM", "TOTAL"],
+                    hide_index=True,
+                    use_container_width=True,
+                    height=320,
+                    key=f"grid_cong_batch_{v}_{num_filas_actual}"
+                )
+                
+                btn_actualizar_mixto = st.form_submit_button(
+                    "🔄 Actualizar y Calcular Distribución Mixta",
+                    type="secondary",
+                    use_container_width=True
+                )
+
+                if btn_actualizar_mixto:
+                    df_grid_ingreso["TOTAL"] = df_grid_ingreso["PLACAS"] + df_grid_ingreso["TUNEL"] + df_grid_ingreso["IQF"]
+                    df_grid_ingreso["TM"] = round((df_grid_ingreso["TOTAL"] * float(st.session_state.wstd_val)) / 1000.0, 4)
+                    st.session_state.df_congelado_edit = df_grid_ingreso
+                    st.success("✅ ¡Distribución mixta consolidada y calculada correctamente!")
+                    st.rerun()
+
+        df_congelado_resultado = st.session_state.df_congelado_edit
+        tot_placas_sum = int(df_congelado_resultado["PLACAS"].sum())
+        tot_tunel_sum = int(df_congelado_resultado["TUNEL"].sum())
+        tot_iqf_sum = int(df_congelado_resultado["IQF"].sum())
+
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Total Placas", f"{tot_placas_sum:,} b")
+        s2.metric("Total Túnel", f"{tot_tunel_sum:,} b")
+        s3.metric("Total IQF", f"{tot_iqf_sum:,} b")
+        s4.metric("Total Congelado", f"{tot_placas_sum + tot_tunel_sum + tot_iqf_sum:,} b")
+
+    # ------------------ TAB 4: CONTROL DE PESOS ------------------
+    with tab_pesos:
+        st.markdown("#### 1. Muestreo de Control de Pesos en Balanza")
+        cols_w = st.columns(max(len(lista_pres_mem), 1))
+
+        for i, col in enumerate(cols_w):
+            with col:
+                nom_completo = lista_pres_mem[i]['nombre'].strip()
+                st.markdown(f"**{nom_completo}**")
+                val_mem = st.session_state.txt_pesos_mem.get(str(i), "20.00, 20.05, 19.98")
+                txt_p = st.text_area(f"Pesos balanza ({i+1}):", value=val_mem, height=90, key=f"pw_box_{i}_{v}")
+                st.session_state.txt_pesos_mem[str(i)] = txt_p
+
+        if peso_a_favor < 0:
+            estilo_box = "background-color: #FED7D7; border: 1px solid #E53E3E; padding: 12px; border-radius: 8px; color: #9B2C2C;"
+            label_margen = f"🚨 Margen en Contra (Exceso de Payload): {abs(peso_a_favor):,.2f} kg"
+        elif peso_a_favor <= 500:
+            estilo_box = "background-color: #EBF8FF; border: 1px solid #3182CE; padding: 12px; border-radius: 8px; color: #2B6CB0;"
+            label_margen = f"ℹ️ Margen al Límite del Payload: {peso_a_favor:,.2f} kg"
+        else:
+            estilo_box = "background-color: #C6F6D5; border: 1px solid #38A169; padding: 12px; border-radius: 8px; color: #22543D;"
+            label_margen = f"✅ Margen a Favor Holgado: {peso_a_favor:,.2f} kg"
+
+        st.markdown(f"<div style='{estilo_box} font-weight: bold; margin-bottom: 12px;'>{label_margen}</div>", unsafe_allow_html=True)
+
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Bultos Totales", f"{tot_b_gral:,}")
+        r2.metric("Promedio Global", f"{prom_global:.3f} kg")
+        r3.metric("Peso Bruto Total", f"{peso_tot_gral:,.2f} kg")
+        r4.metric("Margen Restante", f"{peso_a_favor:,.2f} kg")
+
+        st.markdown("---")
+        st.markdown("#### ⚖️ 2. Liquidación Técnica del Muestreo (Block, Tara y Plus)")
+        st.caption("Visibilidad interna de supervisión: El plus y el peso block se controlan aquí y se respaldan en Sheets, pero se omiten del PDF.")
+
+        col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
+        with col_cfg1:
+            idx_env = 0 if st.session_state.tipo_envase_val == "Saco" else 1
+            env_sel = st.selectbox("Envase Empleado:", ["Saco", "Caja"], index=idx_env, key=f"env_sel_{v}")
+            st.session_state.tipo_envase_val = env_sel
+            tara_sugerida = 0.15 if env_sel == "Saco" else 0.59
+            bloques_sugeridos = 2 if env_sel == "Saco" else 1
+
+        with col_cfg2:
+            st.session_state.tara_insumos_val = st.number_input(
+                f"Tara / Insumos ({env_sel} en kg):",
+                min_value=0.0,
+                max_value=2.0,
+                value=tara_sugerida,
+                step=0.01,
+                format="%.2f",
+                key=f"tara_inp_{v}"
+            )
+
+        with col_cfg3:
+            st.session_state.bloques_bulto_val = st.selectbox(
+                f"Bloques por {env_sel}:",
+                [1, 2, 4],
+                index=[1, 2, 4].index(bloques_sugeridos),
+                key=f"blq_inp_{v}"
+            )
+
+        t_d = float(st.session_state.tara_insumos_val)
+        n_b = int(st.session_state.bloques_bulto_val)
+        
+        if prom_global > t_d and n_b > 0:
+            p_block_disp = (prom_global - t_d) / float(n_b)
+            p_plus_disp = ((p_block_disp - 10.0) / 10.0) * 100.0
+        else:
+            p_block_disp = 0.0
+            p_plus_disp = 0.0
+
+        m_res1, m_res2, m_res3 = st.columns(3)
+        m_res1.metric(f"Promedio {env_sel} (Muestreo)", f"{prom_global:.3f} kg")
+        m_res2.metric("⚖️ Peso Block Neto", f"{p_block_disp:.3f} kg")
+        m_res3.metric("📈 Plus Real (%)", f"{p_plus_disp:+.2f} %", help="Control interno exclusivo de supervisión (no figura en el PDF final)")
+
+        st.markdown("---")
+        try:
+            pdf_pesos_bytes = generar_pdf_pesos_solos(cabecera_pdf_maestra, presentaciones_data_global, resumen_pdf_maestro)
+            st.download_button(
+                "📄 Descargar Reporte de Control de Pesos y Balanza (Sin Plus)",
+                data=pdf_pesos_bytes,
+                file_name=f"Pesos_{st.session_state.cont_val}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+        except Exception as e_pesos:
+            st.caption(f"Generando reporte de pesos: {e_pesos}")
+
+    # ------------------ TAB 5: PANEL DOCUMENTAL (IR EN PDF O FOTO) ------------------
+    with tab_adjuntos:
+        st.markdown("#### 📸 Panel Documental del Contenedor")
+        st.caption("El Reporte de Inspección (IR) puede subirse como archivo **PDF nativo** desde PC o en imagen JPG/PNG. Al guardar en Sheets se conservará y se cargará en cualquier momento.")
+
+        c_f1, c_f2 = st.columns(2)
+        with c_f1:
+            st.markdown("##### 📄 1. Reporte de Inspección (IR / EIR)")
+            foto_ir = st.file_uploader(
+                "Subir / Reemplazar Reporte IR (PDF o Imagen):", 
+                type=["pdf", "jpg", "jpeg", "png"], 
+                key=f"up_ir_{v}"
+            )
+            if foto_ir:
+                raw_bytes = foto_ir.getvalue()
+                if foto_ir.name.lower().endswith(".pdf") or raw_bytes.startswith(b'%PDF'):
+                    db_actual["bytes_ir"] = raw_bytes
+                    st.success(f"📄 Archivo PDF cargado con éxito: **{foto_ir.name}** (Listo para guardar)")
+                else:
+                    b_opt = optimizar_bytes_imagen(raw_bytes)
+                    db_actual["bytes_ir"] = b_opt
+                    st.image(b_opt, caption="Foto IR Cargada (Lista para guardar)", use_container_width=True)
+            elif db_actual.get("bytes_ir"):
+                b_ir_exist = db_actual["bytes_ir"]
+                if isinstance(b_ir_exist, (bytes, bytearray)) and b_ir_exist.startswith(b'%PDF'):
+                    st.success("📄 **Documento PDF del IR actualmente activo y respaldado.**")
+                    st.download_button(
+                        "👁️ Descargar / Abrir IR (PDF)",
+                        data=b_ir_exist,
+                        file_name=f"IR_{st.session_state.cont_val or 'Contenedor'}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                else:
+                    st.image(b_ir_exist, caption="Foto IR Activa", use_container_width=True)
+                
+                if st.button("🗑️ Quitar / Eliminar Documento IR", key=f"del_ir_{v}"):
+                    db_actual["bytes_ir"] = None
+                    if curr_c_id:
+                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "IR")
+                    st.success("Reporte IR eliminado.")
+                    st.rerun()
+
+        with c_f2:
+            st.markdown("##### ❄️ 2. Foto de Temperatura")
+            foto_temp = st.file_uploader("Subir / Reemplazar foto Termoking:", type=["jpg", "jpeg", "png"], key=f"up_temp_{v}")
+            if foto_temp:
+                b_opt_t = optimizar_bytes_imagen(foto_temp.getvalue())
+                db_actual["bytes_temp"] = b_opt_t
+                st.image(b_opt_t, caption="Display Termoking Cargado", use_container_width=True)
+            elif db_actual.get("bytes_temp"):
+                st.image(db_actual["bytes_temp"], caption="Display Termoking Activo", use_container_width=True)
+                if st.button("🗑️ Quitar / Eliminar Foto Temp", key=f"del_temp_{v}"):
+                    db_actual["bytes_temp"] = None
+                    if curr_c_id:
+                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "TEMP")
+                    st.success("Foto de temperatura eliminada.")
+                    st.rerun()
+
+        st.markdown("---")
+        c_f3, c_f4 = st.columns(2)
+        with c_f3:
+            st.markdown("##### 📋 3. Foto de Lista de Empaque")
+            foto_pack = st.file_uploader("Subir / Reemplazar foto Packing List:", type=["jpg", "jpeg", "png"], key=f"up_pack_{v}")
+            if foto_pack:
+                b_opt_p = optimizar_bytes_imagen(foto_pack.getvalue())
+                db_actual["bytes_pack"] = b_opt_p
+                st.image(b_opt_p, caption="Packing List Cargado", use_container_width=True)
+            elif db_actual.get("bytes_pack"):
+                st.image(db_actual["bytes_pack"], caption="Packing List Activo", use_container_width=True)
+                if st.button("🗑️ Quitar / Eliminar Packing List", key=f"del_pack_{v}"):
+                    db_actual["bytes_pack"] = None
+                    if curr_c_id:
+                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "PACK")
+                    st.success("Foto de packing list eliminada.")
+                    st.rerun()
+
+        with c_f4:
+            st.markdown("##### 👤 4. Foto de Involucrado / Supervisor en Planta")
+            foto_invol = st.file_uploader("Subir / Reemplazar foto Involucrado:", type=["jpg", "jpeg", "png"], key=f"up_invol_{v}")
+            if foto_invol:
+                b_opt_i = optimizar_bytes_imagen(foto_invol.getvalue())
+                db_actual["bytes_invol"] = b_opt_i
+                st.image(b_opt_i, caption="Foto Involucrado Cargada", use_container_width=True)
+            elif db_actual.get("bytes_invol"):
+                st.image(db_actual["bytes_invol"], caption="Foto Involucrado Activa", use_container_width=True)
+                if st.button("🗑️ Quitar / Eliminar Foto Involucrado", key=f"del_invol_{v}"):
+                    db_actual["bytes_invol"] = None
+                    if curr_c_id:
+                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "INVOLUCRADO")
+                    st.success("Foto de involucrado eliminada.")
+                    st.rerun()
+
+    # ------------------ TAB 6: VISOR DOCUMENTAL Y ESTADO ------------------
+    with tab_visor:
+        st.markdown("#### 🔎 Centro de Visualización de Documentos y Evidencias")
+        st.caption(f"Inspección directa de los archivos del contenedor: **{st.session_state.cont_val or 'Sin Contenedor Asignado'}**")
+
+        v_c1, v_c2, v_c3, v_c4 = st.columns(4)
+        has_ir = bool(db_actual.get("bytes_ir"))
+        has_temp = bool(db_actual.get("bytes_temp"))
+        has_pack = bool(db_actual.get("bytes_pack"))
+        has_invol = bool(db_actual.get("bytes_invol"))
+
+        v_c1.markdown(f"**Reporte IR:** {'🟢 Cargado' if has_ir else '🔴 Pendiente'}")
+        v_c2.markdown(f"**Temperatura:** {'🟢 Cargado' if has_temp else '🔴 Pendiente'}")
+        v_c3.markdown(f"**Packing List:** {'🟢 Cargado' if has_pack else '🔴 Pendiente'}")
+        v_c4.markdown(f"**Involucrado:** {'🟢 Cargado' if has_invol else '🔴 Pendiente'}")
+
+        st.markdown("---")
+
+        opciones_visor = [
+            "📄 1. Reporte de Inspección (IR / EIR)",
+            "❄️ 2. Foto de Temperatura (Termoking)",
+            "📋 3. Foto de Packing List",
+            "👤 4. Foto de Supervisor en Planta",
+            "📦 5. Reporte Consolidado de Embarque (PDF Completo)"
+        ]
+
+        doc_elegido = st.selectbox("Seleccione el Documento a Inspeccionar:", opciones_visor)
+
+        if "1. Reporte de Inspección" in doc_elegido:
+            b_ir_view = db_actual.get("bytes_ir")
+            if not b_ir_view:
+                st.warning("⚠️ Aún no se ha cargado el Reporte de Inspección (IR) para este contenedor.")
+            else:
+                if isinstance(b_ir_view, (bytes, bytearray)) and b_ir_view.startswith(b'%PDF'):
+                    c_act1, c_act2 = st.columns([1.5, 3])
+                    with c_act1:
+                        st.download_button(
+                            "📥 Descargar Archivo IR (PDF)",
+                            data=b_ir_view,
+                            file_name=f"IR_{st.session_state.cont_val or 'Contenedor'}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                    with c_act2:
+                        b64_ir_direct = base64.b64encode(b_ir_view).decode('utf-8')
+                        st.markdown(f'<a href="data:application/pdf;base64,{b64_ir_direct}" target="_blank" style="display:inline-block; padding:8px 16px; background-color:#2B6CB0; color:white; border-radius:5px; text-decoration:none; font-weight:bold;">🚀 Abrir IR en Pestaña Completa</a>', unsafe_allow_html=True)
+                    
+                    try:
+                        reader = pypdf.PdfReader(io.BytesIO(b_ir_view))
+                        imagenes_encontradas = []
+                        for page in reader.pages:
+                            for img_obj in page.images:
+                                imagenes_encontradas.append(img_obj.data)
+                        
+                        if imagenes_encontradas:
+                            st.info(f"Visualizando {len(imagenes_encontradas)} página(s) del documento IR:")
+                            for idx_img, b_pg in enumerate(imagenes_encontradas):
+                                st.image(b_pg, caption=f"Página {idx_img+1} - Reporte IR", use_container_width=True)
+                        else:
+                            st.info("ℹ️ El archivo PDF contiene texto vectorial. Presiona el botón azul arriba para abrirlo en pantalla completa o descargarlo.")
+                    except Exception:
+                        st.info("Utilice el botón superior para abrir o descargar el documento PDF con nitidez.")
+                else:
+                    st.image(b_ir_view, caption=f"Reporte IR - Contenedor {st.session_state.cont_val}", use_container_width=True)
+
+        elif "2. Foto de Temperatura" in doc_elegido:
+            b_temp_view = db_actual.get("bytes_temp")
+            if not b_temp_view:
+                st.warning("⚠️ No hay registro fotográfico de temperatura para este contenedor.")
+            else:
+                st.image(b_temp_view, caption=f"Display de Temperatura - Contenedor {st.session_state.cont_val}", use_container_width=True)
+
+        elif "3. Foto de Packing List" in doc_elegido:
+            b_pack_view = db_actual.get("bytes_pack")
+            if not b_pack_view:
+                st.warning("⚠️ No hay fotografía de Packing List cargada.")
+            else:
+                st.image(b_pack_view, caption=f"Packing List Oficial - Contenedor {st.session_state.cont_val}", use_container_width=True)
+
+        elif "4. Foto de Supervisor" in doc_elegido:
+            b_invol_view = db_actual.get("bytes_invol")
+            if not b_invol_view:
+                st.warning("⚠️ No hay fotografía de supervisión en planta cargada.")
+            else:
+                st.image(b_invol_view, caption=f"Supervisión en Planta - Luis Enrique Fiestas Eca", use_container_width=True)
+
+        elif "5. Reporte Consolidado" in doc_elegido:
+            if not pdf_dossier_bytes_cache:
+                st.info("ℹ️ Ingrese el N° de Contenedor y los datos básicos para previsualizar el dossier completo.")
+            else:
+                c_d1, c_d2 = st.columns([1.5, 3])
+                with c_d1:
+                    st.download_button(
+                        "📥 Descargar Reporte de Embarque Oficial (PDF)",
+                        data=pdf_dossier_bytes_cache,
+                        file_name=f"Reporte_Embarque_{st.session_state.cont_val}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                with c_d2:
+                    b64_dos_link = base64.b64encode(pdf_dossier_bytes_cache).decode('utf-8')
+                    st.markdown(f'<a href="data:application/pdf;base64,{b64_dos_link}" target="_blank" style="display:inline-block; padding:8px 16px; background-color:#2F855A; color:white; border-radius:5px; text-decoration:none; font-weight:bold;">🚀 Abrir Reporte Completo en Pestaña Nueva</a>', unsafe_allow_html=True)
+
+    # =========================================================================
+    # GUARDADO CENTRALIZADO (DESDE A HASTA AX - 50 COLUMNAS)
+    # =========================================================================
+    st.markdown("---")
+    btn_label = f"💾 Guardar / Actualizar Información de {st.session_state.cont_val or 'Contenedor'} en Sheets"
+    if st.button(btn_label, type="primary", use_container_width=True):
+        if not st.session_state.cont_val.strip():
+            st.warning("⚠️ Debe ingresar el N° de Contenedor antes de guardar.")
+        else:
+            try:
+                num_c_guardar = st.session_state.cont_val.strip().upper()
+                db_c_guardar = st.session_state.fotos_contenedor_db.get(num_c_guardar, {})
+
+                with st.spinner("Guardando archivos y fotos en la base de datos..."):
+                    if db_c_guardar.get("bytes_ir"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "IR", db_c_guardar["bytes_ir"])
+                    if db_c_guardar.get("bytes_temp"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "TEMP", db_c_guardar["bytes_temp"])
+                    if db_c_guardar.get("bytes_pack"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "PACK", db_c_guardar["bytes_pack"])
+                    if db_c_guardar.get("bytes_invol"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "INVOLUCRADO", db_c_guardar["bytes_invol"])
+
+                pres_cols = []
+                for idx in range(8):
+                    if idx < len(lista_pres_mem):
+                        pres_cols.extend([lista_pres_mem[idx]["nombre"], int(lista_pres_mem[idx]["cantidad"])])
+                    else:
+                        pres_cols.extend(["", ""])
+
+                detalle_lotes_str = " | ".join([f"{l['lote_txt']} ({l['fecha_txt']}): {l['cantidad']}b" for l in lista_lotes_mem if l['cantidad'] > 0])
+
+                serial_pesos = []
+                for k_p, v_p in st.session_state.txt_pesos_mem.items():
+                    clean_v = v_p.replace("\n", " ").strip()
+                    if clean_v:
+                        serial_pesos.append(f"{k_p}::{clean_v}")
+                detalle_pesos_str = " ;; ".join(serial_pesos)
+
+                link_ir_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_ir") else ""
+                link_temp_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_temp") else ""
+                link_pack_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_pack") else ""
+                link_invol_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_invol") else ""
+
+                val_prom_saco_planta = round(prom_global, 3)
+                val_block_planta = round(peso_block_planta, 3)
+                val_plus_planta = round(plus_planta, 2)
+
+                id_embarque_final = st.session_state.emb_id if st.session_state.emb_id else f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
+
+                # Serialización exacta de las capacidades fila por fila para la nueva columna AX (50)
+                serial_caps_filas_ax = ",".join([str(int(x)) for x in caps_reales_actuales])
+
+                fila_maestra = [
+                    id_embarque_final,                             # A: ID_EMBARQUE
+                    num_c_guardar,                                 # B: CONTENEDOR
+                    str(st.session_state.mes_val),                 # C: MES
+                    str(st.session_state.fec_val),                 # D: FECHA
+                    str(st.session_state.pi_val).strip(),          # E: N°_PI
+                    str(st.session_state.bk_val).strip(),          # F: BOOKING
+                    str(st.session_state.cli_val).strip(),         # G: CLIENTE
+                    str(st.session_state.dest_val).strip(),        # H: Destino
+                    str(st.session_state.pais_val).strip(),        # I: PAIS
+                    "LUIS ENRIQUE FIESTAS ECA",                    # J: supervisor
+                    *pres_cols,                                    # K a Z: PRESENTACION 1 a 8 y BULTOS 1 a 8
+                    float(st.session_state.pay_val),               # AA: payload_contenedor
+                    int(tot_b_gral),                               # AB: total_bultos
+                    float(round(peso_tot_gral, 2)),                # AC: peso_bruto
+                    float(round(peso_a_favor, 2)),                 # AD: margen_a_favor
+                    float(round(prom_global, 3)),                  # AE: promedio_global
+                    int(tot_placas_sum),                           # AF: placas
+                    int(tot_tunel_sum),                            # AG: tunel
+                    int(tot_iqf_sum),                              # AH: iqf
+                    detalle_lotes_str,                             # AI: detalle_lotes_fechas
+                    int(st.session_state.nfil_val),                # AJ: total_filas
+                    int(st.session_state.capg_val),                # AK: cap_estandar_fila (legado)
+                    int(st.session_state.capf1_val),               # AL: cap_fila_1 (legado)
+                    int(st.session_state.capfu_val),               # AM: cap_fila_puerta (legado)
+                    float(st.session_state.wstd_val),              # AN: peso_std_bulto
+                    detalle_pesos_str,                             # AO: detalle_pesos_balanza
+                    link_ir_final,                                 # AP: link_foto_ir
+                    link_temp_final,                               # AQ: link_foto_temperatura
+                    link_pack_final,                               # AR: link_foto_packing
+                    link_invol_final,                              # AS: link_foto_involucrado
+                    0.0,                                           # AT: pesos_wincha
+                    val_prom_saco_planta,                          # AU: peso_saco_wincha
+                    val_block_planta,                              # AV: peso_block real
+                    val_plus_planta,                               # AW: porcentaje_plus_planta
+                    serial_caps_filas_ax                           # AX: CAPACIDADES_POR_FILA_SERIAL (Columna 50)
+                ]
+
+                es_modo_nuevo = (modo_operacion == "Nuevo Contenedor")
+                ok, res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra, forzar_nuevo=es_modo_nuevo)
+
+                if ok:
+                    st.success(f"🎉 {res_msg}")
+                    st.session_state.emb_id = f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
+                else:
+                    st.error(f"🚫 {res_msg}")
+            except Exception as e:
+                st.error(f"Error al guardar en Sheets: {e}")
