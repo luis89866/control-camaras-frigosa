@@ -107,7 +107,7 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # =========================================================================
-# GESTIÓN DE ADJUNTOS EN SHEETS (PDFs O IMÁGENES VIA CHUNKING)
+# GESTIÓN DE ADJUNTOS EN SHEETS
 # =========================================================================
 def obtener_hoja_adjuntos_fotos(get_gspread_client):
     client = get_gspread_client()
@@ -215,7 +215,7 @@ def obtener_estilo_color_margen(margen_val):
         return colors.HexColor("#C6F6D5"), colors.HexColor("#22543D"), "MARGEN (A FAVOR):"
 
 # =========================================================================
-# REPORTE DE PESOS Y BALANZA (SIN VISUALIZACIÓN DE PLUS EN EL PDF)
+# REPORTE DE PESOS Y BALANZA
 # =========================================================================
 def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     buffer = io.BytesIO()
@@ -741,8 +741,11 @@ def render_module(user, get_gspread_client):
             c_btn_c1, c_btn_c2 = st.columns([1.5, 2])
             with c_btn_c1:
                 btn_cargar_datos = st.button("📥 Cargar en Pantalla", use_container_width=True) if cont_seleccionado else False
+            with c_btn_c2:
+                btn_refrescar_datos = st.button("🔄 Refrescar Datos del Contenedor", use_container_width=True) if cont_seleccionado else False
 
-            if btn_cargar_datos:
+            # Lógica de carga y refresco sin tener que salir y volver a filtrar
+            if btn_cargar_datos or btn_refrescar_datos:
                 fila_encontrada = None
                 for r in registros[1:]:
                     if len(r) > 1 and r[1].strip() == cont_seleccionado:
@@ -897,6 +900,9 @@ def render_module(user, get_gspread_client):
             st.session_state.pais_val = st.text_input("País:", value=st.session_state.pais_val, key=f"pais_emb_{v}").strip().upper()
             st.session_state.pay_val = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=34000.0, value=float(st.session_state.pay_val), step=100.0, key=f"pay_emb_{v}")
 
+    # =========================================================================
+    # CONFIGURACIÓN DINÁMICA DE FILAS Y CAPACIDADES
+    # =========================================================================
     caps_filas_default = [int(st.session_state.capg_val)] * int(st.session_state.nfil_val)
     caps_filas_default[0] = int(st.session_state.capf1_val)
     caps_filas_default[-1] = int(st.session_state.capfu_val)
@@ -906,8 +912,9 @@ def render_module(user, get_gspread_client):
 
     caps_reales_actuales = [int(x) for x in st.session_state.caps_filas_override]
 
-    lista_lotes_mem = [{"fecha_txt": l["fecha"].strftime('%d/%m/%Y'), "lote_txt": l["lote"].strip(), "cantidad": int(l["bultos"])} for l in st.session_state.lotes_items]
-    headers_l = [f"{l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_mem]
+    # Identificador único de columna por lote para evitar colisiones con fechas repetidas
+    lista_lotes_mem = [{"idx": idx + 1, "fecha_txt": l["fecha"].strftime('%d/%m/%Y'), "lote_txt": l["lote"].strip(), "cantidad": int(l["bultos"])} for idx, l in enumerate(st.session_state.lotes_items)]
+    headers_l = [f"L{l['idx']}: {l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_mem]
     matriz_lotes_auto = calcular_matriz_estiba(caps_reales_actuales, lista_lotes_mem)
 
     data_filas_tabla = []
@@ -1057,19 +1064,39 @@ def render_module(user, get_gspread_client):
         "🔎 6. Visor Documental y Estado"
     ])
 
-    # ------------------ TAB 1: PLANO ESTIBA (HASTA 100 LOTES) ------------------
+    # ------------------ TAB 1: PLANO ESTIBA (CONFIGURACIÓN FLEXIBLE Y HASTA 100 LOTES) ------------------
     with tab_estiba_lotes:
         st.markdown("#### Configuración de Filas y Capacidad")
         cf1, cf2, cf3, cf4 = st.columns(4)
         with cf1:
             st.session_state.nfil_val = int(st.number_input("Total Filas:", min_value=10, max_value=30, value=int(st.session_state.nfil_val), key=f"nfil_{v}"))
         with cf2:
-            st.session_state.capg_val = int(st.number_input("Capacidad Estándar Fila:", min_value=20, max_value=100, value=int(st.session_state.capg_val), key=f"capg_{v}"))
+            st.session_state.capg_val = int(st.number_input("Capacidad Estándar Fila:", min_value=20, max_value=120, value=int(st.session_state.capg_val), key=f"capg_{v}"))
         with cf3:
-            st.session_state.capf1_val = int(st.number_input("Capacidad Fila 1:", min_value=20, max_value=100, value=int(st.session_state.capf1_val), key=f"capf1_{v}"))
+            st.session_state.capf1_val = int(st.number_input("Capacidad Fila 1:", min_value=20, max_value=120, value=int(st.session_state.capf1_val), key=f"capf1_{v}"))
         with cf4:
-            st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {st.session_state.nfil_val}:", min_value=20, max_value=100, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
+            st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {st.session_state.nfil_val}:", min_value=20, max_value=120, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
             st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
+
+        # HERRAMIENTA RÁPIDA: ASIGNACIÓN DE BULTOS POR RANGO DE FILAS (Sacos / Cajas)
+        with st.expander("⚡ Asignación Rápida por Rangos de Filas (Ej: Fila 2 a 14 = 63, Fila 15 a 19 = 78)", expanded=False):
+            cr1, cr2, cr3, cr4 = st.columns([1.5, 1.5, 2, 2])
+            with cr1:
+                r_ini = st.number_input("Desde Fila:", min_value=1, max_value=int(st.session_state.nfil_val), value=1, key=f"r_ini_{v}")
+            with cr2:
+                r_fin = st.number_input("Hasta Fila:", min_value=1, max_value=int(st.session_state.nfil_val), value=int(st.session_state.nfil_val), key=f"r_fin_{v}")
+            with cr3:
+                r_cant = st.number_input("Cantidad Bultos por Fila:", min_value=0, max_value=150, value=63, key=f"r_cant_{v}")
+            with cr4:
+                st.markdown("<br/>", unsafe_allow_html=True)
+                if st.button("Aplicar Rango a Filas", use_container_width=True, key=f"btn_rango_{v}"):
+                    if r_ini <= r_fin:
+                        for idx_f in range(int(r_ini) - 1, int(r_fin)):
+                            st.session_state.caps_filas_override[idx_f] = int(r_cant)
+                        st.success(f"Filas de {r_ini} a {r_fin} fijadas en {r_cant} bultos.")
+                        st.rerun()
+                    else:
+                        st.error("La fila inicial debe ser menor o igual a la final.")
 
         n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=100, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
         while len(st.session_state.lotes_items) < n_lotes:
@@ -1096,17 +1123,17 @@ def render_module(user, get_gspread_client):
                 item_l["fecha"] = fl
                 item_l["lote"] = lot_txt
                 item_l["bultos"] = int(bl)
-                lista_lotes_calc.append({"fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt, "cantidad": int(bl)})
+                lista_lotes_calc.append({"idx": i + 1, "fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt, "cantidad": int(bl)})
 
         cols_bloqueadas = ["N° FILA", "TM"] + headers_l
-        st.info("💡 Solo edita el número en **CANT/FILA** si deseas balancear (+1, -1). El resto se recalcula solo.")
+        st.info("💡 Puedes editar libremente el número en **CANT/FILA** para balancear fila por fila:")
 
         df_lotes_editado = st.data_editor(
             df_lotes_global,
             disabled=cols_bloqueadas,
             hide_index=True,
             use_container_width=True,
-            height=300,
+            height=320,
             key=f"editor_cantfila_only_{v}_{st.session_state.nfil_val}"
         )
 
@@ -1241,7 +1268,7 @@ def render_module(user, get_gspread_client):
         s3.metric("Total IQF", f"{tot_iqf_sum:,} b")
         s4.metric("Total Congelado", f"{tot_placas_sum + tot_tunel_sum + tot_iqf_sum:,} b")
 
-    # ------------------ TAB 4: CONTROL DE PESOS (PLUS VISIBLE EN EL APP) ------------------
+    # ------------------ TAB 4: CONTROL DE PESOS ------------------
     with tab_pesos:
         st.markdown("#### 1. Muestreo de Control de Pesos en Balanza")
         cols_w = st.columns(max(len(lista_pres_mem), 1))
@@ -1358,7 +1385,7 @@ def render_module(user, get_gspread_client):
                 if isinstance(b_ir_exist, (bytes, bytearray)) and b_ir_exist.startswith(b'%PDF'):
                     st.success("📄 **Documento PDF del IR actualmente activo y respaldado.**")
                     st.download_button(
-                        "👁️ Descargar / Previsualizar IR (PDF)",
+                        "👁️ Descargar / Abrir IR (PDF)",
                         data=b_ir_exist,
                         file_name=f"IR_{st.session_state.cont_val or 'Contenedor'}.pdf",
                         mime="application/pdf",
@@ -1424,12 +1451,11 @@ def render_module(user, get_gspread_client):
                     st.success("Foto de involucrado eliminada.")
                     st.rerun()
 
-    # ------------------ TAB 6: VISOR DOCUMENTAL Y ESTADO (RENDERIZADO SEGURO ANTI-BLOQUEO) ------------------
+    # ------------------ TAB 6: VISOR DOCUMENTAL Y ESTADO (RENDERIZADO NATIVO SIN BLOQUEO DE CHROME) ------------------
     with tab_visor:
         st.markdown("#### 🔎 Centro de Visualización de Documentos y Evidencias")
         st.caption(f"Inspección directa de los archivos del contenedor: **{st.session_state.cont_val or 'Sin Contenedor Asignado'}**")
 
-        # 1. Semáforo de Estado
         v_c1, v_c2, v_c3, v_c4 = st.columns(4)
         has_ir = bool(db_actual.get("bytes_ir"))
         has_temp = bool(db_actual.get("bytes_temp"))
@@ -1468,8 +1494,11 @@ def render_module(user, get_gspread_client):
                             mime="application/pdf",
                             use_container_width=True
                         )
+                    with c_act2:
+                        b64_ir_direct = base64.b64encode(b_ir_view).decode('utf-8')
+                        st.markdown(f'<a href="data:application/pdf;base64,{b64_ir_direct}" target="_blank" style="display:inline-block; padding:8px 16px; background-color:#2B6CB0; color:white; border-radius:5px; text-decoration:none; font-weight:bold;">🚀 Abrir IR en Pestaña Completa</a>', unsafe_allow_html=True)
                     
-                    # Extracción inteligente de páginas para visualización 100% nativa anti-bloqueo Chrome
+                    # Renderizado nativo: extracción de imágenes contenidas en el PDF para evitar el bloqueo del iframe en Chrome
                     try:
                         reader = pypdf.PdfReader(io.BytesIO(b_ir_view))
                         imagenes_encontradas = []
@@ -1482,14 +1511,7 @@ def render_module(user, get_gspread_client):
                             for idx_img, b_pg in enumerate(imagenes_encontradas):
                                 st.image(b_pg, caption=f"Página {idx_img+1} - Reporte IR", use_container_width=True)
                         else:
-                            # Visor JS alternativo homologado en Chrome
-                            b64_pdf = base64.b64encode(b_ir_view).decode('utf-8')
-                            visor_html = f'''
-                            <object data="data:application/pdf;base64,{b64_pdf}" type="application/pdf" width="100%" height="700px">
-                                <embed src="data:application/pdf;base64,{b64_pdf}" type="application/pdf" />
-                            </object>
-                            '''
-                            st.components.v1.html(visor_html, height=720)
+                            st.info("ℹ️ El archivo PDF contiene texto vectorial. Presiona el botón azul arriba para abrirlo en pantalla completa o descargarlo.")
                     except Exception:
                         st.info("Utilice el botón superior para abrir o descargar el documento PDF con nitidez.")
                 else:
@@ -1520,28 +1542,18 @@ def render_module(user, get_gspread_client):
             if not pdf_dossier_bytes_cache:
                 st.info("ℹ️ Ingrese el N° de Contenedor y los datos básicos para previsualizar el dossier completo.")
             else:
-                st.download_button(
-                    "📥 Descargar Reporte de Embarque Oficial (PDF Completo)",
-                    data=pdf_dossier_bytes_cache,
-                    file_name=f"Reporte_Embarque_{st.session_state.cont_val}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-                
-                # Renderizado por páginas del reporte generado para vista inmediata
-                try:
-                    reader_dos = pypdf.PdfReader(io.BytesIO(pdf_dossier_bytes_cache))
-                    st.success(f"Reporte Consolidado generado con éxito ({len(reader_dos.pages)} páginas listas para despacho).")
-                    
-                    b64_dossier = base64.b64encode(pdf_dossier_bytes_cache).decode('utf-8')
-                    visor_dossier_html = f'''
-                    <object data="data:application/pdf;base64,{b64_dossier}#toolbar=1" type="application/pdf" width="100%" height="750px">
-                        <embed src="data:application/pdf;base64,{b64_dossier}#toolbar=1" type="application/pdf" />
-                    </object>
-                    '''
-                    st.components.v1.html(visor_dossier_html, height=780)
-                except Exception:
-                    st.info("Presione el botón verde arriba para descargar o abrir el reporte.")
+                c_d1, c_d2 = st.columns([1.5, 3])
+                with c_d1:
+                    st.download_button(
+                        "📥 Descargar Reporte de Embarque Oficial (PDF)",
+                        data=pdf_dossier_bytes_cache,
+                        file_name=f"Reporte_Embarque_{st.session_state.cont_val}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                with c_d2:
+                    b64_dos_link = base64.b64encode(pdf_dossier_bytes_cache).decode('utf-8')
+                    st.markdown(f'<a href="data:application/pdf;base64,{b64_dos_link}" target="_blank" style="display:inline-block; padding:8px 16px; background-color:#2F855A; color:white; border-radius:5px; text-decoration:none; font-weight:bold;">🚀 Abrir Reporte Completo en Pestaña Nueva</a>', unsafe_allow_html=True)
 
     # =========================================================================
     # GUARDADO CENTRALIZADO (DESDE COLUMNA A DIRECTO)
