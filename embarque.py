@@ -215,7 +215,7 @@ def obtener_estilo_color_margen(margen_val):
         return colors.HexColor("#C6F6D5"), colors.HexColor("#22543D"), "MARGEN (A FAVOR):"
 
 # =========================================================================
-# REPORTE DE PESOS Y BALANZA
+# REPORTE DE PESOS Y BALANZA (SIN PLUS EN PDF)
 # =========================================================================
 def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     buffer = io.BytesIO()
@@ -1627,4 +1627,74 @@ def render_module(user, get_gspread_client):
                 pres_cols = []
                 for idx in range(8):
                     if idx < len(lista_pres_mem):
-                        pres_
+                        pres_cols.extend([lista_pres_mem[idx]["nombre"], int(lista_pres_mem[idx]["cantidad"])])
+                    else:
+                        pres_cols.extend(["", ""])
+
+                detalle_lotes_str = " | ".join([f"{l['lote_txt']} ({l['fecha_txt']}): {l['cantidad']}b" for l in lista_lotes_mem if l['cantidad'] > 0])
+
+                serial_pesos = []
+                for k_p, v_p in st.session_state.txt_pesos_mem.items():
+                    clean_v = v_p.replace("\n", " ").strip()
+                    if clean_v:
+                        serial_pesos.append(f"{k_p}::{clean_v}")
+                detalle_pesos_str = " ;; ".join(serial_pesos)
+
+                link_ir_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_ir") else ""
+                link_temp_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_temp") else ""
+                link_pack_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_pack") else ""
+                link_invol_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_invol") else ""
+
+                val_prom_saco_planta = round(prom_global, 3)
+                val_block_planta = round(peso_block_planta, 3)
+                val_plus_planta = round(plus_planta, 2)
+
+                id_embarque_final = st.session_state.emb_id if st.session_state.emb_id else f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
+
+                fila_maestra = [
+                    id_embarque_final,                             # A: ID_EMBARQUE
+                    num_c_guardar,                                 # B: CONTENEDOR
+                    str(st.session_state.mes_val),                 # C: MES
+                    str(st.session_state.fec_val),                 # D: FECHA
+                    str(st.session_state.pi_val).strip(),          # E: N°_PI
+                    str(st.session_state.bk_val).strip(),          # F: BOOKING
+                    str(st.session_state.cli_val).strip(),         # G: CLIENTE
+                    str(st.session_state.dest_val).strip(),        # H: Destino
+                    str(st.session_state.pais_val).strip(),        # I: PAIS
+                    "LUIS ENRIQUE FIESTAS ECA",                    # J: supervisor
+                    *pres_cols,                                    # K a Z: PRESENTACION 1 a 8 y BULTOS 1 a 8
+                    float(st.session_state.pay_val),               # AA: payload_contenedor
+                    int(tot_b_gral),                               # AB: total_bultos
+                    float(round(peso_tot_gral, 2)),                # AC: peso_bruto
+                    float(round(peso_a_favor, 2)),                 # AD: margen_a_favor
+                    float(round(prom_global, 3)),                  # AE: promedio_global
+                    int(tot_placas_sum),                           # AF: placas
+                    int(tot_tunel_sum),                            # AG: tunel
+                    int(tot_iqf_sum),                              # AH: iqf
+                    detalle_lotes_str,                             # AI: detalle_lotes_fechas
+                    int(st.session_state.nfil_val),                # AJ: total_filas
+                    int(st.session_state.capg_val),                # AK: cap_estandar_fila
+                    int(st.session_state.capf1_val),               # AL: cap_fila_1
+                    int(st.session_state.capfu_val),               # AM: cap_fila_puerta
+                    float(st.session_state.wstd_val),              # AN: peso_std_bulto
+                    detalle_pesos_str,                             # AO: detalle_pesos_balanza
+                    link_ir_final,                                 # AP: link_foto_ir
+                    link_temp_final,                               # AQ: link_foto_temperatura
+                    link_pack_final,                               # AR: link_foto_packing
+                    link_invol_final,                              # AS: link_foto_involucrado
+                    0.0,                                           # AT: pesos_wincha
+                    val_prom_saco_planta,                          # AU: peso_saco_wincha
+                    val_block_planta,                              # AV: peso_block real
+                    val_plus_planta                                # AW: porcentaje_plus_planta
+                ]
+
+                es_modo_nuevo = (modo_operacion == "Nuevo Contenedor")
+                ok, res_msg = guardar_o_actualizar_contenedor(get_gspread_client, fila_maestra, forzar_nuevo=es_modo_nuevo)
+
+                if ok:
+                    st.success(f"🎉 {res_msg}")
+                    st.session_state.emb_id = f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
+                else:
+                    st.error(f"🚫 {res_msg}")
+            except Exception as e:
+                st.error(f"Error al guardar en Sheets: {e}")
