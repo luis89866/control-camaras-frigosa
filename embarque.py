@@ -57,6 +57,12 @@ MESES_ESP = {
     7: "JULIO", 8: "AGOSTO", 9: "SETIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"
 }
 
+def obtener_peso_sugerido_presentacion(nombre_corte):
+    nombre_limpio = str(nombre_corte).strip().upper()
+    if "BOTONES" in nombre_limpio or "CAJA" in nombre_limpio:
+        return 10.00
+    return 20.00
+
 def optimizar_bytes_imagen(b_in, max_side=950, calidad=70):
     if not b_in:
         return None
@@ -296,6 +302,9 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     buffer.seek(0)
     return buffer
 
+# =========================================================================
+# TABLAS DE ESTIBA EN PDF CON RESALTADO Y SUBRAYADO DE LOTES/CORTES
+# =========================================================================
 def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, styles):
     elementos = []
     if df_in is None or df_in.empty:
@@ -350,15 +359,50 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
         header_row = [Paragraph(str(c).replace(" | ", "<br/>").replace("\n", "<br/>"), cell_head_style) for c in cols_actuales]
         t_data = [header_row]
 
-        for _, r in df_trabajo.iterrows():
+        # Estilo dinámico para colorear donde hay carga y subrayar límites
+        color_resaltado = colors.HexColor("#EBF8FF") if "LOTES" in titulo_tab.upper() else colors.HexColor("#E6FFFA")
+        estilos_celdas = [
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 1), (-1, -1), f_size),
+            ('TOPPADDING', (0, 0), (-1, -1), 1.1),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1.1),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(color_header)),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#FEFCBF")),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor("#F7FAFC")]),
+        ]
+
+        fila_num_pdf = 1
+        for row_idx, r in df_trabajo.iterrows():
             row_vals = []
-            for c in cols_actuales:
+            for col_idx_actual, c in enumerate(cols_actuales):
                 val = r[c]
                 if isinstance(val, (int, float)):
-                    row_vals.append(f"{val:.2f}" if ("TM" in c.upper()) else str(int(val)))
+                    if c in bloque_cols and val > 0:
+                        row_vals.append(str(int(val)))
+                        # Resaltado con color suave donde hay bultos activos
+                        estilos_celdas.append(('BACKGROUND', (col_idx_actual, fila_num_pdf), (col_idx_actual, fila_num_pdf), color_resaltado))
+                        estilos_celdas.append(('FONTNAME', (col_idx_actual, fila_num_pdf), (col_idx_actual, fila_num_pdf), 'Helvetica-Bold'))
+                    elif c in bloque_cols and val == 0:
+                        row_vals.append("-")
+                    else:
+                        row_vals.append(f"{val:.2f}" if ("TM" in c.upper()) else str(int(val)))
                 else:
                     row_vals.append(str(val))
+            
+            # Subrayar con línea más gruesa donde termina un lote o presentación
+            if row_idx < len(df_trabajo) - 1:
+                fila_actual_vals = [r[c] for c in bloque_cols]
+                fila_sig_vals = [df_trabajo.iloc[row_idx + 1][c] for c in bloque_cols]
+                # Si cambia la distribución activa de columnas, trazar línea de división
+                if (any(x > 0 for x in fila_actual_vals) and any(y > 0 for y in fila_sig_vals) and fila_actual_vals != fila_sig_vals):
+                    estilos_celdas.append(('LINEBELOW', (0, fila_num_pdf), (-1, fila_num_pdf), 1.2, colors.HexColor("#2B6CB0")))
+            
             t_data.append(row_vals)
+            fila_num_pdf += 1
 
         tot_row = []
         for idx_c, col_name in enumerate(cols_actuales):
@@ -373,19 +417,7 @@ def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, 
         t_data.append(tot_row)
 
         t_pdf = Table(t_data, colWidths=col_widths)
-        t_pdf.setStyle(TableStyle([
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 1), (-1, -1), f_size),
-            ('TOPPADDING', (0, 0), (-1, -1), 1.1),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 1.1),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(color_header)),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#FEFCBF")),
-            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor("#F7FAFC")]),
-        ]))
+        t_pdf.setStyle(TableStyle(estilos_celdas))
         elementos.append(t_pdf)
 
     return elementos
@@ -569,7 +601,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     return buffer_dossier
 
 # =========================================================================
-# HOJA DISTRIBUCIONES (GUARDADO BLINDADO HASTA COLUMNA AX: 50 COLUMNAS)
+# HOJA DISTRIBUCIONES (GUARDADO POR ID_EMBARQUE Y HASTA COLUMNA AX: 50 COLS)
 # =========================================================================
 def obtener_hoja_distribuciones(get_gspread_client):
     client = get_gspread_client()
@@ -806,18 +838,15 @@ def render_module(user, get_gspread_client):
                         target_filas_cargadas = int(st.session_state.nfil_val)
 
                         # EVALUACIÓN DUAL INTELIGENTE:
-                        # 1. ¿Tiene datos en la columna AX (columna 50)?
                         tiene_ax = len(fila_encontrada) > 49 and bool(fila_encontrada[49].strip())
 
                         if tiene_ax:
-                            # Contenedor nuevo con estiba manual: leer celda AX
                             raw_caps_ax = fila_encontrada[49].strip().split(",")
                             st.session_state.caps_filas_override = [int(x) for x in raw_caps_ax if x.strip().isdigit()][:target_filas_cargadas]
                             while len(st.session_state.caps_filas_override) < target_filas_cargadas:
                                 st.session_state.caps_filas_override.append(int(st.session_state.capg_val))
                             st.session_state["modalidad_cap_selector"] = "Digitar Cada Fila Manualmente (Sacos/Cajas)"
                         else:
-                            # Contenedor histórico anterior (celda AX vacía): leer formato antiguo AJ, AK, AL, AM
                             def_caps = [int(st.session_state.capg_val)] * target_filas_cargadas
                             def_caps[0] = int(st.session_state.capf1_val)
                             def_caps[-1] = int(st.session_state.capfu_val)
@@ -833,7 +862,8 @@ def render_module(user, get_gspread_client):
                             cant_str = fila_encontrada[p_i + 1].strip()
                             if nom_p and cant_str:
                                 try:
-                                    cargadas_pres.append({"nombre": nom_p, "bultos": int(cant_str), "peso": st.session_state.wstd_val})
+                                    peso_sug = obtener_peso_sugerido_presentacion(nom_p)
+                                    cargadas_pres.append({"nombre": nom_p, "bultos": int(cant_str), "peso": peso_sug})
                                 except Exception:
                                     pass
                     if cargadas_pres:
@@ -965,12 +995,21 @@ def render_module(user, get_gspread_client):
         data_filas_tabla.append(r_dict)
     df_lotes_global = pd.DataFrame(data_filas_tabla)
 
-    lista_pres_mem = [{"nombre": p["nombre"], "cantidad": int(p["bultos"]), "peso_unit": float(p.get("peso", st.session_state.wstd_val))} for p in st.session_state.pres_items]
+    # MATRIZ PRESENTACIONES CON PESOS INDIVIDUALES POR CORTE (10 kg Botones vs 20 kg Sacos)
+    lista_pres_mem = [
+        {
+            "nombre": p["nombre"],
+            "cantidad": int(p["bultos"]),
+            "peso_unit": float(p.get("peso", obtener_peso_sugerido_presentacion(p["nombre"])))
+        }
+        for p in st.session_state.pres_items
+    ]
     matriz_pres_auto = calcular_matriz_estiba(caps_reales_actuales, lista_pres_mem)
     headers_pres = [f"{p['nombre']} (P{idx+1})" for idx, p in enumerate(lista_pres_mem)]
     data_pres_tabla = []
     for f_idx in range(len(caps_reales_actuales)):
         b_f = sum(matriz_pres_auto[f_idx])
+        # Tonelaje exacto calculado según el peso unitario de cada producto en la fila
         tm_f = sum(matriz_pres_auto[f_idx][p_i] * lista_pres_mem[p_i]['peso_unit'] for p_i in range(len(lista_pres_mem))) / 1000.0
         r_d = {"N° FILA": f_idx + 1, "TM ESTIMADO": round(tm_f, 4), "TOTAL BULTOS": b_f}
         for p_i in range(len(lista_pres_mem)):
@@ -1005,7 +1044,7 @@ def render_module(user, get_gspread_client):
             except Exception:
                 pass
         pesos_clean = pesos_clean[:20]
-        prom_u = (sum(pesos_clean) / len(pesos_clean)) if pesos_clean else float(st.session_state.wstd_val)
+        prom_u = (sum(pesos_clean) / len(pesos_clean)) if pesos_clean else float(p_item["peso_unit"])
         tot_k = prom_u * p_item["cantidad"]
         presentaciones_data_global.append({
             "nombre": p_item["nombre"],
@@ -1110,7 +1149,6 @@ def render_module(user, get_gspread_client):
         with c_top1:
             st.session_state.nfil_val = int(st.number_input("Total Filas del Contenedor:", min_value=10, max_value=30, value=int(st.session_state.nfil_val), key=f"nfil_{v}"))
         
-        # Recuperar estado del selector de forma consistente
         default_idx_m = 1 if st.session_state.get("modalidad_cap_selector") == "Digitar Cada Fila Manualmente (Sacos/Cajas)" else 0
         with c_top2:
             modo_cap_fila = st.radio(
@@ -1242,11 +1280,14 @@ def render_module(user, get_gspread_client):
         m1.metric("Total Bultos Cargados (Lotes)", f"{tot_b_cargados:,} bultos")
         m2.metric("Tonelaje Total", f"{tot_tm_cargados:.3f} TM")
 
+    # ------------------ TAB 2: PRESENTACIONES CON CONTROL DE KILAJE INDIVIDUAL ------------------
     with tab_estiba_pres:
         st.markdown("#### Presentaciones a Embarcar (Hasta 8 según la hoja)")
+        st.caption("Configura el kilaje unitario exacto por presentación (ej. 10 kg para Botones/Cajas, 20 kg para Sacos).")
+
         np_m = st.number_input("Número de Presentaciones:", min_value=1, max_value=8, value=max(len(st.session_state.pres_items), 1), key=f"npres_c_{v}")
         while len(st.session_state.pres_items) < np_m:
-            st.session_state.pres_items.append({"nombre": LISTA_PRESENTACIONES_FRIGOSA[0], "bultos": 0, "peso": st.session_state.wstd_val})
+            st.session_state.pres_items.append({"nombre": LISTA_PRESENTACIONES_FRIGOSA[0], "bultos": 0, "peso": 20.0})
         while len(st.session_state.pres_items) > np_m:
             st.session_state.pres_items.pop()
 
@@ -1258,9 +1299,19 @@ def render_module(user, get_gspread_client):
                 st.markdown(f"**Presentación {i+1}**")
                 idx_p_sel = LISTA_PRESENTACIONES_FRIGOSA.index(p_item["nombre"]) if p_item["nombre"] in LISTA_PRESENTACIONES_FRIGOSA else 0
                 sel_nom = st.selectbox(f"Corte {i+1}:", LISTA_PRESENTACIONES_FRIGOSA, index=idx_p_sel, key=f"sp_{i}_{v}")
+                
+                # Asignación automática de kilaje según corte si cambió
+                peso_default_sug = obtener_peso_sugerido_presentacion(sel_nom)
+                val_peso_actual = float(p_item.get("peso", peso_default_sug))
+                if p_item.get("nombre") != sel_nom:
+                    val_peso_actual = peso_default_sug
+
                 cant_b = st.number_input(f"Bultos {i+1}:", min_value=0, value=int(p_item["bultos"]), step=10, key=f"bp_{i}_{v}")
+                p_peso = st.number_input(f"Peso Unit (kg) {i+1}:", min_value=1.0, max_value=50.0, value=val_peso_actual, step=0.5, key=f"w_pres_{i}_{v}")
+
                 p_item["nombre"] = sel_nom
                 p_item["bultos"] = int(cant_b)
+                p_item["peso"] = float(p_peso)
 
         st.dataframe(df_pres_global, hide_index=True, use_container_width=True, height=280)
 
@@ -1697,7 +1748,6 @@ def render_module(user, get_gspread_client):
 
                 id_embarque_final = st.session_state.emb_id if st.session_state.emb_id else f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
 
-                # Serialización exacta de capacidades fila por fila en la columna AX (50)
                 serial_caps_filas_ax = ",".join([str(int(x)) for x in caps_reales_actuales])
 
                 fila_maestra = [
