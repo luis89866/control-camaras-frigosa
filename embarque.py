@@ -714,7 +714,617 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
 
     except Exception as e:
         return False, f"Error en Google Sheets: {str(e)}"
+        # =========================================================================
+# FUNCIÓN PRINCIPAL DE ENTRADA (NIVEL RAÍZ)
+# =========================================================================
+def render_module(user, get_gspread_client):
+    st.subheader("🚢 Módulo de Despachos, Estiba y Embarques")
+
+    if "form_version" not in st.session_state:
+        st.session_state.form_version = 0
+
+    if "emb_id" not in st.session_state:
+        st.session_state.emb_id = f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
+    if "cont_val" not in st.session_state:
+        st.session_state.cont_val = ""
+    if "fec_val" not in st.session_state:
+        st.session_state.fec_val = date.today()
+    if "mes_val" not in st.session_state:
+        st.session_state.mes_val = MESES_ESP.get(date.today().month, "SETIEMBRE")
+    if "pi_val" not in st.session_state:
+        st.session_state.pi_val = ""
+    if "bk_val" not in st.session_state:
+        st.session_state.bk_val = ""
+    if "cli_val" not in st.session_state:
+        st.session_state.cli_val = "Shandong sheenier"
+    if "dest_val" not in st.session_state:
+        st.session_state.dest_val = "Yantai china"
+    if "pais_val" not in st.session_state:
+        st.session_state.pais_val = "CHINA"
+    if "pay_val" not in st.session_state:
+        st.session_state.pay_val = 30400.0
+
+    if "nfil_val" not in st.session_state:
+        st.session_state.nfil_val = 18
+    if "capg_val" not in st.session_state:
+        st.session_state.capg_val = 75
+    if "capf1_val" not in st.session_state:
+        st.session_state.capf1_val = 75
+    if "capfu_val" not in st.session_state:
+        st.session_state.capfu_val = 75
+    if "wstd_val" not in st.session_state:
+        st.session_state.wstd_val = 20.00
+
+    if "pesos_wincha_val" not in st.session_state:
+        st.session_state.pesos_wincha_val = 0.0
+
+    if "modalidad_cap_selector" not in st.session_state:
+        st.session_state["modalidad_cap_selector"] = "Modo Estándar (Fila 1, Centro y Puerta)"
+
+    if "tipo_envase_val" not in st.session_state:
+        st.session_state.tipo_envase_val = "Saco"
+    if "tara_insumos_val" not in st.session_state:
+        st.session_state.tara_insumos_val = 0.15
+    if "bloques_bulto_val" not in st.session_state:
+        st.session_state.bloques_bulto_val = 2
+
+    if "peso_saco_hist" not in st.session_state:
+        st.session_state.peso_saco_hist = 0.0
+    if "peso_block_hist" not in st.session_state:
+        st.session_state.peso_block_hist = 0.0
+    if "plus_hist" not in st.session_state:
+        st.session_state.plus_hist = 0.0
+
+    if "pres_items" not in st.session_state:
+        st.session_state.pres_items = [
+            {"nombre": "FF C/M C/T 2000 g/pza - 4000 g/pza MANTO ", "bultos": 800, "peso": 20.00},
+            {"nombre": "FF C/M C/T 2000 g/pza - 4000 g/pza CORTADO ", "bultos": 550, "peso": 20.00}
+        ]
+    if "lotes_items" not in st.session_state:
+        st.session_state.lotes_items = [
+            {"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 650},
+            {"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 700}
+        ]
+    if "txt_pesos_mem" not in st.session_state:
+        st.session_state.txt_pesos_mem = {}
+
+    if "fotos_contenedor_db" not in st.session_state:
+        st.session_state.fotos_contenedor_db = {}
+
+    v = st.session_state.form_version
+
+    # =========================================================================
+    # BARRA SUPERIOR DE SELECCIÓN Y CONTROLES
+    # =========================================================================
+    c_btn_c2 = None
+    col_sel1, col_sel2 = st.columns([3, 1])
+    with col_sel1:
+        try:
+            ws_d = obtener_hoja_distribuciones(get_gspread_client)
+            registros = ws_d.get_all_values()
+        except Exception:
+            registros = []
+
+        modo_operacion = st.radio(
+            "Modo de Trabajo:",
+            ["Nuevo Contenedor", "Cargar / Editar Contenedor Existente"],
+            horizontal=True
+        )
+
+        if modo_operacion == "Cargar / Editar Contenedor Existente" and len(registros) > 1:
+            st.markdown("##### 🔍 Buscar Contenedor Registrado")
+            c_f1, c_f2 = st.columns([1.5, 2])
+            with c_f1:
+                ver_todos = st.checkbox("Ver todo el histórico", value=False)
+                if not ver_todos:
+                    fecha_filtro = st.date_input("Filtrar por Fecha:", value=date.today(), key="f_filtro_cont")
+            
+            opciones_conts = []
+            for r in registros[1:]:
+                if len(r) > 3 and r[1].strip():
+                    c_num = r[1].strip()
+                    c_fec = r[3].strip()
+                    c_cli = r[6].strip() if len(r) > 6 else ""
+                    if ver_todos or c_fec == str(fecha_filtro):
+                        opciones_conts.append((c_num, f"{c_num} | {c_fec} | {c_cli}"))
+
+            with c_f2:
+                if opciones_conts:
+                    map_display = {disp: c_id for c_id, disp in opciones_conts}
+                    sel_display = st.selectbox("Seleccionar Contenedor:", list(map_display.keys()))
+                    cont_seleccionado = map_display[sel_display]
+                else:
+                    st.info("No hay contenedores en la fecha seleccionada.")
+                    cont_seleccionado = None
+
+            c_btn_c1, c_btn_c2 = st.columns([1.5, 2])
+            with c_btn_c1:
+                btn_cargar_datos = st.button("📥 Cargar en Pantalla", use_container_width=True) if cont_seleccionado else False
+            with c_btn_c2:
+                btn_refrescar_datos = st.button("🔄 Refrescar Datos del Contenedor", use_container_width=True) if cont_seleccionado else False
+
+            if btn_cargar_datos or btn_refrescar_datos:
+                fila_encontrada = None
+                for r in registros[1:]:
+                    if len(r) > 1 and r[1].strip() == cont_seleccionado:
+                        fila_encontrada = r
+                        break
+
+                if fila_encontrada:
+                    st.session_state.emb_id = fila_encontrada[0]
+                    num_c_cargado = fila_encontrada[1].strip()
+                    st.session_state.cont_val = num_c_cargado
+                    st.session_state.mes_val = fila_encontrada[2].strip() if len(fila_encontrada) > 2 and fila_encontrada[2].strip() else "SETIEMBRE"
+                    
+                    try:
+                        st.session_state.fec_val = datetime.strptime(fila_encontrada[3].strip(), "%Y-%m-%d").date()
+                    except Exception:
+                        st.session_state.fec_val = date.today()
+
+                    st.session_state.pi_val = fila_encontrada[4].strip() if len(fila_encontrada) > 4 else ""
+                    st.session_state.bk_val = fila_encontrada[5].strip() if len(fila_encontrada) > 5 else ""
+                    st.session_state.cli_val = fila_encontrada[6].strip() if len(fila_encontrada) > 6 else ""
+                    st.session_state.dest_val = fila_encontrada[7].strip() if len(fila_encontrada) > 7 else ""
+                    st.session_state.pais_val = fila_encontrada[8].strip() if len(fila_encontrada) > 8 else "CHINA"
+
+                    try:
+                        st.session_state.pay_val = float(fila_encontrada[26]) if len(fila_encontrada) > 26 and fila_encontrada[26].strip() else 30400.0
+                    except Exception:
+                        st.session_state.pay_val = 30400.0
+
+                    try:
+                        if len(fila_encontrada) > 35 and fila_encontrada[35].strip():
+                            st.session_state.nfil_val = int(fila_encontrada[35].strip())
+                        if len(fila_encontrada) > 36 and fila_encontrada[36].strip():
+                            st.session_state.capg_val = int(fila_encontrada[36].strip())
+                        if len(fila_encontrada) > 37 and fila_encontrada[37].strip():
+                            st.session_state.capf1_val = int(fila_encontrada[37].strip())
+                        if len(fila_encontrada) > 38 and fila_encontrada[38].strip():
+                            st.session_state.capfu_val = int(fila_encontrada[38].strip())
+                        if len(fila_encontrada) > 39 and fila_encontrada[39].strip():
+                            st.session_state.wstd_val = float(fila_encontrada[39].strip())
+
+                        target_filas_cargadas = int(st.session_state.nfil_val)
+
+                        # EVALUACIÓN DUAL INTELIGENTE (COLUMNA AX):
+                        tiene_ax = len(fila_encontrada) > 49 and bool(fila_encontrada[49].strip())
+
+                        if tiene_ax:
+                            raw_caps_ax = fila_encontrada[49].strip().split(",")
+                            st.session_state.caps_filas_override = [int(x) for x in raw_caps_ax if x.strip().isdigit()][:target_filas_cargadas]
+                            while len(st.session_state.caps_filas_override) < target_filas_cargadas:
+                                st.session_state.caps_filas_override.append(int(st.session_state.capg_val))
+                            st.session_state["modalidad_cap_selector"] = "Digitar Cada Fila Manualmente (Sacos/Cajas)"
+                        else:
+                            def_caps = [int(st.session_state.capg_val)] * target_filas_cargadas
+                            def_caps[0] = int(st.session_state.capf1_val)
+                            def_caps[-1] = int(st.session_state.capfu_val)
+                            st.session_state.caps_filas_override = def_caps
+                            st.session_state["modalidad_cap_selector"] = "Modo Estándar (Fila 1, Centro y Puerta)"
+                    except Exception:
+                        pass
+
+                    cargadas_pres = []
+                    for p_i in range(10, 26, 2):
+                        if len(fila_encontrada) > p_i + 1:
+                            nom_p = fila_encontrada[p_i].strip()
+                            cant_str = fila_encontrada[p_i + 1].strip()
+                            if nom_p and cant_str:
+                                try:
+                                    peso_sug = obtener_peso_sugerido_presentacion(nom_p)
+                                    cargadas_pres.append({"nombre": nom_p, "bultos": int(cant_str), "peso": peso_sug})
+                                except Exception:
+                                    pass
+                    if cargadas_pres:
+                        st.session_state.pres_items = cargadas_pres
+
+                    if len(fila_encontrada) > 34 and fila_encontrada[34].strip():
+                        det_lotes_str = fila_encontrada[34].strip()
+                        partes_l = det_lotes_str.split(" | ")
+                        nuevos_lotes = []
+                        for pl in partes_l:
+                            try:
+                                cod_lote = pl.split(" (")[0].strip()
+                                rest = pl.split(" (")[1]
+                                fec_str = rest.split("): ")[0].strip()
+                                b_val = int(rest.split("): ")[1].replace("b", "").strip())
+                                f_obj = datetime.strptime(fec_str, "%d/%m/%Y").date()
+                                nuevos_lotes.append({"fecha": f_obj, "lote": cod_lote, "bultos": b_val})
+                            except Exception:
+                                pass
+                        if nuevos_lotes:
+                            st.session_state.lotes_items = nuevos_lotes
+
+                    if len(fila_encontrada) > 40 and fila_encontrada[40].strip():
+                        raw_pesos = fila_encontrada[40].strip().split(" ;; ")
+                        st.session_state.txt_pesos_mem = {}
+                        for item_p in raw_pesos:
+                            if "::" in item_p:
+                                p_idx, p_vals = item_p.split("::", 1)
+                                st.session_state.txt_pesos_mem[p_idx.strip()] = p_vals.strip()
+
+                    try:
+                        if len(fila_encontrada) > 45 and fila_encontrada[45].strip():
+                            st.session_state.pesos_wincha_val = float(fila_encontrada[45].strip())
+                        else:
+                            st.session_state.pesos_wincha_val = 0.0
+
+                        st.session_state.peso_saco_hist = float(fila_encontrada[46].strip()) if len(fila_encontrada) > 46 and fila_encontrada[46].strip() else 0.0
+                        st.session_state.peso_block_hist = float(fila_encontrada[47].strip()) if len(fila_encontrada) > 47 and fila_encontrada[47].strip() else 0.0
+                        st.session_state.plus_hist = float(fila_encontrada[48].strip()) if len(fila_encontrada) > 48 and fila_encontrada[48].strip() else 0.0
+                    except Exception:
+                        pass
+
+                    with st.spinner("Sincronizando fotos y reportes guardados desde la base de datos..."):
+                        fotos_recuperadas = recuperar_fotos_de_sheets(get_gspread_client, num_c_cargado)
+                        if num_c_cargado not in st.session_state.fotos_contenedor_db:
+                            st.session_state.fotos_contenedor_db[num_c_cargado] = {}
+                        
+                        db_c = st.session_state.fotos_contenedor_db[num_c_cargado]
+                        db_c["bytes_ir"] = fotos_recuperadas.get("IR")
+                        db_c["bytes_temp"] = fotos_recuperadas.get("TEMP")
+                        db_c["bytes_pack"] = fotos_recuperadas.get("PACK")
+                        db_c["bytes_invol"] = fotos_recuperadas.get("INVOLUCRADO")
+                        db_c["bytes_tolva"] = fotos_recuperadas.get("TOLVA")
+                        db_c["bytes_otros"] = fotos_recuperadas.get("OTROS")
+
+                    if "df_congelado_edit" in st.session_state:
+                        del st.session_state["df_congelado_edit"]
+
+                    st.session_state.form_version += 1
+                    st.success(f"✅ ¡Contenedor {num_c_cargado} cargado con éxito!")
+                    st.rerun()
+
+    with col_sel2:
+        if st.button("🧹 Nuevo / Limpiar Formulario"):
+            st.session_state.emb_id = f"EMB-{datetime.now().strftime('%y%m%d%H%M%S')}"
+            st.session_state.cont_val = ""
+            st.session_state.fec_val = date.today()
+            st.session_state.mes_val = MESES_ESP.get(date.today().month, "SETIEMBRE")
+            st.session_state.pi_val = ""
+            st.session_state.bk_val = ""
+            st.session_state.cli_val = ""
+            st.session_state.dest_val = ""
+            st.session_state.pais_val = ""
+            st.session_state.pay_val = 30400.0
+            st.session_state.nfil_val = 18
+            st.session_state.capg_val = 75
+            st.session_state.capf1_val = 75
+            st.session_state.capfu_val = 75
+            st.session_state.wstd_val = 20.00
+            st.session_state.pesos_wincha_val = 0.0
+            st.session_state.peso_saco_hist = 0.0
+            st.session_state.peso_block_hist = 0.0
+            st.session_state.plus_hist = 0.0
+            st.session_state["modalidad_cap_selector"] = "Modo Estándar (Fila 1, Centro y Puerta)"
+            st.session_state.pres_items = [{"nombre": LISTA_PRESENTACIONES_FRIGOSA[0], "bultos": 0, "peso": 20.0}]
+            st.session_state.lotes_items = [{"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0}]
+            st.session_state.txt_pesos_mem = {}
+            if "df_congelado_edit" in st.session_state:
+                del st.session_state["df_congelado_edit"]
+            if "caps_filas_override" in st.session_state:
+                del st.session_state["caps_filas_override"]
+            st.session_state.form_version += 1
+            st.rerun()
+
+    with st.expander("⚙️ Datos Principales del Contenedor", expanded=True):
+        cp1, cp2, cp3, cp4 = st.columns(4)
+        with cp1:
+            st.session_state.fec_val = st.date_input("Fecha:", value=st.session_state.fec_val, key=f"fec_emb_{v}")
+            st.session_state.cont_val = st.text_input("N° Contenedor:", value=st.session_state.cont_val, key=f"cont_emb_{v}").upper().strip()
+            mes_idx = list(MESES_ESP.values()).index(st.session_state.mes_val) if st.session_state.mes_val in MESES_ESP.values() else 8
+            st.session_state.mes_val = st.selectbox("Mes:", list(MESES_ESP.values()), index=mes_idx, key=f"mes_emb_{v}")
+        with cp2:
+            st.session_state.bk_val = st.text_input("Booking:", value=st.session_state.bk_val, key=f"bk_emb_{v}").strip()
+            st.session_state.pi_val = st.text_input("N° P.I. (Pedido):", value=st.session_state.pi_val, key=f"pi_emb_{v}").strip()
+        with cp3:
+            st.session_state.cli_val = st.text_input("Cliente:", value=st.session_state.cli_val, key=f"cli_emb_{v}").strip()
+            st.session_state.dest_val = st.text_input("Destino (Puerto):", value=st.session_state.dest_val, key=f"dest_emb_{v}").strip()
+        with cp4:
+            st.session_state.pais_val = st.text_input("País:", value=st.session_state.pais_val, key=f"pais_emb_{v}").strip().upper()
+            st.session_state.pay_val = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=34000.0, value=float(st.session_state.pay_val), step=100.0, key=f"pay_emb_{v}")
+
+    # =========================================================================
+    # CONFIGURACIÓN DINÁMICA DE FILAS Y CAPACIDADES (PROTEGIDO)
+    # =========================================================================
+    target_nfil = int(st.session_state.nfil_val)
+    if "caps_filas_override" not in st.session_state:
+        st.session_state.caps_filas_override = [75] * target_nfil
+    else:
+        while len(st.session_state.caps_filas_override) < target_nfil:
+            st.session_state.caps_filas_override.append(int(st.session_state.capg_val))
+        if len(st.session_state.caps_filas_override) > target_nfil:
+            st.session_state.caps_filas_override = st.session_state.caps_filas_override[:target_nfil]
+
+    caps_reales_actuales = [int(x) for x in st.session_state.caps_filas_override]
+
+    # CÁLCULO DE PRESENTACIONES CON PESOS INDIVIDUALES POR CORTE
+    lista_pres_mem = [
+        {
+            "nombre": p["nombre"],
+            "cantidad": int(p["bultos"]),
+            "peso_unit": float(p.get("peso", obtener_peso_sugerido_presentacion(p["nombre"])))
+        }
+        for p in st.session_state.pres_items
+    ]
+    matriz_pres_auto = calcular_matriz_estiba(caps_reales_actuales, lista_pres_mem)
+    headers_pres = [f"{p['nombre']} (P{idx+1})" for idx, p in enumerate(lista_pres_mem)]
+    data_pres_tabla = []
+    pesos_totales_por_fila = []
+    for f_idx in range(len(caps_reales_actuales)):
+        b_f = sum(matriz_pres_auto[f_idx])
+        tm_f = sum(matriz_pres_auto[f_idx][p_i] * lista_pres_mem[p_i]['peso_unit'] for p_i in range(len(lista_pres_mem))) / 1000.0
+        pesos_totales_por_fila.append(tm_f)
+        r_d = {"N° FILA": f_idx + 1, "TM ESTIMADO": round(tm_f, 4), "TOTAL BULTOS": b_f}
+        for p_i in range(len(lista_pres_mem)):
+            r_d[headers_pres[p_i]] = matriz_pres_auto[f_idx][p_i]
+        data_pres_tabla.append(r_d)
+    df_pres_global = pd.DataFrame(data_pres_tabla)
+
+    # MATRIZ DE LOTES: TOMA EL TONELAJE REAL CALCULADO POR FILA
+    lista_lotes_mem = [{"idx": idx + 1, "fecha_txt": l["fecha"].strftime('%d/%m/%Y'), "lote_txt": l["lote"].strip(), "cantidad": int(l["bultos"])} for idx, l in enumerate(st.session_state.lotes_items)]
+    headers_l = [f"L{l['idx']}: {l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_mem]
+    matriz_lotes_auto = calcular_matriz_estiba(caps_reales_actuales, lista_lotes_mem)
+
+    data_filas_tabla = []
+    for f_idx in range(target_nfil):
+        b_f = caps_reales_actuales[f_idx]
+        tm_f_real = pesos_totales_por_fila[f_idx] if f_idx < len(pesos_totales_por_fila) and sum(p['cantidad'] for p in lista_pres_mem) > 0 else round((b_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+        r_dict = {"N° FILA": f_idx + 1, "TM": round(tm_f_real, 4), "CANT/FILA": b_f}
+        for l_i in range(len(lista_lotes_mem)):
+            r_dict[headers_l[l_i]] = matriz_lotes_auto[f_idx][l_i]
+        data_filas_tabla.append(r_dict)
+    df_lotes_global = pd.DataFrame(data_filas_tabla)
+
+    # ------------------ INICIALIZACIÓN TABLA CONGELADO ------------------
+    if "df_congelado_edit" not in st.session_state or len(st.session_state.df_congelado_edit) != len(caps_reales_actuales):
+        filas_sist_init = []
+        for f_idx in range(len(caps_reales_actuales)):
+            cap_f = caps_reales_actuales[f_idx]
+            tm_f_sist = pesos_totales_por_fila[f_idx] if f_idx < len(pesos_totales_por_fila) else round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+            filas_sist_init.append({
+                "N° FILA": f_idx + 1,
+                "TM": round(tm_f_sist, 4),
+                "PLACAS": cap_f,
+                "TUNEL": 0,
+                "IQF": 0,
+                "TOTAL": cap_f
+            })
+        st.session_state.df_congelado_edit = pd.DataFrame(filas_sist_init)
+
+    presentaciones_data_global = []
+    for i, p_item in enumerate(lista_pres_mem):
+        val_mem = st.session_state.txt_pesos_mem.get(str(i), "20.00, 20.05, 19.98")
+        pesos_clean = []
+        for p in val_mem.replace("\n", ",").split(","):
+            try:
+                val_num = float(p.strip())
+                if val_num > 0:
+                    pesos_clean.append(val_num)
+            except Exception:
+                pass
+        pesos_clean = pesos_clean[:20]
+        prom_u = (sum(pesos_clean) / len(pesos_clean)) if pesos_clean else float(p_item["peso_unit"])
+        tot_k = prom_u * p_item["cantidad"]
+        presentaciones_data_global.append({
+            "nombre": p_item["nombre"],
+            "bultos": p_item["cantidad"],
+            "pesos": pesos_clean,
+            "promedio": prom_u,
+            "total_kg": tot_k
+        })
+
+    tot_b_gral = sum(p['bultos'] for p in presentaciones_data_global)
+    peso_tot_gral = sum(p['total_kg'] for p in presentaciones_data_global)
+    prom_global = (peso_tot_gral / tot_b_gral) if tot_b_gral > 0 else 0.0
+    peso_a_favor = float(st.session_state.pay_val) - peso_tot_gral
+
+    tipo_env_act = st.session_state.tipo_envase_val
+    tara_act = float(st.session_state.tara_insumos_val)
+    bloques_act = int(st.session_state.bloques_bulto_val)
+
+    if prom_global > tara_act and bloques_act > 0:
+        peso_block_planta = (prom_global - tara_act) / float(bloques_act)
+        plus_planta = ((peso_block_planta - 10.0) / 10.0) * 100.0
+    else:
+        peso_block_planta = 0.0
+        plus_planta = 0.0
+
+    # CÁLCULOS TÉCNICOS PARA BALANZA / WINCHA OFICIAL
+    peso_wincha_num = float(st.session_state.pesos_wincha_val)
+    if peso_wincha_num > 0 and tot_b_gral > 0:
+        val_prom_saco_wincha = round(peso_wincha_num / float(tot_b_gral), 3)
+        if val_prom_saco_wincha > tara_act and bloques_act > 0:
+            val_peso_block_wincha = round((val_prom_saco_wincha - tara_act) / float(bloques_act), 3)
+        else:
+            val_peso_block_wincha = 0.0
+    else:
+        val_prom_saco_wincha = round(prom_global, 3)
+        val_peso_block_wincha = round(peso_block_planta, 3)
+
+    curr_c_id = st.session_state.cont_val.strip()
+    if curr_c_id and curr_c_id not in st.session_state.fotos_contenedor_db:
+        st.session_state.fotos_contenedor_db[curr_c_id] = {}
+
+    db_actual = st.session_state.fotos_contenedor_db.get(curr_c_id, {})
+    bytes_ir_actual = db_actual.get("bytes_ir")
+    bytes_temp_actual = db_actual.get("bytes_temp")
+    bytes_pack_actual = db_actual.get("bytes_pack")
+    bytes_invol_actual = db_actual.get("bytes_invol")
+    bytes_tolva_actual = db_actual.get("bytes_tolva")
+    bytes_otros_actual = db_actual.get("bytes_otros")
+
+    cabecera_pdf_maestra = {
+        "fecha": str(st.session_state.fec_val),
+        "contenedor": st.session_state.cont_val,
+        "payload": float(st.session_state.pay_val),
+        "pi": st.session_state.pi_val,
+        "booking": st.session_state.bk_val,
+        "cliente": st.session_state.cli_val,
+        "destino": st.session_state.dest_val
+    }
+    resumen_pdf_maestro = {
+        "total_bultos": tot_b_gral,
+        "peso_total": peso_tot_gral,
+        "promedio_global": prom_global,
+        "peso_a_favor": peso_a_favor,
+        "peso_block_planta": peso_block_planta,
+        "porcentaje_plus_planta": plus_planta,
+        "tipo_envase": tipo_env_act,
+        "tara_descuento": tara_act,
+        "bloques_x_bulto": bloques_act,
+        "peso_wincha": peso_wincha_num,
+        "peso_saco_wincha": val_prom_saco_wincha,
+        "peso_block_wincha": val_peso_block_wincha
+    }
+
+    pdf_dossier_bytes_cache = None
+    if st.session_state.cont_val:
+        try:
+            pdf_dossier_bytes_cache = generar_dossier_unificado(
+                cabecera_pdf_maestra,
+                df_lotes_global,
+                df_pres_global,
+                st.session_state.df_congelado_edit,
+                presentaciones_data_global,
+                resumen_pdf_maestro,
+                bytes_ir_actual,
+                bytes_temp_actual,
+                bytes_pack_actual,
+                bytes_invol_actual,
+                bytes_tolva_actual,
+                bytes_otros_actual
+            ).getvalue()
+        except Exception:
+            pdf_dossier_bytes_cache = None
+
+    if c_btn_c2 is not None and st.session_state.cont_val and pdf_dossier_bytes_cache:
+        with c_btn_c2:
+            st.download_button(
+                label=f"📦 Descargar Reporte ({st.session_state.cont_val})",
+                data=pdf_dossier_bytes_cache,
+                file_name=f"Reporte_Embarque_{st.session_state.cont_val}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+
+    # =========================================================================
+    # PESTAÑAS (5 PESTAÑAS ESENCIALES SIN VISOR INNECESARIO)
+    # =========================================================================
+    tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos = st.tabs([
+        "📅 1. Plano Estiba (Lotes)",
+        "📦 2. Plano Estiba (Presentaciones)",
+        "❄️ 3. Placas / Túnel / IQF",
+        "⚖️ 4. Control de Pesos (Balanza)",
+        "📸 5. Panel Documental (IR, Temp, Packing, Tolva & Otros)"
+    ])
+
+    # ------------------ TAB 1: PLANO ESTIBA (LOTES) ------------------
+    with tab_estiba_lotes:
+        st.markdown("#### Configuración de Filas y Capacidad")
+        
+        c_top1, c_top2 = st.columns([1.5, 3])
+        with c_top1:
+            st.session_state.nfil_val = int(st.number_input("Total Filas del Contenedor:", min_value=10, max_value=30, value=int(st.session_state.nfil_val), key=f"nfil_{v}"))
+        
+        default_idx_m = 1 if st.session_state.get("modalidad_cap_selector") == "Digitar Cada Fila Manualmente (Sacos/Cajas)" else 0
+        with c_top2:
+            modo_cap_fila = st.radio(
+                "Modalidad de Capacidad por Fila:",
+                ["Modo Estándar (Fila 1, Centro y Puerta)", "Digitar Cada Fila Manualmente (Sacos/Cajas)"],
+                index=default_idx_m,
+                horizontal=True,
+                key=f"m_cap_fila_{v}"
+            )
+
+        if modo_cap_fila == "Modo Estándar (Fila 1, Centro y Puerta)":
+            cf1, cf2, cf3, cf4 = st.columns(4)
+            with cf1:
+                st.session_state.capg_val = int(st.number_input("Capacidad Estándar Fila:", min_value=20, max_value=120, value=int(st.session_state.capg_val), key=f"capg_{v}"))
+            with cf2:
+                st.session_state.capf1_val = int(st.number_input("Capacidad Fila 1:", min_value=20, max_value=120, value=int(st.session_state.capf1_val), key=f"capf1_{v}"))
+            with cf3:
+                st.session_state.capfu_val = int(st.number_input(f"Capacidad Fila {target_nfil}:", min_value=20, max_value=120, value=int(st.session_state.capfu_val), key=f"capfu_{v}"))
+            with cf4:
+                st.session_state.wstd_val = float(st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1, key=f"wstd_{v}"))
+            
+            for i in range(target_nfil):
+                if i == 0:
+                    st.session_state.caps_filas_override[i] = int(st.session_state.capf1_val)
+                elif i == target_nfil - 1:
+                    st.session_state.caps_filas_override[i] = int(st.session_state.capfu_val)
+                else:
+                    st.session_state.caps_filas_override[i] = int(st.session_state.capg_val)
+        
+        else:
+            st.info("✍️ **Modo Manual Batch:** Digita directamente los bultos por fila. Al finalizar, presiona el botón verde para confirmar.")
+            
+            with st.form(f"form_filas_manuales_{v}"):
+                c_pstd, _ = st.columns([2, 2])
+                with c_pstd:
+                    w_man_tmp = st.number_input("Peso Estándar Bulto (kg):", value=float(st.session_state.wstd_val), step=0.1)
+
+                cols_per_row = 6
+                grid_cols_f = st.columns(cols_per_row)
+                nuevos_valores_buffer = []
+
+                for f_i in range(target_nfil):
+                    with grid_cols_f[f_i % cols_per_row]:
+                        val_actual_f = int(st.session_state.caps_filas_override[f_i]) if f_i < len(st.session_state.caps_filas_override) else 75
+                        v_inp = st.number_input(
+                            f"Fila {f_i + 1}:", 
+                            min_value=0, 
+                            max_value=150, 
+                            value=val_actual_f, 
+                            step=1, 
+                            key=f"manual_f_inp_{f_i}_{v}"
+                        )
+                        nuevos_valores_buffer.append(int(v_inp))
+                
+                btn_aplicar_filas = st.form_submit_button(
+                    "🔄 Confirmar y Aplicar Capacidades de Filas", 
+                    type="primary", 
+                    use_container_width=True
+                )
+
+                if btn_aplicar_filas:
+                    st.session_state.wstd_val = float(w_man_tmp)
+                    st.session_state.caps_filas_override = nuevos_valores_buffer
+                    st.session_state["modalidad_cap_selector"] = "Digitar Cada Fila Manualmente (Sacos/Cajas)"
+                    st.success("✅ ¡Capacidades de filas actualizadas y aplicadas correctamente!")
+                    st.rerun()
+
+        with st.expander("⚡ Asignación Rápida por Rangos de Filas (Ej: Fila 2 a 14 = 63, Fila 15 a 19 = 78)", expanded=False):
+            cr1, cr2, cr3, cr4 = st.columns([1.5, 1.5, 2, 2])
+            with cr1:
+                r_ini = st.number_input("Desde Fila:", min_value=1, max_value=target_nfil, value=1, key=f"r_ini_{v}")
+            with cr2:
+                r_fin = st.number_input("Hasta Fila:", min_value=1, max_value=target_nfil, value=target_nfil, key=f"r_fin_{v}")
+            with cr3:
+                r_cant = st.number_input("Cantidad Bultos por Fila:", min_value=0, max_value=150, value=63, key=f"r_cant_{v}")
+            with cr4:
+                st.markdown("<br/>", unsafe_allow_html=True)
+                if st.button("Aplicar Rango a Filas", use_container_width=True, key=f"btn_rango_{v}"):
+                    if r_ini <= r_fin:
+                        for idx_f in range(int(r_ini) - 1, int(r_fin)):
+                            st.session_state.caps_filas_override[idx_f] = int(r_cant)
+                        st.session_state["modalidad_cap_selector"] = "Digitar Cada Fila Manualmente (Sacos/Cajas)"
+                        st.success(f"Filas de {r_ini} a {r_fin} fijadas en {r_cant} bultos.")
+                        st.rerun()
+                    else:
+                        st.error("La fila inicial debe ser menor o igual a la final.")
+
+        st.markdown("---")
+        n_lotes = st.number_input("Cantidad de Lotes:", min_value=1, max_value=100, value=max(len(st.session_state.lotes_items), 1), key=f"nlot_c_{v}")
+        while len(st.session_state.lotes_items) < n_lotes:
+            st.session_state.lotes_items.append({"fecha": date.today(), "lote": generar_lote_juliano(date.today()), "bultos": 0})
+        while len(st.session_state.lotes_items) > n_lotes:
+            st.session_state.lotes_items.pop()
+
         cols_l = st.columns(min(int(n_lotes), 4))
+        lista_lotes_calc = []
+        for i in range(int(n_lotes)):
+            cols_l = st.columns(min(int(n_lotes), 4))
         lista_lotes_calc = []
         for i in range(int(n_lotes)):
             col_target = cols_l[i % 4]
@@ -1264,3 +1874,4 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
                 st.error(f"Error al guardar en Sheets: {e}")
+            
