@@ -247,11 +247,20 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
     story.append(Spacer(1, 6))
 
-    prom_saco_txt = f"{resumen.get('promedio_global', 0.0):.3f} KG"
+    tipo_env = resumen.get('tipo_envase_display', 'Saco')
+    prom_saco_v = resumen.get('promedio_saco', 0.0)
+    prom_caja_v = resumen.get('promedio_caja', 0.0)
     block_txt = f"{resumen.get('peso_block_planta', 0.0):.3f} KG" if resumen.get('peso_block_planta', 0.0) > 0 else "-"
-    tipo_env = resumen.get('tipo_envase', 'Saco')
-    tara_env = resumen.get('tara_descuento', 0.15)
-    nb_env = resumen.get('bloques_x_bulto', 2)
+    
+    if resumen.get('es_mixto', False):
+        lbl_prom = "PROM. SACO / CAJA:"
+        val_prom = f"{prom_saco_v:.3f} K / {prom_caja_v:.3f} K"
+    elif prom_caja_v > 0 and prom_saco_v == 0:
+        lbl_prom = "PROM. CAJA (MUESTREO):"
+        val_prom = f"{prom_caja_v:.3f} KG"
+    else:
+        lbl_prom = "PROM. SACO (MUESTREO):"
+        val_prom = f"{prom_saco_v:.3f} KG"
 
     margen_v = resumen.get('peso_a_favor', 0.0)
     bg_margen, txt_margen, lbl_margen = obtener_estilo_color_margen(margen_v)
@@ -266,10 +275,10 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
         ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
         ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO ESTIMADO:", f"{resumen['peso_total']:,.2f} KG"],
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", lbl_margen, f"{abs(margen_v):,.2f} KG"],
-        ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", f"{tipo_env} (Tara: {tara_env:.2f} kg)"],
-        [f"PESO PROM. {tipo_env.upper()} (MUESTREO):", prom_saco_txt, "PESO BLOCK MUESTREO:", block_txt],
-        ["PESO BALANZA / WINCHA:", peso_wincha_txt, f"PROM. {tipo_env.upper()} WINCHA:", saco_wincha_txt],
-        ["N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)", "ESTADO PESAJE:", "CONFORME / EMBARQUE"]
+        ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", tipo_env],
+        [lbl_prom, val_prom, "PESO BLOCK ESTIMADO:", block_txt],
+        ["PESO BALANZA / WINCHA:", peso_wincha_txt, "PROM. SACO WINCHA:", saco_wincha_txt],
+        ["ESTADO EMBARQUE:", "DESPACHADO / CONFORME", "ESTADO PESAJE:", "CONFORME / EMBARQUE"]
     ]
     t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
     t_cab.setStyle(TableStyle([
