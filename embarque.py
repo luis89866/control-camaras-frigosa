@@ -113,7 +113,7 @@ def calcular_matriz_estiba(filas_capacidades, lista_elementos):
     return matriz
 
 # =========================================================================
-# GESTIÓN DE ADJUNTOS EN SHEETS (6 ARCHIVOS COMPATIBLES CON PDF / IMAGEN)
+# GESTIÓN DE ADJUNTOS EN SHEETS (6 ARCHIVOS PDF O IMAGEN)
 # =========================================================================
 def obtener_hoja_adjuntos_fotos(get_gspread_client):
     client = get_gspread_client()
@@ -169,12 +169,8 @@ def guardar_foto_en_sheets(get_gspread_client, num_contenedor, tipo_foto, b_data
 
 def recuperar_fotos_de_sheets(get_gspread_client, num_contenedor):
     resultado = {
-        "IR": None, 
-        "TEMP": None, 
-        "PACK": None, 
-        "INVOLUCRADO": None, 
-        "TOLVA": None, 
-        "OTROS": None
+        "IR": None, "TEMP": None, "PACK": None, 
+        "INVOLUCRADO": None, "TOLVA": None, "OTROS": None
     }
     if not num_contenedor:
         return resultado
@@ -325,10 +321,7 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     doc.build(story)
     buffer.seek(0)
     return buffer
-    # =========================================================================
-# REPORTE INDIVIDUAL SOLO DE PLANO DE ESTIBA (PRESENTACIONES)
-# =========================================================================
-def generar_pdf_estiba_presentaciones_solo(cabecera, df_pres):
+    def generar_pdf_estiba_presentaciones_solo(cabecera, df_pres):
     buffer_pres = io.BytesIO()
     doc = SimpleDocTemplate(buffer_pres, pagesize=letter, leftMargin=18, rightMargin=18, topMargin=18, bottomMargin=18)
     story = []
@@ -338,9 +331,6 @@ def generar_pdf_estiba_presentaciones_solo(cabecera, df_pres):
     buffer_pres.seek(0)
     return buffer_pres
 
-# =========================================================================
-# TABLAS DE ESTIBA EN PDF CON RESALTADO Y SUBRAYADO DE LOTES/CORTES
-# =========================================================================
 def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, styles):
     elementos = []
     if df_in is None or df_in.empty:
@@ -470,11 +460,20 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')} | BOOKING: {cabecera.get('booking', '-')}", sub_style))
     story.append(Spacer(1, 5))
 
-    prom_saco_txt = f"{resumen.get('promedio_global', 0.0):.3f} KG"
+    tipo_env = resumen.get('tipo_envase_display', 'Saco')
+    prom_saco_v = resumen.get('promedio_saco', 0.0)
+    prom_caja_v = resumen.get('promedio_caja', 0.0)
     block_txt = f"{resumen.get('peso_block_planta', 0.0):.3f} KG" if resumen.get('peso_block_planta', 0.0) > 0 else "-"
-    tipo_env = resumen.get('tipo_envase', 'Saco')
-    tara_env = resumen.get('tara_descuento', 0.15)
-    nb_env = resumen.get('bloques_x_bulto', 2)
+
+    if resumen.get('es_mixto', False):
+        lbl_prom = "PROM. SACO / CAJA:"
+        val_prom = f"{prom_saco_v:.3f} K / {prom_caja_v:.3f} K"
+    elif prom_caja_v > 0 and prom_saco_v == 0:
+        lbl_prom = "PROM. CAJA (MUESTREO):"
+        val_prom = f"{prom_caja_v:.3f} KG"
+    else:
+        lbl_prom = "PROM. SACO (MUESTREO):"
+        val_prom = f"{prom_saco_v:.3f} KG"
 
     margen_v = resumen.get('peso_a_favor', 0.0)
     bg_margen, txt_margen, lbl_margen = obtener_estilo_color_margen(margen_v)
@@ -489,10 +488,10 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ["BOOKING:", cabecera.get('booking', '-'), "P.I. (PEDIDO):", cabecera.get('pi', '-')],
         ["PAYLOAD MÁX (KG):", f"{cabecera['payload']:,.2f}", "PESO BRUTO PLANTA:", f"{resumen['peso_total']:,.2f} KG"],
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", lbl_margen, f"{abs(margen_v):,.2f} KG"],
-        ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", f"{tipo_env} (Tara: {tara_env:.2f} kg)"],
-        [f"PESO PROM. {tipo_env.upper()} (MUESTREO):", prom_saco_txt, "PESO BLOCK MUESTREO:", block_txt],
-        ["PESO BALANZA / WINCHA:", peso_wincha_txt, f"PROM. {tipo_env.upper()} WINCHA:", saco_wincha_txt],
-        ["N° BLOQUES / ENVASE:", f"{nb_env} Bloque(s)", "ESTADO EMBARQUE:", "DESPACHADO / CONFORME"]
+        ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", tipo_env],
+        [lbl_prom, val_prom, "PESO BLOCK ESTIMADO:", block_txt],
+        ["PESO BALANZA / WINCHA:", peso_wincha_txt, "PROM. SACO WINCHA:", saco_wincha_txt],
+        ["ESTADO EMBARQUE:", "DESPACHADO / CONFORME", "CONTROL TARA:", "INSPECCIONADO"]
     ]
     t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
     t_cab.setStyle(TableStyle([
@@ -585,7 +584,6 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ]))
         story.append(t_s_pdf)
 
-    # Identificación de formatos PDF
     es_ir_pdf = foto_ir_bytes and foto_ir_bytes.startswith(b'%PDF')
     es_pack_pdf = foto_pack_bytes and foto_pack_bytes.startswith(b'%PDF')
     es_tolva_pdf = foto_tolva_bytes and foto_tolva_bytes.startswith(b'%PDF')
@@ -623,7 +621,6 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
     doc.build(story)
     buffer_dossier.seek(0)
 
-    # Fusión si se adjuntaron PDFs
     lista_pdfs_extra = [
         (es_ir_pdf, foto_ir_bytes),
         (es_pack_pdf, foto_pack_bytes),
@@ -669,8 +666,8 @@ def obtener_hoja_distribuciones(get_gspread_client):
 def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo=False):
     try:
         ws = obtener_hoja_distribuciones(get_gspread_client)
-        col_a_ids = ws.col_values(1)       # Columna A: ID_EMBARQUE
-        col_b_conts = ws.col_values(2)     # Columna B: CONTENEDOR
+        col_a_ids = ws.col_values(1)
+        col_b_conts = ws.col_values(2)
         
         target_id = str(datos_fila[0]).strip().upper()
         target_cont = str(datos_fila[1]).strip().upper()
@@ -700,7 +697,6 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
             else:
                 datos_limpios.append(str(val))
 
-        # Abarca exactamente 52 columnas: A hasta AZ
         while len(datos_limpios) < 52:
             datos_limpios.append("")
         datos_limpios = datos_limpios[:52]
@@ -802,9 +798,6 @@ def render_module(user, get_gspread_client):
 
     v = st.session_state.form_version
 
-    # =========================================================================
-    # BARRA SUPERIOR DE SELECCIÓN Y CONTROLES
-    # =========================================================================
     c_btn_c2 = None
     col_sel1, col_sel2 = st.columns([3, 1])
     with col_sel1:
@@ -895,7 +888,6 @@ def render_module(user, get_gspread_client):
 
                         target_filas_cargadas = int(st.session_state.nfil_val)
 
-                        # EVALUACIÓN DUAL INTELIGENTE (COLUMNA AX):
                         tiene_ax = len(fila_encontrada) > 49 and bool(fila_encontrada[49].strip())
 
                         if tiene_ax:
@@ -1033,9 +1025,6 @@ def render_module(user, get_gspread_client):
             st.session_state.pais_val = st.text_input("País:", value=st.session_state.pais_val, key=f"pais_emb_{v}").strip().upper()
             st.session_state.pay_val = st.number_input("Payload Máx (kg):", min_value=15000.0, max_value=34000.0, value=float(st.session_state.pay_val), step=100.0, key=f"pay_emb_{v}")
 
-    # =========================================================================
-    # CONFIGURACIÓN DINÁMICA DE FILAS Y CAPACIDADES (PROTEGIDO)
-    # =========================================================================
     target_nfil = int(st.session_state.nfil_val)
     if "caps_filas_override" not in st.session_state:
         st.session_state.caps_filas_override = [75] * target_nfil
@@ -1047,7 +1036,6 @@ def render_module(user, get_gspread_client):
 
     caps_reales_actuales = [int(x) for x in st.session_state.caps_filas_override]
 
-    # CÁLCULO DE PRESENTACIONES CON PESOS INDIVIDUALES POR CORTE
     lista_pres_mem = [
         {
             "nombre": p["nombre"],
@@ -1070,7 +1058,6 @@ def render_module(user, get_gspread_client):
         data_pres_tabla.append(r_d)
     df_pres_global = pd.DataFrame(data_pres_tabla)
 
-    # MATRIZ DE LOTES: TOMA EL TONELAJE REAL CALCULADO POR FILA
     lista_lotes_mem = [{"idx": idx + 1, "fecha_txt": l["fecha"].strftime('%d/%m/%Y'), "lote_txt": l["lote"].strip(), "cantidad": int(l["bultos"])} for idx, l in enumerate(st.session_state.lotes_items)]
     headers_l = [f"L{l['idx']}: {l['fecha_txt']} | {l['lote_txt']}" for l in lista_lotes_mem]
     matriz_lotes_auto = calcular_matriz_estiba(caps_reales_actuales, lista_lotes_mem)
@@ -1085,7 +1072,6 @@ def render_module(user, get_gspread_client):
         data_filas_tabla.append(r_dict)
     df_lotes_global = pd.DataFrame(data_filas_tabla)
 
-    # ------------------ INICIALIZACIÓN TABLA CONGELADO ------------------
     if "df_congelado_edit" not in st.session_state or len(st.session_state.df_congelado_edit) != len(caps_reales_actuales):
         filas_sist_init = []
         for f_idx in range(len(caps_reales_actuales)):
@@ -1123,32 +1109,48 @@ def render_module(user, get_gspread_client):
             "total_kg": tot_k
         })
 
+    # Separación técnica de sacos vs cajas
+    pres_sacos = [p for p in presentaciones_data_global if "BOTONES" not in p["nombre"].upper() and "CAJA" not in p["nombre"].upper()]
+    pres_cajas = [p for p in presentaciones_data_global if "BOTONES" in p["nombre"].upper() or "CAJA" in p["nombre"].upper()]
+
+    bultos_sacos = sum(p["bultos"] for p in pres_sacos)
+    kg_sacos = sum(p["total_kg"] for p in pres_sacos)
+    prom_saco_real = (kg_sacos / bultos_sacos) if bultos_sacos > 0 else 0.0
+
+    bultos_cajas = sum(p["bultos"] for p in pres_cajas)
+    kg_cajas = sum(p["total_kg"] for p in pres_cajas)
+    prom_caja_real = (kg_cajas / bultos_cajas) if bultos_cajas > 0 else 0.0
+
+    es_carga_mixta = (bultos_sacos > 0 and bultos_cajas > 0)
+    if es_carga_mixta:
+        envase_display = "Saco / Caja"
+    elif bultos_cajas > 0:
+        envase_display = "Caja"
+    else:
+        envase_display = "Saco"
+
     tot_b_gral = sum(p['bultos'] for p in presentaciones_data_global)
     peso_tot_gral = sum(p['total_kg'] for p in presentaciones_data_global)
     prom_global = (peso_tot_gral / tot_b_gral) if tot_b_gral > 0 else 0.0
     peso_a_favor = float(st.session_state.pay_val) - peso_tot_gral
 
-    tipo_env_act = st.session_state.tipo_envase_val
-    tara_act = float(st.session_state.tara_insumos_val)
-    bloques_act = int(st.session_state.bloques_bulto_val)
-
-    if prom_global > tara_act and bloques_act > 0:
-        peso_block_planta = (prom_global - tara_act) / float(bloques_act)
-        plus_planta = ((peso_block_planta - 10.0) / 10.0) * 100.0
+    tara_saco_real = 0.15
+    if prom_saco_real > tara_saco_real:
+        peso_block_planta = (prom_saco_real - tara_saco_real) / 2.0
+    elif prom_caja_real > 0.59:
+        peso_block_planta = prom_caja_real - 0.59
     else:
         peso_block_planta = 0.0
-        plus_planta = 0.0
 
-    # CÁLCULOS TÉCNICOS PARA BALANZA / WINCHA OFICIAL
+    plus_planta = ((peso_block_planta - 10.0) / 10.0) * 100.0 if peso_block_planta > 0 else 0.0
+
     peso_wincha_num = float(st.session_state.pesos_wincha_val)
-    if peso_wincha_num > 0 and tot_b_gral > 0:
-        val_prom_saco_wincha = round(peso_wincha_num / float(tot_b_gral), 3)
-        if val_prom_saco_wincha > tara_act and bloques_act > 0:
-            val_peso_block_wincha = round((val_prom_saco_wincha - tara_act) / float(bloques_act), 3)
-        else:
-            val_peso_block_wincha = 0.0
+    if peso_wincha_num > 0 and bultos_sacos > 0:
+        peso_sacos_wincha_estimado = peso_wincha_num - kg_cajas if es_carga_mixta else peso_wincha_num
+        val_prom_saco_wincha = round(peso_sacos_wincha_estimado / float(bultos_sacos), 3)
+        val_peso_block_wincha = round((val_prom_saco_wincha - tara_saco_real) / 2.0, 3)
     else:
-        val_prom_saco_wincha = round(prom_global, 3)
+        val_prom_saco_wincha = round(prom_saco_real, 3)
         val_peso_block_wincha = round(peso_block_planta, 3)
 
     curr_c_id = st.session_state.cont_val.strip()
@@ -1172,6 +1174,7 @@ def render_module(user, get_gspread_client):
         "cliente": st.session_state.cli_val,
         "destino": st.session_state.dest_val
     }
+    
     resumen_pdf_maestro = {
         "total_bultos": tot_b_gral,
         "peso_total": peso_tot_gral,
@@ -1221,9 +1224,6 @@ def render_module(user, get_gspread_client):
                 use_container_width=True
             )
 
-    # =========================================================================
-    # PESTAÑAS (5 PESTAÑAS ESENCIALES SIN VISOR INNECESARIO)
-    # =========================================================================
     tab_estiba_lotes, tab_estiba_pres, tab_placa_tunel, tab_pesos, tab_adjuntos = st.tabs([
         "📅 1. Plano Estiba (Lotes)",
         "📦 2. Plano Estiba (Presentaciones)",
@@ -1232,7 +1232,6 @@ def render_module(user, get_gspread_client):
         "📸 5. Panel Documental (IR, Temp, Packing, Tolva & Otros)"
     ])
 
-    # ------------------ TAB 1: PLANO ESTIBA (LOTES) ------------------
     with tab_estiba_lotes:
         st.markdown("#### Configuración de Filas y Capacidad")
         
@@ -1354,7 +1353,7 @@ def render_module(user, get_gspread_client):
                     item_l["lote"] = lot_txt
                     item_l["bultos"] = int(bl)
                     lista_lotes_calc.append({"idx": i + 1, "fecha_txt": fl.strftime('%d/%m/%Y'), "lote_txt": lot_txt, "cantidad": int(bl)})
-                    
+
         st.markdown("##### 📊 Plano de Distribución Calculado (Lotes)")
         st.dataframe(
             df_lotes_global,
@@ -1371,7 +1370,6 @@ def render_module(user, get_gspread_client):
         m1_tm = f"{tot_tm_cargados_real:.3f} TM"
         m2.metric("Tonelaje Total Real", m1_tm)
 
-    # ------------------ TAB 2: PRESENTACIONES ------------------
     with tab_estiba_pres:
         st.markdown("#### Presentaciones a Embarcar (Hasta 8 según la hoja)")
         st.caption("Configura el kilaje unitario exacto por presentación (ej. 10 kg para Botones/Cajas, 20 kg para Sacos).")
@@ -1418,7 +1416,6 @@ def render_module(user, get_gspread_client):
         except Exception as e_pres_pdf:
             st.caption(f"Nota en generación de PDF de presentaciones: {e_pres_pdf}")
 
-    # ------------------ TAB 3: PLACAS / TÚNEL / IQF ------------------
     with tab_placa_tunel:
         st.markdown("#### Configuración de Sistema de Congelación")
 
@@ -1517,7 +1514,6 @@ def render_module(user, get_gspread_client):
         s3.metric("Total IQF", f"{tot_iqf_sum:,} b")
         s4.metric("Total Congelado", f"{tot_placas_sum + tot_tunel_sum + tot_iqf_sum:,} b")
 
-    # ------------------ TAB 4: CONTROL DE PESOS (BALANZA / WINCHA OFICIAL AT) ------------------
     with tab_pesos:
         st.markdown("#### 1. Muestreo de Control de Pesos en Balanza")
         cols_w = st.columns(max(len(lista_pres_mem), 1))
@@ -1630,7 +1626,6 @@ def render_module(user, get_gspread_client):
         except Exception as e_pesos:
             st.caption(f"Generando reporte de pesos: {e_pesos}")
 
-    # ------------------ TAB 5: PANEL DOCUMENTAL (6 ARCHIVOS PDF/IMAGEN) ------------------
     with tab_adjuntos:
         st.markdown("#### 📸 Panel Documental del Contenedor (Respaldado en Sheets)")
         st.caption("Sube los documentos de inspección, temperatura, packing, wincha de tolva y otros anexos (PDF o Imagen).")
@@ -1776,9 +1771,6 @@ def render_module(user, get_gspread_client):
                     st.success("Documento Anexo eliminado.")
                     st.rerun()
 
-    # =========================================================================
-    # GUARDADO CENTRALIZADO (DESDE A HASTA AZ - 52 COLUMNAS)
-    # =========================================================================
     st.markdown("---")
     btn_label = f"💾 Guardar / Actualizar Información de {st.session_state.cont_val or 'Contenedor'} en Sheets"
     if st.button(btn_label, type="primary", use_container_width=True):
@@ -1884,4 +1876,5 @@ def render_module(user, get_gspread_client):
                     st.error(f"🚫 {res_msg}")
             except Exception as e:
                 st.error(f"Error al guardar en Sheets: {e}")
-            
+        
+    
