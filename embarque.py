@@ -698,12 +698,12 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
             else:
                 datos_limpios.append(str(val))
 
-        while len(datos_limpios) < 52:
+        while len(datos_limpios) < 56:
             datos_limpios.append("")
-        datos_limpios = datos_limpios[:52]
+        datos_limpios = datos_limpios[:56]
 
         if fila_idx:
-            rango_exacto = f"A{fila_idx}:AZ{fila_idx}"
+            rango_exacto = f"A{fila_idx}:BD{fila_idx}"
             try:
                 ws.update(range_name=rango_exacto, values=[datos_limpios])
             except Exception:
@@ -711,7 +711,7 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
             return True, f"Contenedor '{target_cont}' actualizado exitosamente en la fila {fila_idx}."
         else:
             siguiente_fila = max(len(col_a_ids), len(col_b_conts)) + 1
-            rango_nuevo = f"A{siguiente_fila}:AZ{siguiente_fila}"
+            rango_nuevo = f"A{siguiente_fila}:BD{siguiente_fila}"
             try:
                 ws.update(range_name=rango_nuevo, values=[datos_limpios])
             except Exception:
@@ -913,20 +913,67 @@ def render_module(user, get_gspread_client):
                     except Exception:
                         pass
 
-                    # Recuperación inteligente de la distribución de congelado
+                    # Recuperación de congelado desde columnas BA (53), BB (54), BC (55), BD (56)
                     try:
-                        tot_p_hist = int(fila_encontrada[31].strip()) if len(fila_encontrada) > 31 and fila_encontrada[31].strip().isdigit() else 0
-                        tot_t_hist = int(fila_encontrada[32].strip()) if len(fila_encontrada) > 32 and fila_encontrada[32].strip().isdigit() else 0
-                        tot_i_hist = int(fila_encontrada[33].strip()) if len(fila_encontrada) > 33 and fila_encontrada[33].strip().isdigit() else 0
-                        
-                        if tot_p_hist > 0 and tot_t_hist == 0 and tot_i_hist == 0:
+                        modo_col_ba = fila_encontrada[52].strip() if len(fila_encontrada) > 52 else ""
+                        if "PLACAS" in modo_col_ba.upper() and "SOLO" in modo_col_ba.upper():
                             st.session_state.modo_cong_val = "Solo Placas (100% de la carga)"
-                        elif tot_t_hist > 0 and tot_p_hist == 0 and tot_i_hist == 0:
+                        elif "TUNEL" in modo_col_ba.upper() and "SOLO" in modo_col_ba.upper():
                             st.session_state.modo_cong_val = "Solo Túnel (100% de la carga)"
-                        elif (tot_p_hist + tot_t_hist + tot_i_hist) > 0:
+                        elif "MIXTO" in modo_col_ba.upper():
                             st.session_state.modo_cong_val = "Mixto (Ingreso Manual Fila por Fila)"
+                        elif modo_col_ba in ["Solo Placas (100% de la carga)", "Solo Túnel (100% de la carga)", "Mixto (Ingreso Manual Fila por Fila)"]:
+                            st.session_state.modo_cong_val = modo_col_ba
                         else:
-                            st.session_state.modo_cong_val = None
+                            # Respaldo histórico de columnas AF, AG, AH
+                            tot_p_hist = int(fila_encontrada[31].strip()) if len(fila_encontrada) > 31 and fila_encontrada[31].strip().isdigit() else 0
+                            tot_t_hist = int(fila_encontrada[32].strip()) if len(fila_encontrada) > 32 and fila_encontrada[32].strip().isdigit() else 0
+                            tot_i_hist = int(fila_encontrada[33].strip()) if len(fila_encontrada) > 33 and fila_encontrada[33].strip().isdigit() else 0
+                            if tot_p_hist > 0 and tot_t_hist == 0 and tot_i_hist == 0:
+                                st.session_state.modo_cong_val = "Solo Placas (100% de la carga)"
+                            elif tot_t_hist > 0 and tot_p_hist == 0 and tot_i_hist == 0:
+                                st.session_state.modo_cong_val = "Solo Túnel (100% de la carga)"
+                            elif (tot_p_hist + tot_t_hist + tot_i_hist) > 0:
+                                st.session_state.modo_cong_val = "Mixto (Ingreso Manual Fila por Fila)"
+                            else:
+                                st.session_state.modo_cong_val = None
+
+                        # Restauración exacta de filas de congelación si existen seriales en BB, BC, BD
+                        n_filas_target = target_filas_cargadas
+                        raw_bb = fila_encontrada[53].strip() if len(fila_encontrada) > 53 else ""
+                        raw_bc = fila_encontrada[54].strip() if len(fila_encontrada) > 54 else ""
+                        raw_bd = fila_encontrada[55].strip() if len(fila_encontrada) > 55 else ""
+
+                        if "," in raw_bb or "," in raw_bc or "," in raw_bd:
+                            p_list = [int(x) for x in raw_bb.split(",") if x.strip().isdigit()]
+                            t_list = [int(x) for x in raw_bc.split(",") if x.strip().isdigit()]
+                            i_list = [int(x) for x in raw_bd.split(",") if x.strip().isdigit()]
+                            
+                            filas_restauradas = []
+                            for f_i in range(n_filas_target):
+                                p_val_f = p_list[f_i] if f_i < len(p_list) else 0
+                                t_val_f = t_list[f_i] if f_i < len(t_list) else 0
+                                i_val_f = i_list[f_i] if f_i < len(i_list) else 0
+                                tot_f = p_val_f + t_val_f + i_val_f
+                                tm_f = round((tot_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+                                filas_restauradas.append({
+                                    "N° FILA": f_i + 1, "TM": tm_f, "PLACAS": p_val_f, "TUNEL": t_val_f, "IQF": i_val_f, "TOTAL": tot_f
+                                })
+                            st.session_state.df_congelado_edit = pd.DataFrame(filas_restauradas)
+                        elif st.session_state.modo_cong_val == "Solo Placas (100% de la carga)":
+                            filas_restauradas = []
+                            for f_i in range(n_filas_target):
+                                cap_f = st.session_state.caps_filas_override[f_i] if f_i < len(st.session_state.caps_filas_override) else int(st.session_state.capg_val)
+                                tm_f = round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+                                filas_restauradas.append({"N° FILA": f_i + 1, "TM": tm_f, "PLACAS": cap_f, "TUNEL": 0, "IQF": 0, "TOTAL": cap_f})
+                            st.session_state.df_congelado_edit = pd.DataFrame(filas_restauradas)
+                        elif st.session_state.modo_cong_val == "Solo Túnel (100% de la carga)":
+                            filas_restauradas = []
+                            for f_i in range(n_filas_target):
+                                cap_f = st.session_state.caps_filas_override[f_i] if f_i < len(st.session_state.caps_filas_override) else int(st.session_state.capg_val)
+                                tm_f = round((cap_f * float(st.session_state.wstd_val)) / 1000.0, 4)
+                                filas_restauradas.append({"N° FILA": f_i + 1, "TM": tm_f, "PLACAS": 0, "TUNEL": cap_f, "IQF": 0, "TOTAL": cap_f})
+                            st.session_state.df_congelado_edit = pd.DataFrame(filas_restauradas)
                     except Exception:
                         st.session_state.modo_cong_val = None
 
@@ -1877,6 +1924,25 @@ def render_module(user, get_gspread_client):
 
                 serial_caps_filas_ax = ",".join([str(int(x)) for x in caps_reales_actuales])
 
+                # Seriales o totales para columnas BB, BC, BD
+                df_cong_save = st.session_state.df_congelado_edit
+                if st.session_state.modo_cong_val == "Mixto (Ingreso Manual Fila por Fila)":
+                    serial_placas_bb = ",".join([str(int(x)) for x in df_cong_save["PLACAS"]])
+                    serial_tunel_bc = ",".join([str(int(x)) for x in df_cong_save["TUNEL"]])
+                    serial_iqf_bd = ",".join([str(int(x)) for x in df_cong_save["IQF"]])
+                elif st.session_state.modo_cong_val == "Solo Placas (100% de la carga)":
+                    serial_placas_bb = int(tot_placas_sum)
+                    serial_tunel_bc = 0
+                    serial_iqf_bd = 0
+                elif st.session_state.modo_cong_val == "Solo Túnel (100% de la carga)":
+                    serial_placas_bb = 0
+                    serial_tunel_bc = int(tot_tunel_sum)
+                    serial_iqf_bd = 0
+                else:
+                    serial_placas_bb = int(tot_placas_sum)
+                    serial_tunel_bc = int(tot_tunel_sum)
+                    serial_iqf_bd = int(tot_iqf_sum)
+
                 fila_maestra = [
                     id_embarque_final,                             # A: ID_EMBARQUE
                     num_c_guardar,                                 # B: CONTENEDOR
@@ -1913,8 +1979,12 @@ def render_module(user, get_gspread_client):
                     float(val_peso_block_wincha),                  # AV: peso_block real (PESO BLOCK WINCHA)
                     val_plus_planta,                               # AW: porcentaje_plus_planta
                     serial_caps_filas_ax,                          # AX: CAPACIDADES_POR_FILA_SERIAL (Columna 50)
-                    link_tolva_final,                              # AY: link_foto_tolva (Columna 51 - LIBRE)
-                    link_otros_final                               # AZ: link_foto_otros (Columna 52 - LIBRE)
+                    link_tolva_final,                              # AY: link_foto_tolva (Columna 51)
+                    link_otros_final,                              # AZ: link_foto_otros (Columna 52)
+                    str(st.session_state.modo_cong_val or ""),     # BA: MODALIDAD_CONGELACION (Columna 53)
+                    serial_placas_bb,                              # BB: PLACAS (Columna 54)
+                    serial_tunel_bc,                               # BC: TUNEL (Columna 55)
+                    serial_iqf_bd                                  # BD: IQF (Columna 56)
                 ]
 
                 es_modo_nuevo = (modo_operacion == "Nuevo Contenedor")
