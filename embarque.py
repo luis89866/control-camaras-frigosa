@@ -720,10 +720,7 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
 
     except Exception as e:
         return False, f"Error en Google Sheets: {str(e)}"
-
-
-
-# =========================================================================
+        # =========================================================================
 # FUNCIÓN PRINCIPAL DE ENTRADA (NIVEL RAÍZ)
 # =========================================================================
 def render_module(user, get_gspread_client):
@@ -1040,9 +1037,6 @@ def render_module(user, get_gspread_client):
                         db_c["bytes_invol"] = fotos_recuperadas.get("INVOLUCRADO")
                         db_c["bytes_tolva"] = fotos_recuperadas.get("TOLVA")
                         db_c["bytes_otros"] = fotos_recuperadas.get("OTROS")
-
-                    if "df_congelado_edit" in st.session_state:
-                        del st.session_state["df_congelado_edit"]
 
                     st.session_state.form_version += 1
                     st.success(f"✅ ¡Contenedor {num_c_cargado} cargado con éxito!")
