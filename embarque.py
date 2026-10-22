@@ -263,7 +263,18 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
 
     peso_wincha_v = resumen.get('peso_wincha', 0.0)
     peso_wincha_txt = f"{peso_wincha_v:,.2f} KG" if peso_wincha_v > 0 else "NO REGISTRADO"
-    saco_wincha_txt = f"{resumen.get('peso_saco_wincha', 0.0):.3f} KG" if peso_wincha_v > 0 else "-"
+    
+    prom_saco_wincha_v = resumen.get('peso_saco_wincha', 0.0)
+    prom_caja_wincha_v = resumen.get('peso_caja_wincha', 0.0)
+    if resumen.get('es_mixto', False):
+        lbl_wincha_prom = "PROM. SACO / CAJA WINCHA:"
+        val_wincha_prom = f"{prom_saco_wincha_v:.3f} K / {prom_caja_wincha_v:.3f} K" if peso_wincha_v > 0 else "-"
+    elif prom_caja_wincha_v > 0 and prom_saco_wincha_v == 0:
+        lbl_wincha_prom = "PROM. CAJA WINCHA:"
+        val_wincha_prom = f"{prom_caja_wincha_v:.3f} KG" if peso_wincha_v > 0 else "-"
+    else:
+        lbl_wincha_prom = "PROM. SACO WINCHA:"
+        val_wincha_prom = f"{prom_saco_wincha_v:.3f} KG" if peso_wincha_v > 0 else "-"
 
     data_cab = [
         ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
@@ -273,7 +284,7 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", lbl_margen, f"{abs(margen_v):,.2f} KG"],
         ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", tipo_env],
         [lbl_prom, val_prom, "PESO BLOCK ESTIMADO:", block_txt],
-        ["PESO BALANZA / WINCHA:", peso_wincha_txt, "PROM. SACO WINCHA:", saco_wincha_txt],
+        ["PESO BALANZA / WINCHA:", peso_wincha_txt, lbl_wincha_prom, val_wincha_prom],
         ["ESTADO EMBARQUE:", "DESPACHADO / CONFORME", "ESTADO PESAJE:", "CONFORME / EMBARQUE"]
     ]
     t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
@@ -534,7 +545,18 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
 
     peso_wincha_v = resumen.get('peso_wincha', 0.0)
     peso_wincha_txt = f"{peso_wincha_v:,.2f} KG" if peso_wincha_v > 0 else "NO REGISTRADO"
-    saco_wincha_txt = f"{resumen.get('peso_saco_wincha', 0.0):.3f} KG" if peso_wincha_v > 0 else "-"
+
+    prom_saco_wincha_v = resumen.get('peso_saco_wincha', 0.0)
+    prom_caja_wincha_v = resumen.get('peso_caja_wincha', 0.0)
+    if resumen.get('es_mixto', False):
+        lbl_wincha_prom = "PROM. SACO / CAJA WINCHA:"
+        val_wincha_prom = f"{prom_saco_wincha_v:.3f} K / {prom_caja_wincha_v:.3f} K" if peso_wincha_v > 0 else "-"
+    elif prom_caja_wincha_v > 0 and prom_saco_wincha_v == 0:
+        lbl_wincha_prom = "PROM. CAJA WINCHA:"
+        val_wincha_prom = f"{prom_caja_wincha_v:.3f} KG" if peso_wincha_v > 0 else "-"
+    else:
+        lbl_wincha_prom = "PROM. SACO WINCHA:"
+        val_wincha_prom = f"{prom_saco_wincha_v:.3f} KG" if peso_wincha_v > 0 else "-"
 
     data_cab = [
         ["FECHA:", cabecera['fecha'], "N° CONTENEDOR:", cabecera['contenedor']],
@@ -544,7 +566,7 @@ def generar_dossier_unificado(cabecera, df_lotes, df_pres, df_sistema, presentac
         ["TOTAL BULTOS:", f"{resumen['total_bultos']:,}", lbl_margen, f"{abs(margen_v):,.2f} KG"],
         ["SUPERVISOR:", "LUIS ENRIQUE FIESTAS ECA", "TIPO ENVASE:", tipo_env],
         [lbl_prom, val_prom, "PESO BLOCK ESTIMADO:", block_txt],
-        ["PESO BALANZA / WINCHA:", peso_wincha_txt, "PROM. SACO WINCHA:", saco_wincha_txt],
+        ["PESO BALANZA / WINCHA:", peso_wincha_txt, lbl_wincha_prom, val_wincha_prom],
         ["ESTADO EMBARQUE:", "DESPACHADO / CONFORME", "CONTROL TARA:", "INSPECCIONADO"]
     ]
     t_cab = Table(data_cab, colWidths=[140, 140, 115, 177])
@@ -1266,15 +1288,14 @@ def render_module(user, get_gspread_client):
     plus_planta = ((peso_block_planta - 10.0) / 10.0) * 100.0 if peso_block_planta > 0 else 0.0
 
     peso_wincha_num = float(st.session_state.pesos_wincha_val)
-    if peso_wincha_num > 0 and bultos_sacos > 0:
-        peso_sacos_wincha_estimado = (peso_wincha_num - kg_cajas) if es_carga_mixta else peso_wincha_num
-        val_prom_saco_wincha = round(peso_sacos_wincha_estimado / float(bultos_sacos), 3)
-        val_peso_block_wincha = round((val_prom_saco_wincha - tara_saco_real) / 2.0, 3)
-    elif peso_wincha_num > 0 and bultos_cajas > 0:
-        val_prom_saco_wincha = round(peso_wincha_num / float(bultos_cajas), 3)
-        val_peso_block_wincha = round(val_prom_saco_wincha - 0.59, 3)
+    if peso_wincha_num > 0 and peso_tot_gral > 0:
+        factor_wincha = peso_wincha_num / peso_tot_gral
+        val_prom_saco_wincha = round(prom_saco_real * factor_wincha, 3)
+        val_prom_caja_wincha = round(prom_caja_real * factor_wincha, 3)
+        val_peso_block_wincha = round((val_prom_saco_wincha - tara_saco_real) / 2.0, 3) if val_prom_saco_wincha > tara_saco_real else 0.0
     else:
         val_prom_saco_wincha = round(prom_saco_real, 3)
+        val_prom_caja_wincha = round(prom_caja_real, 3)
         val_peso_block_wincha = round(peso_block_planta, 3)
 
     bytes_ir_actual = st.session_state.fotos_activas.get("IR")
@@ -1310,6 +1331,7 @@ def render_module(user, get_gspread_client):
         "bloques_x_bulto": 2,
         "peso_wincha": peso_wincha_num,
         "peso_saco_wincha": val_prom_saco_wincha,
+        "peso_caja_wincha": val_prom_caja_wincha,
         "peso_block_wincha": val_peso_block_wincha
     }
 
@@ -1701,7 +1723,12 @@ def render_module(user, get_gspread_client):
             st.session_state.pesos_wincha_val = val_wincha_input
 
         with col_w2:
-            st.metric("Prom. Real / Bulto (Wincha)", f"{val_prom_saco_wincha:.3f} kg")
+            if es_carga_mixta:
+                st.metric("Prom. Saco / Caja (Wincha)", f"{val_prom_saco_wincha:.3f} k / {val_prom_caja_wincha:.3f} k")
+            elif bultos_cajas > 0 and bultos_sacos == 0:
+                st.metric("Prom. Caja (Wincha)", f"{val_prom_caja_wincha:.3f} kg")
+            else:
+                st.metric("Prom. Saco (Wincha)", f"{val_prom_saco_wincha:.3f} kg")
 
         with col_w3:
             st.metric("Peso Block Real (Wincha)", f"{val_peso_block_wincha:.3f} kg")
