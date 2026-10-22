@@ -322,14 +322,67 @@ def generar_pdf_pesos_solos(cabecera, presentaciones_data, resumen):
     buffer.seek(0)
     return buffer
 
-def generar_pdf_estiba_presentaciones_solo(cabecera, df_pres):
+def generar_pdf_estiba_presentaciones_solo(cabecera, df_pres, df_lotes=None, foto_pack_bytes=None):
     buffer_pres = io.BytesIO()
     doc = SimpleDocTemplate(buffer_pres, pagesize=letter, leftMargin=18, rightMargin=18, topMargin=18, bottomMargin=18)
     story = []
     styles = getSampleStyleSheet()
+
+    titulo_style = ParagraphStyle('TitF_Pre', parent=styles['Heading1'], fontSize=10.5, leading=12, textColor=colors.HexColor("#0D3B66"), alignment=1)
+    sub_style = ParagraphStyle('SubF_Pre', parent=styles['Heading2'], fontSize=7.5, leading=9.5, textColor=colors.HexColor("#2B6CB0"), alignment=1)
+
+    # 1. PLANO DE ESTIBA POR PRESENTACIONES
     story.extend(construir_flowables_tabla_estiba(df_pres, "PLANO DE ESTIBA POR PRESENTACIONES - FRIGOSA SAC", "#2F855A", cabecera, styles))
+
+    # 2. PLANO DE ESTIBA POR LOTES Y FECHAS
+    if df_lotes is not None and not df_lotes.empty:
+        story.append(PageBreak())
+        story.extend(construir_flowables_tabla_estiba(df_lotes, "PLANO DE ESTIBA POR FECHAS Y LOTES - FRIGOSA SAC", "#2B6CB0", cabecera, styles))
+
+    # 3. ANEXO: LISTA DE EMPAQUE (PACKING LIST) SI ES IMAGEN
+    es_pack_pdf = foto_pack_bytes and foto_pack_bytes.startswith(b'%PDF')
+    if foto_pack_bytes and not es_pack_pdf:
+        story.append(PageBreak())
+        story.append(Paragraph("ANEXO: LISTA DE EMPAQUE / PACKING LIST OFICIAL", titulo_style))
+        story.append(Paragraph(f"CONTENEDOR: {cabecera['contenedor']} | PI: {cabecera.get('pi', '-')}", sub_style))
+        story.append(Spacer(1, 4))
+        rl_img = crear_imagen_maximizada(foto_pack_bytes, max_w=540, max_h=510)
+        if rl_img:
+            lbl = Paragraph("<b>REGISTRO DEL PACKING LIST OFICIAL DE PLANTA</b>", ParagraphStyle('LblT_Pre', parent=styles['Normal'], fontSize=7.5, leading=9.5, alignment=1, textColor=colors.HexColor("#1A365D")))
+            t_foto = Table([[rl_img], [lbl]], colWidths=[540])
+            t_foto.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E0")),
+                ('BACKGROUND', (0,1), (-1,1), colors.HexColor("#F7FAFC")),
+                ('TOPPADDING', (0,0), (-1,-1), 2),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+            ]))
+            story.append(t_foto)
+
     doc.build(story)
     buffer_pres.seek(0)
+
+    # Si la lista de empaque se subió en formato PDF, la acoplamos al final
+    if es_pack_pdf:
+        try:
+            merger = pypdf.PdfWriter()
+            reader_main = pypdf.PdfReader(buffer_pres)
+            for page in reader_main.pages:
+                merger.add_page(page)
+
+            reader_pack = pypdf.PdfReader(io.BytesIO(foto_pack_bytes))
+            for page_pk in reader_pack.pages:
+                merger.add_page(page_pk)
+
+            out_buf = io.BytesIO()
+            merger.write(out_buf)
+            out_buf.seek(0)
+            return out_buf
+        except Exception:
+            buffer_pres.seek(0)
+            return buffer_pres
+
     return buffer_pres
 
 def construir_flowables_tabla_estiba(df_in, titulo_tab, color_header, cabecera, styles):
@@ -720,7 +773,10 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
 
     except Exception as e:
         return False, f"Error en Google Sheets: {str(e)}"
-        # =========================================================================
+
+
+
+# =========================================================================
 # FUNCIÓN PRINCIPAL DE ENTRADA (NIVEL RAÍZ)
 # =========================================================================
 def render_module(user, get_gspread_client):
@@ -1037,6 +1093,9 @@ def render_module(user, get_gspread_client):
                         db_c["bytes_invol"] = fotos_recuperadas.get("INVOLUCRADO")
                         db_c["bytes_tolva"] = fotos_recuperadas.get("TOLVA")
                         db_c["bytes_otros"] = fotos_recuperadas.get("OTROS")
+
+                    if "df_congelado_edit" in st.session_state:
+                        del st.session_state["df_congelado_edit"]
 
                     st.session_state.form_version += 1
                     st.success(f"✅ ¡Contenedor {num_c_cargado} cargado con éxito!")
@@ -1481,11 +1540,16 @@ def render_module(user, get_gspread_client):
 
         st.markdown("---")
         try:
-            pdf_pres_solo_bytes = generar_pdf_estiba_presentaciones_solo(cabecera_pdf_maestra, df_pres_global)
+            pdf_pres_solo_bytes = generar_pdf_estiba_presentaciones_solo(
+                cabecera_pdf_maestra, 
+                df_pres_global, 
+                df_lotes=df_lotes_global, 
+                foto_pack_bytes=bytes_pack_actual
+            )
             st.download_button(
-                label="📄 Descargar Plano de Estiba (Presentaciones) - PDF",
+                label="📑 Descargar Plan de Carga Previo (Presentaciones, Lotes y Packing List) - PDF",
                 data=pdf_pres_solo_bytes,
-                file_name=f"Plano_Estiba_Presentaciones_{st.session_state.cont_val or 'Contenedor'}.pdf",
+                file_name=f"Plan_Carga_Previo_{st.session_state.cont_val or 'Contenedor'}.pdf",
                 mime="application/pdf",
                 use_container_width=True
             )
