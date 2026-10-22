@@ -774,8 +774,6 @@ def guardar_o_actualizar_contenedor(get_gspread_client, datos_fila, forzar_nuevo
     except Exception as e:
         return False, f"Error en Google Sheets: {str(e)}"
 
-
-
 # =========================================================================
 # FUNCIÓN PRINCIPAL DE ENTRADA (NIVEL RAÍZ)
 # =========================================================================
@@ -827,6 +825,13 @@ def render_module(user, get_gspread_client):
     if "modo_cong_val" not in st.session_state:
         st.session_state.modo_cong_val = None
 
+    # Almacén de fotos activo global independiente del texto del contenedor
+    if "fotos_activas" not in st.session_state:
+        st.session_state.fotos_activas = {
+            "IR": None, "TEMP": None, "PACK": None,
+            "INVOLUCRADO": None, "TOLVA": None, "OTROS": None
+        }
+
     if "tipo_envase_val" not in st.session_state:
         st.session_state.tipo_envase_val = "Saco"
     if "tara_insumos_val" not in st.session_state:
@@ -853,9 +858,6 @@ def render_module(user, get_gspread_client):
         ]
     if "txt_pesos_mem" not in st.session_state:
         st.session_state.txt_pesos_mem = {}
-
-    if "fotos_contenedor_db" not in st.session_state:
-        st.session_state.fotos_contenedor_db = {}
 
     v = st.session_state.form_version
 
@@ -978,7 +980,6 @@ def render_module(user, get_gspread_client):
                         elif modo_col_ba in ["Solo Placas (100% de la carga)", "Solo Túnel (100% de la carga)", "Mixto (Ingreso Manual Fila por Fila)"]:
                             st.session_state.modo_cong_val = modo_col_ba
                         else:
-                            # Respaldo histórico de columnas AF, AG, AH
                             tot_p_hist = int(fila_encontrada[31].strip()) if len(fila_encontrada) > 31 and fila_encontrada[31].strip().isdigit() else 0
                             tot_t_hist = int(fila_encontrada[32].strip()) if len(fila_encontrada) > 32 and fila_encontrada[32].strip().isdigit() else 0
                             tot_i_hist = int(fila_encontrada[33].strip()) if len(fila_encontrada) > 33 and fila_encontrada[33].strip().isdigit() else 0
@@ -991,7 +992,6 @@ def render_module(user, get_gspread_client):
                             else:
                                 st.session_state.modo_cong_val = None
 
-                        # Restauración exacta de filas de congelación si existen seriales en BB, BC, BD
                         n_filas_target = target_filas_cargadas
                         raw_bb = fila_encontrada[53].strip() if len(fila_encontrada) > 53 else ""
                         raw_bc = fila_encontrada[54].strip() if len(fila_encontrada) > 54 else ""
@@ -1083,19 +1083,7 @@ def render_module(user, get_gspread_client):
 
                     with st.spinner("Sincronizando fotos y reportes guardados desde la base de datos..."):
                         fotos_recuperadas = recuperar_fotos_de_sheets(get_gspread_client, num_c_cargado)
-                        if num_c_cargado not in st.session_state.fotos_contenedor_db:
-                            st.session_state.fotos_contenedor_db[num_c_cargado] = {}
-                        
-                        db_c = st.session_state.fotos_contenedor_db[num_c_cargado]
-                        db_c["bytes_ir"] = fotos_recuperadas.get("IR")
-                        db_c["bytes_temp"] = fotos_recuperadas.get("TEMP")
-                        db_c["bytes_pack"] = fotos_recuperadas.get("PACK")
-                        db_c["bytes_invol"] = fotos_recuperadas.get("INVOLUCRADO")
-                        db_c["bytes_tolva"] = fotos_recuperadas.get("TOLVA")
-                        db_c["bytes_otros"] = fotos_recuperadas.get("OTROS")
-
-                    if "df_congelado_edit" in st.session_state:
-                        del st.session_state["df_congelado_edit"]
+                        st.session_state.fotos_activas = fotos_recuperadas
 
                     st.session_state.form_version += 1
                     st.success(f"✅ ¡Contenedor {num_c_cargado} cargado con éxito!")
@@ -1120,6 +1108,7 @@ def render_module(user, get_gspread_client):
             st.session_state.wstd_val = 20.00
             st.session_state.pesos_wincha_val = 0.0
             st.session_state.modo_cong_val = None
+            st.session_state.fotos_activas = {k: None for k in ["IR", "TEMP", "PACK", "INVOLUCRADO", "TOLVA", "OTROS"]}
             st.session_state.peso_saco_hist = 0.0
             st.session_state.peso_block_hist = 0.0
             st.session_state.plus_hist = 0.0
@@ -1288,17 +1277,12 @@ def render_module(user, get_gspread_client):
         val_prom_saco_wincha = round(prom_saco_real, 3)
         val_peso_block_wincha = round(peso_block_planta, 3)
 
-    curr_c_id = st.session_state.cont_val.strip()
-    if curr_c_id and curr_c_id not in st.session_state.fotos_contenedor_db:
-        st.session_state.fotos_contenedor_db[curr_c_id] = {}
-
-    db_actual = st.session_state.fotos_contenedor_db.get(curr_c_id, {})
-    bytes_ir_actual = db_actual.get("bytes_ir")
-    bytes_temp_actual = db_actual.get("bytes_temp")
-    bytes_pack_actual = db_actual.get("bytes_pack")
-    bytes_invol_actual = db_actual.get("bytes_invol")
-    bytes_tolva_actual = db_actual.get("bytes_tolva")
-    bytes_otros_actual = db_actual.get("bytes_otros")
+    bytes_ir_actual = st.session_state.fotos_activas.get("IR")
+    bytes_temp_actual = st.session_state.fotos_activas.get("TEMP")
+    bytes_pack_actual = st.session_state.fotos_activas.get("PACK")
+    bytes_invol_actual = st.session_state.fotos_activas.get("INVOLUCRADO")
+    bytes_tolva_actual = st.session_state.fotos_activas.get("TOLVA")
+    bytes_otros_actual = st.session_state.fotos_activas.get("OTROS")
 
     cabecera_pdf_maestra = {
         "fecha": str(st.session_state.fec_val),
@@ -1793,23 +1777,23 @@ def render_module(user, get_gspread_client):
             if foto_ir:
                 raw_bytes = foto_ir.getvalue()
                 if foto_ir.name.lower().endswith(".pdf") or raw_bytes.startswith(b'%PDF'):
-                    db_actual["bytes_ir"] = raw_bytes
+                    st.session_state.fotos_activas["IR"] = raw_bytes
                     st.success(f"📄 Archivo PDF cargado: **{foto_ir.name}**")
                 else:
                     b_opt = optimizar_bytes_imagen(raw_bytes)
-                    db_actual["bytes_ir"] = b_opt
+                    st.session_state.fotos_activas["IR"] = b_opt
                     st.image(b_opt, caption="Foto IR Cargada", use_container_width=True)
-            elif db_actual.get("bytes_ir"):
-                b_ir_exist = db_actual["bytes_ir"]
+            elif st.session_state.fotos_activas.get("IR"):
+                b_ir_exist = st.session_state.fotos_activas["IR"]
                 if isinstance(b_ir_exist, (bytes, bytearray)) and b_ir_exist.startswith(b'%PDF'):
                     st.success("📄 **Documento PDF del IR activo.**")
                     st.download_button("👁️ Descargar IR (PDF)", data=b_ir_exist, file_name=f"IR_{st.session_state.cont_val or 'Contenedor'}.pdf", mime="application/pdf", use_container_width=True)
                 else:
                     st.image(b_ir_exist, caption="Foto IR Activa", use_container_width=True)
                 if st.button("🗑️ Quitar Documento IR", key=f"del_ir_{v}"):
-                    db_actual["bytes_ir"] = None
-                    if curr_c_id:
-                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "IR")
+                    st.session_state.fotos_activas["IR"] = None
+                    if st.session_state.cont_val.strip():
+                        eliminar_foto_de_sheets(get_gspread_client, st.session_state.cont_val.strip().upper(), "IR")
                     st.success("Reporte IR eliminado.")
                     st.rerun()
 
@@ -1818,14 +1802,14 @@ def render_module(user, get_gspread_client):
             foto_temp = st.file_uploader("Subir / Reemplazar foto Termoking:", type=["jpg", "jpeg", "png"], key=f"up_temp_{v}")
             if foto_temp:
                 b_opt_t = optimizar_bytes_imagen(foto_temp.getvalue())
-                db_actual["bytes_temp"] = b_opt_t
+                st.session_state.fotos_activas["TEMP"] = b_opt_t
                 st.image(b_opt_t, caption="Display Termoking Cargado", use_container_width=True)
-            elif db_actual.get("bytes_temp"):
-                st.image(db_actual["bytes_temp"], caption="Display Termoking Activo", use_container_width=True)
+            elif st.session_state.fotos_activas.get("TEMP"):
+                st.image(st.session_state.fotos_activas["TEMP"], caption="Display Termoking Activo", use_container_width=True)
                 if st.button("🗑️ Quitar Foto Temp", key=f"del_temp_{v}"):
-                    db_actual["bytes_temp"] = None
-                    if curr_c_id:
-                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "TEMP")
+                    st.session_state.fotos_activas["TEMP"] = None
+                    if st.session_state.cont_val.strip():
+                        eliminar_foto_de_sheets(get_gspread_client, st.session_state.cont_val.strip().upper(), "TEMP")
                     st.success("Foto de temperatura eliminada.")
                     st.rerun()
 
@@ -1837,23 +1821,23 @@ def render_module(user, get_gspread_client):
             if foto_pack:
                 raw_bytes_p = foto_pack.getvalue()
                 if foto_pack.name.lower().endswith(".pdf") or raw_bytes_p.startswith(b'%PDF'):
-                    db_actual["bytes_pack"] = raw_bytes_p
+                    st.session_state.fotos_activas["PACK"] = raw_bytes_p
                     st.success(f"📄 Archivo PDF cargado: **{foto_pack.name}**")
                 else:
                     b_opt_p = optimizar_bytes_imagen(raw_bytes_p)
-                    db_actual["bytes_pack"] = b_opt_p
+                    st.session_state.fotos_activas["PACK"] = b_opt_p
                     st.image(b_opt_p, caption="Packing List Cargado", use_container_width=True)
-            elif db_actual.get("bytes_pack"):
-                b_pack_exist = db_actual["bytes_pack"]
+            elif st.session_state.fotos_activas.get("PACK"):
+                b_pack_exist = st.session_state.fotos_activas["PACK"]
                 if isinstance(b_pack_exist, (bytes, bytearray)) and b_pack_exist.startswith(b'%PDF'):
                     st.success("📄 **Documento PDF del Packing List activo.**")
                     st.download_button("👁️ Descargar Packing List (PDF)", data=b_pack_exist, file_name=f"PackingList_{st.session_state.cont_val or 'Contenedor'}.pdf", mime="application/pdf", use_container_width=True)
                 else:
                     st.image(b_pack_exist, caption="Packing List Activo", use_container_width=True)
                 if st.button("🗑️ Quitar Packing List", key=f"del_pack_{v}"):
-                    db_actual["bytes_pack"] = None
-                    if curr_c_id:
-                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "PACK")
+                    st.session_state.fotos_activas["PACK"] = None
+                    if st.session_state.cont_val.strip():
+                        eliminar_foto_de_sheets(get_gspread_client, st.session_state.cont_val.strip().upper(), "PACK")
                     st.success("Foto de packing list eliminada.")
                     st.rerun()
 
@@ -1862,14 +1846,14 @@ def render_module(user, get_gspread_client):
             foto_invol = st.file_uploader("Subir / Reemplazar foto Involucrado:", type=["jpg", "jpeg", "png"], key=f"up_invol_{v}")
             if foto_invol:
                 b_opt_i = optimizar_bytes_imagen(foto_invol.getvalue())
-                db_actual["bytes_invol"] = b_opt_i
+                st.session_state.fotos_activas["INVOLUCRADO"] = b_opt_i
                 st.image(b_opt_i, caption="Foto Involucrado Cargada", use_container_width=True)
-            elif db_actual.get("bytes_invol"):
-                st.image(db_actual["bytes_invol"], caption="Foto Involucrado Activa", use_container_width=True)
+            elif st.session_state.fotos_activas.get("INVOLUCRADO"):
+                st.image(st.session_state.fotos_activas["INVOLUCRADO"], caption="Foto Involucrado Activa", use_container_width=True)
                 if st.button("🗑️ Quitar Foto Involucrado", key=f"del_invol_{v}"):
-                    db_actual["bytes_invol"] = None
-                    if curr_c_id:
-                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "INVOLUCRADO")
+                    st.session_state.fotos_activas["INVOLUCRADO"] = None
+                    if st.session_state.cont_val.strip():
+                        eliminar_foto_de_sheets(get_gspread_client, st.session_state.cont_val.strip().upper(), "INVOLUCRADO")
                     st.success("Foto de involucrado eliminada.")
                     st.rerun()
 
@@ -1881,23 +1865,23 @@ def render_module(user, get_gspread_client):
             if foto_tolva:
                 raw_bytes_t = foto_tolva.getvalue()
                 if foto_tolva.name.lower().endswith(".pdf") or raw_bytes_t.startswith(b'%PDF'):
-                    db_actual["bytes_tolva"] = raw_bytes_t
+                    st.session_state.fotos_activas["TOLVA"] = raw_bytes_t
                     st.success(f"📄 Archivo PDF cargado: **{foto_tolva.name}**")
                 else:
                     b_opt_tl = optimizar_bytes_imagen(raw_bytes_t)
-                    db_actual["bytes_tolva"] = b_opt_tl
+                    st.session_state.fotos_activas["TOLVA"] = b_opt_tl
                     st.image(b_opt_tl, caption="Wincha de Tolva Cargada", use_container_width=True)
-            elif db_actual.get("bytes_tolva"):
-                b_tolva_exist = db_actual["bytes_tolva"]
+            elif st.session_state.fotos_activas.get("TOLVA"):
+                b_tolva_exist = st.session_state.fotos_activas["TOLVA"]
                 if isinstance(b_tolva_exist, (bytes, bytearray)) and b_tolva_exist.startswith(b'%PDF'):
                     st.success("📄 **Documento PDF de Tolva activo.**")
                     st.download_button("👁️ Descargar Wincha Tolva (PDF)", data=b_tolva_exist, file_name=f"WinchaTolva_{st.session_state.cont_val or 'Contenedor'}.pdf", mime="application/pdf", use_container_width=True)
                 else:
                     st.image(b_tolva_exist, caption="Wincha de Tolva Activa", use_container_width=True)
                 if st.button("🗑️ Quitar Wincha de Tolva", key=f"del_tolva_{v}"):
-                    db_actual["bytes_tolva"] = None
-                    if curr_c_id:
-                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "TOLVA")
+                    st.session_state.fotos_activas["TOLVA"] = None
+                    if st.session_state.cont_val.strip():
+                        eliminar_foto_de_sheets(get_gspread_client, st.session_state.cont_val.strip().upper(), "TOLVA")
                     st.success("Documento de Tolva eliminado.")
                     st.rerun()
 
@@ -1907,23 +1891,23 @@ def render_module(user, get_gspread_client):
             if foto_otros:
                 raw_bytes_o = foto_otros.getvalue()
                 if foto_otros.name.lower().endswith(".pdf") or raw_bytes_o.startswith(b'%PDF'):
-                    db_actual["bytes_otros"] = raw_bytes_o
+                    st.session_state.fotos_activas["OTROS"] = raw_bytes_o
                     st.success(f"📄 Archivo PDF cargado: **{foto_otros.name}**")
                 else:
                     b_opt_o = optimizar_bytes_imagen(raw_bytes_o)
-                    db_actual["bytes_otros"] = b_opt_o
+                    st.session_state.fotos_activas["OTROS"] = b_opt_o
                     st.image(b_opt_o, caption="Documento Anexo Cargado", use_container_width=True)
-            elif db_actual.get("bytes_otros"):
-                b_otros_exist = db_actual["bytes_otros"]
+            elif st.session_state.fotos_activas.get("OTROS"):
+                b_otros_exist = st.session_state.fotos_activas["OTROS"]
                 if isinstance(b_otros_exist, (bytes, bytearray)) and b_otros_exist.startswith(b'%PDF'):
                     st.success("📄 **Documento PDF de Anexos activo.**")
                     st.download_button("👁️ Descargar Otros Anexos (PDF)", data=b_otros_exist, file_name=f"OtrosAnexos_{st.session_state.cont_val or 'Contenedor'}.pdf", mime="application/pdf", use_container_width=True)
                 else:
                     st.image(b_otros_exist, caption="Otros Anexos Activo", use_container_width=True)
                 if st.button("🗑️ Quitar Otros Documentos", key=f"del_otros_{v}"):
-                    db_actual["bytes_otros"] = None
-                    if curr_c_id:
-                        eliminar_foto_de_sheets(get_gspread_client, curr_c_id, "OTROS")
+                    st.session_state.fotos_activas["OTROS"] = None
+                    if st.session_state.cont_val.strip():
+                        eliminar_foto_de_sheets(get_gspread_client, st.session_state.cont_val.strip().upper(), "OTROS")
                     st.success("Documento Anexo eliminado.")
                     st.rerun()
 
@@ -1935,21 +1919,21 @@ def render_module(user, get_gspread_client):
         else:
             try:
                 num_c_guardar = st.session_state.cont_val.strip().upper()
-                db_c_guardar = st.session_state.fotos_contenedor_db.get(num_c_guardar, {})
+                db_c_guardar = st.session_state.fotos_activas
 
                 with st.spinner("Guardando archivos y fotos en la base de datos..."):
-                    if db_c_guardar.get("bytes_ir"):
-                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "IR", db_c_guardar["bytes_ir"])
-                    if db_c_guardar.get("bytes_temp"):
-                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "TEMP", db_c_guardar["bytes_temp"])
-                    if db_c_guardar.get("bytes_pack"):
-                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "PACK", db_c_guardar["bytes_pack"])
-                    if db_c_guardar.get("bytes_invol"):
-                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "INVOLUCRADO", db_c_guardar["bytes_invol"])
-                    if db_c_guardar.get("bytes_tolva"):
-                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "TOLVA", db_c_guardar["bytes_tolva"])
-                    if db_c_guardar.get("bytes_otros"):
-                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "OTROS", db_c_guardar["bytes_otros"])
+                    if db_c_guardar.get("IR"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "IR", db_c_guardar["IR"])
+                    if db_c_guardar.get("TEMP"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "TEMP", db_c_guardar["TEMP"])
+                    if db_c_guardar.get("PACK"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "PACK", db_c_guardar["PACK"])
+                    if db_c_guardar.get("INVOLUCRADO"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "INVOLUCRADO", db_c_guardar["INVOLUCRADO"])
+                    if db_c_guardar.get("TOLVA"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "TOLVA", db_c_guardar["TOLVA"])
+                    if db_c_guardar.get("OTROS"):
+                        guardar_foto_en_sheets(get_gspread_client, num_c_guardar, "OTROS", db_c_guardar["OTROS"])
 
                 pres_cols = []
                 for idx in range(8):
@@ -1967,12 +1951,12 @@ def render_module(user, get_gspread_client):
                         serial_pesos.append(f"{k_p}::{clean_v}")
                 detalle_pesos_str = " ;; ".join(serial_pesos)
 
-                link_ir_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_ir") else ""
-                link_temp_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_temp") else ""
-                link_pack_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_pack") else ""
-                link_invol_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_invol") else ""
-                link_tolva_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_tolva") else ""
-                link_otros_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("bytes_otros") else ""
+                link_ir_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("IR") else ""
+                link_temp_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("TEMP") else ""
+                link_pack_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("PACK") else ""
+                link_invol_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("INVOLUCRADO") else ""
+                link_tolva_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("TOLVA") else ""
+                link_otros_final = "REGISTRADO_EN_SHEETS" if db_c_guardar.get("OTROS") else ""
 
                 val_prom_saco_planta = round(prom_saco_real if bultos_sacos > 0 else prom_global, 3)
                 val_block_planta = round(peso_block_planta, 3)
